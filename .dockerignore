@@ -1,0 +1,9 @@
+# Allowlist: the Python images need only the workspace sources and the lockfile,
+# which keeps .env, .git and local virtualenvs out of the build context.
+*
+!pyproject.toml
+!uv.lock
+!packages
+!services
+**/tests
+**/__pycache__

@@ -1,0 +1,20 @@
+[project]
+name = "filinglens-api"
+version = "0.1.0"
+description = "FastAPI + Strawberry GraphQL API."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.143.0",
+    "filinglens-core",
+    "filinglens-db",
+    "filinglens-telemetry",
+    "kombu>=5.6.2",
+    "redis>=8.1.0",
+    "strawberry-graphql>=0.334.4",
+    "structlog>=26.1.0",
+    "uvicorn>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"

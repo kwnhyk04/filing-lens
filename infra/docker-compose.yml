@@ -1,0 +1,140 @@
+# Development stack: make dev / make down, or plain docker compose from the repo root (COMPOSE_FILE
+# in .env). Every port binds to 127.0.0.1 and comes from .env. Monitoring sits behind the
+# `observability` profile and Toxiproxy behind `test`, so a plain `up` starts only what the app needs.
+# docker-compose.prod.yml adds restart policies and memory limits and unpublishes the data stores.
+name: filinglens
+
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379/0
+  BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-trixie
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql"] # Postgres 18 images keep PGDATA below this path
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:8.8.3-alpine
+    ports: ["127.0.0.1:${REDIS_PORT:-6380}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  rabbitmq:
+    image: rabbitmq:4.3.6-management-alpine
+    hostname: rabbitmq # fixed node name, so the data volume survives container recreation
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set RABBITMQ_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes: ["rabbitmq-data:/var/lib/rabbitmq"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      args: { PACKAGE: filinglens-api }
+    command: ["python", "-m", "filinglens_api"]
+    environment:
+      <<: *app-environment
+      API_KEY: ${API_KEY:?set API_KEY in .env}
+      API_HOST: 0.0.0.0
+      API_PORT: ${API_PORT:-4100}
+    ports: ["127.0.0.1:${API_PORT:-4100}:${API_PORT:-4100}"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:${API_PORT:-4100}/readyz', timeout=7)"]
+      interval: 10s
+      timeout: 8s
+      retries: 6
+
+  ingest:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      args: { PACKAGE: filinglens-ingest }
+    command: ["celery", "-A", "filinglens_ingest.worker", "worker"]
+    environment: *app-environment
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8001/readyz', timeout=8)"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    profiles: [observability]
+    volumes: ["./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro"]
+    ports:
+      - "127.0.0.1:${OTEL_GRPC_PORT:-4327}:4317"
+      - "127.0.0.1:${OTEL_HTTP_PORT:-4328}:4318"
+    depends_on: [jaeger]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    profiles: [observability]
+    ports: ["127.0.0.1:${JAEGER_UI_PORT:-16687}:16686"]
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: [observability]
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["127.0.0.1:${PROMETHEUS_PORT:-9091}:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+    volumes: ["./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/filinglens.yaml:ro"]
+    ports: ["127.0.0.1:${GRAFANA_PORT:-3101}:3000"]
+    depends_on: [prometheus, jaeger]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    profiles: [test]
+    ports:
+      - "127.0.0.1:${TOXIPROXY_PORT:-8475}:8474"
+      - "127.0.0.1:${TOXIPROXY_PROXY_PORTS:-15433-15499}:${TOXIPROXY_PROXY_PORTS:-15433-15499}"
+
+volumes:
+  postgres-data:
+  rabbitmq-data:

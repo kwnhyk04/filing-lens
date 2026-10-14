@@ -1,0 +1,10 @@
+[project]
+name = "filinglens-retrieval"
+version = "0.1.0"
+description = "Hybrid search, rank fusion and the reranker interface."
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"

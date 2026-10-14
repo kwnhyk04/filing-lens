@@ -38,11 +38,13 @@ Targets (design goals, not yet measured):
 
 ## Technical Stack
 
-Python 3.12+, uv workspace, ruff, pyright, FastAPI, Strawberry, SQLAlchemy 2 (async), Alembic, Celery, RabbitMQ, Redis, Postgres + pgvector, httpx, pytest, Testcontainers, OpenTelemetry, Docker, GitHub Actions. Thin TypeScript UI.
+Python 3.12+, uv workspace, ruff, pyright, FastAPI, Strawberry, SQLAlchemy 2 (async), Alembic, Celery, RabbitMQ, Redis, Postgres + pgvector, httpx, structlog, pytest, Testcontainers, OpenTelemetry, Docker, GitHub Actions. Thin TypeScript UI.
 
 LLM providers (switchable by env vars): Gemini Flash (free tier) for answers, Groq for the router, Ollama for local runs. Embeddings: local sentence-transformers model by default. Deployment: UI on Vercel, backend on the PC via Tailscale Funnel.
 
-Local ports (bound to 127.0.0.1; chosen so all three projects can run at once; compose project name `filinglens`). Planned; Prompt 1 must use these.
+Pinned versions live in `uv.lock`, `web/package-lock.json` and `infra/docker-compose.yml` (Postgres 18 with pgvector 0.8.7, RabbitMQ 4.3, Redis 8.8). Web: Next.js 16, React 19, TypeScript 5.9 in strict mode.
+
+Local ports (bound to 127.0.0.1; chosen so all three projects can run at once; compose project name `filinglens`). Compose publishes exactly these (verified with `docker compose ps` on 2026-10-14) and reads them from `.env`. `web/` takes 3100 from its npm scripts. The fake SEC server (4110) is not built yet. The worker's probe port (8001) stays inside its container.
 
 | Service | Host port |
 | --- | --- |
@@ -60,7 +62,7 @@ Local ports (bound to 127.0.0.1; chosen so all three projects can run at once; c
 
 ## Architecture and System Design
 
-Planned design (not yet implemented):
+Planned design (step 1 built the skeleton; see Implemented Functionality):
 
 1. `services/api`: FastAPI REST + Strawberry GraphQL. Sheds load with 503 when in-flight LLM calls pass a cap.
 2. `services/ingest`: Celery pipeline discover, fetch, parse, chunk, embed, index, plus a facts task for XBRL.
@@ -70,19 +72,31 @@ Planned design (not yet implemented):
 
 ## Important Components
 
-Not built yet. Planned: SEC client with shared limiter, Celery pipeline with dead-letter exchange, hybrid retrieval, citation validator, eval harness.
+Built: settings and error taxonomy (`packages/core`), structlog JSON logging with redaction (`packages/telemetry`), async engine, models, migrations and seed (`packages/db`), API app (`services/api/src/filinglens_api/main.py`), Celery worker with probes (`services/ingest/src/filinglens_ingest/worker.py`), compose stack with prod override and Dockerfile (`infra/`).
+
+Planned: SEC client with shared limiter, Celery pipeline with dead-letter exchange, hybrid retrieval, citation validator, eval harness.
 
 ## Implemented Functionality
 
-None yet.
+- Config: each process validates its env vars at startup and exits naming each bad one without echoing values, for example `Invalid configuration: API_KEY: Field required`. Compose also refuses to start without the required `.env` values.
+- API: `/healthz`, `/readyz` (Postgres, RabbitMQ and Redis) and `/graphql` behind `X-API-Key` (401 error envelope from the taxonomy). Only the header counts: a key in the URL gets 401 (tested). The probes need no key. Every response carries `X-Request-ID`.
+- Worker: Celery app (late acks, reject on worker lost, prefetch 1, time limits). `/healthz` and `/readyz` listen on 127.0.0.1:8001 inside the container; readiness pings the worker through RabbitMQ.
+- Data: migration 0001 (pgvector extension, `companies`) and an idempotent seed of 6 companies.
+- Logs: structlog JSON lines on stdout from the API, the worker, migrations and the seed, including uvicorn, Celery and Alembic records. Each line carries `service`, `level` (threshold from `LOG_LEVEL`) and, during a request, `request_id`. Credential-named fields and the API key value are redacted.
+- Compose: `infra/docker-compose.yml` for development; `infra/docker-compose.prod.yml` unpublishes Postgres, RabbitMQ and Redis and adds `restart: unless-stopped` and memory limits.
+- Contracts: `make codegen` exports `contracts/openapi.json` and `contracts/schema.graphql`, then generates `clients/python` and `clients/ts/openapi.d.ts`.
+- Web: placeholder Next.js page with `/healthz` and `/readyz`.
+- Secrets: gitleaks pre-commit hook, allowlist `.dockerignore`, images run as uid 10001.
 
 ## Current Development Status
 
-Not started. Design complete. Next step: scaffolding.
+Step 1 (scaffolding) done on 2026-10-14. Next: step 2 (contracts).
 
 ## Known Limitations
 
 All targets are design goals and have not been measured.
+
+`retrieval`, `llm` and `sec_client` are empty packages; domain models arrive with the schema in step 3. The web `/readyz` equals `/healthz` until the backend-for-frontend lands.
 
 ## Planned Features
 

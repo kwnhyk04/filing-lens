@@ -1,0 +1,17 @@
+[project]
+name = "filinglens-ingest"
+version = "0.1.0"
+description = "Celery app and ingestion tasks."
+requires-python = ">=3.12"
+dependencies = [
+    "celery>=5.6.3",
+    "filinglens-core",
+    "filinglens-db",
+    "filinglens-telemetry",
+    "redis>=8.1.0",
+    "structlog>=26.1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"

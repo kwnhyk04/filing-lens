@@ -1,0 +1,17 @@
+[project]
+name = "filinglens-db"
+version = "0.1.0"
+description = "Async SQLAlchemy models, Alembic migrations and seed scripts."
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "asyncpg>=0.32.0",
+    "filinglens-core",
+    "filinglens-telemetry",
+    "sqlalchemy[asyncio]>=2.1.4",
+    "structlog>=26.1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"

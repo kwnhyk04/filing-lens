@@ -9,7 +9,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 - [ ] (manual) Get free API keys: Google AI Studio (Gemini) and Groq; optional Cloudflare Workers AI token. Put them in `.env`, never in the repo.
 - [ ] (manual, before step 7) GitHub repo created; provider keys added as Actions secrets.
 - [ ] (manual, before step 10) Vercel and Tailscale accounts created.
-- [ ] 1. Scaffolding: monorepo layout, docker-compose infra healthy, every service answers /healthz
+- [ ] (manual, before step 10) Replace the example passwords and `API_KEY` in `.env` (it was copied from `.env.example` during step 1).
 - [ ] 2. Contracts: OpenAPI and GraphQL contracts, typed clients generated, contracts-check and breaking-change check pass
 - [ ] 3. Data: schema and migrations apply from empty, expand/contract series tested, seed scripts run
 - [ ] 4. Workers: queue job with retries and dead-letter handling, backpressure and crash-recovery tests pass
@@ -27,6 +27,7 @@ None.
 ## Completed
 
 - [x] Project created from template (2026-10-13).
+- [x] 1. Scaffolding: monorepo layout, docker-compose infra healthy, every service answers /healthz (2026-10-14). The prompt's done-checks all pass: uv sync, lint, typecheck, compose healthy, api /healthz and /readyz, worker connected to RabbitMQ, a missing env var stops startup. Domain models move to step 3 with the schema; the eval harness to step 6.
 
 ## Blocked
 
