@@ -42,7 +42,7 @@ Python 3.12+, uv workspace, ruff, pyright, FastAPI, Strawberry, SQLAlchemy 2 (as
 
 LLM providers (switchable by env vars): Gemini Flash (free tier) for answers, Groq for the router, Ollama for local runs. Embeddings: local sentence-transformers model by default. Deployment: UI on Vercel, backend on the PC via Tailscale Funnel.
 
-Pinned versions live in `uv.lock`, `web/package-lock.json` and `infra/docker-compose.yml` (Postgres 18 with pgvector 0.8.7, RabbitMQ 4.3, Redis 8.8). Web: Next.js 16, React 19, TypeScript 5.9 in strict mode.
+Pinned versions live in `uv.lock`, `web/package-lock.json`, `clients/ts/package-lock.json`, `infra/docker-compose.yml` (Postgres 18 with pgvector 0.8.7, RabbitMQ 4.3, Redis 8.8) and the `Makefile` (ariadne-codegen 0.19.0, oasdiff v1.32.1 by image digest). Web: Next.js 16, React 19, TypeScript 5.9 in strict mode.
 
 Local ports (bound to 127.0.0.1; chosen so all three projects can run at once; compose project name `filinglens`). Compose publishes exactly these (verified with `docker compose ps` on 2026-10-14) and reads them from `.env`. `web/` takes 3100 from its npm scripts. The fake SEC server (4110) is not built yet. The worker's probe port (8001) stays inside its container.
 
@@ -72,31 +72,41 @@ Planned design (step 1 built the skeleton; see Implemented Functionality):
 
 ## Important Components
 
-Built: settings and error taxonomy (`packages/core`), structlog JSON logging with redaction (`packages/telemetry`), async engine, models, migrations and seed (`packages/db`), API app (`services/api/src/filinglens_api/main.py`), Celery worker with probes (`services/ingest/src/filinglens_ingest/worker.py`), compose stack with prod override and Dockerfile (`infra/`).
+Built: settings and error taxonomy (`packages/core`), structlog JSON logging with redaction (`packages/telemetry`), async engine, models, migrations and seed (`packages/db`), Celery worker with probes (`services/ingest/src/filinglens_ingest/worker.py`), compose stack with prod override and Dockerfile (`infra/`).
+
+API (`services/api/src/filinglens_api/`): `main.py` (app, probes, request ids, catch-all 500), `routes.py` (REST v1 and key checks), `schemas.py` (pydantic contract models), `problems.py` (RFC 9457 handlers and response docs), `backend.py` (the `Backend` protocol, keyset cursors, `LiveBackend`), `graph.py` (Strawberry schema), `contracts.py` (spec export and `--check`).
+
+Contracts and clients: `contracts/openapi.json` and `contracts/schema.graphql` (generated, committed); `clients/python` (openapi-python-client), `clients/python-graphql` (ariadne-codegen), `clients/ts` (openapi-typescript types, openapi-fetch client, graphql-codegen documents, hand-written `index.ts`); shared GraphQL operations in `clients/operations.graphql`.
 
 Planned: SEC client with shared limiter, Celery pipeline with dead-letter exchange, hybrid retrieval, citation validator, eval harness.
 
 ## Implemented Functionality
 
 - Config: each process validates its env vars at startup and exits naming each bad one without echoing values, for example `Invalid configuration: API_KEY: Field required`. Compose also refuses to start without the required `.env` values.
-- API: `/healthz`, `/readyz` (Postgres, RabbitMQ and Redis) and `/graphql` behind `X-API-Key` (401 error envelope from the taxonomy). Only the header counts: a key in the URL gets 401 (tested). The probes need no key. Every response carries `X-Request-ID`.
+- API keys: `API_KEY` opens every route except the admin routes; `ADMIN_API_KEY` opens every route and is the only key for `POST /v1/ingest-jobs` and `GET /v1/ingest-jobs/{id}`. Both are required, at least 32 characters, must differ, and are read only from the `X-API-Key` header (a key in the URL gets 401). Missing or unknown key: 401 with `WWW-Authenticate: APIKey`; `API_KEY` on an admin route: 403. `/healthz` and `/readyz` need no key. Every response carries `X-Request-ID`.
+- REST v1: `POST /v1/ingest-jobs` (202, `Location`, required `Idempotency-Key`), `GET /v1/ingest-jobs/{id}` (status counts plus a page of failures), `GET /v1/companies`, `GET /v1/filings`, `GET /v1/search` (cursor holds score, chunk id and index version), `POST /v1/answers` and `POST /v1/answers/stream` (Server-Sent Events: `delta`, then `completed`, or `failed` mid-stream). Lists use keyset pagination: `limit` at most 100, opaque `cursor`, `next_cursor`.
+- Errors: RFC 9457 problems (`application/problem+json`, `type: about:blank`, `code` from the taxonomy). Validation is 422 `validation_failed` with `errors[{detail, pointer}]`; a bad cursor is 400; 429 sends `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`; 503 sends `Retry-After`. Unexpected errors are 500 with no detail, logged with the request id.
+- Data behind the routes: `LiveBackend` serves companies from Postgres; ingest jobs, filings, sections, chunks, facts, search and answers return 501 `not_implemented` until their build step. The contract tests swap in an in-memory backend.
+- GraphQL `/graphql` (either key): `Company`, `Filing`, `Section`, `Chunk`, `FinancialFact`, `Answer`, `Citation`, `Usage`; Relay connections (`edges`, `pageInfo`) for companies, filings, chunks and facts. Resolver errors carry `extensions.code`; unexpected ones are masked.
 - Worker: Celery app (late acks, reject on worker lost, prefetch 1, time limits). `/healthz` and `/readyz` listen on 127.0.0.1:8001 inside the container; readiness pings the worker through RabbitMQ.
 - Data: migration 0001 (pgvector extension, `companies`) and an idempotent seed of 6 companies.
 - Logs: structlog JSON lines on stdout from the API, the worker, migrations and the seed, including uvicorn, Celery and Alembic records. Each line carries `service`, `level` (threshold from `LOG_LEVEL`) and, during a request, `request_id`. Credential-named fields and the API key value are redacted.
 - Compose: `infra/docker-compose.yml` for development; `infra/docker-compose.prod.yml` unpublishes Postgres, RabbitMQ and Redis and adds `restart: unless-stopped` and memory limits.
-- Contracts: `make codegen` exports `contracts/openapi.json` and `contracts/schema.graphql`, then generates `clients/python` and `clients/ts/openapi.d.ts`.
+- Contracts: `make codegen` exports both contracts and regenerates all four clients, then type-checks the TS client. `make contracts-check` runs codegen and fails if git sees unstaged or untracked changes under `contracts/` or `clients/`. `make contracts-breaking` runs oasdiff (Docker) against `BASE` (default `main`) and fails on breaking changes.
 - Web: placeholder Next.js page with `/healthz` and `/readyz`.
 - Secrets: gitleaks pre-commit hook, allowlist `.dockerignore`, images run as uid 10001.
 
 ## Current Development Status
 
-Step 1 (scaffolding) done on 2026-10-14. Next: step 2 (contracts).
+Step 1 (scaffolding) and step 2 (contracts) done on 2026-10-14. Next: step 3 (data).
 
 ## Known Limitations
 
 All targets are design goals and have not been measured.
 
 `retrieval`, `llm` and `sec_client` are empty packages; domain models arrive with the schema in step 3. The web `/readyz` equals `/healthz` until the backend-for-frontend lands.
+
+Every `/v1` route except companies returns 501 until steps 3, 4 and 6 fill `LiveBackend`. Nothing raises 429 or 503 yet: the headers are documented and emitted from `RateLimitedError` and `OverloadedError`, but the rate limiter and load shedding come later. 500 is not listed in the spec. CI does not exist yet, so `contracts-check` and `contracts-breaking` run only through make until step 7.
 
 ## Planned Features
 

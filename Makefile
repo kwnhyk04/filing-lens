@@ -2,8 +2,16 @@
 # is on PATH. Tools run as `python -m`, which also works where Windows blocks uv's .exe launchers.
 COMPOSE = docker compose --env-file .env -f infra/docker-compose.yml
 PY = uv run python -m
+RMTREE = uv run python -c "import shutil, sys; shutil.rmtree(sys.argv[1], ignore_errors=True)"
+# ariadne-codegen pins graphql-core and ruff versions that clash with the workspace, so it runs in a
+# throwaway env; --exclude-newer keeps that env's dependency versions reproducible.
+ARIADNE = uv run --isolated --no-project --exclude-newer 2026-10-01T00:00:00Z --with ariadne-codegen==0.19.0 python -m ariadne_codegen
+OASDIFF = docker run --rm --mount "type=bind,source=$(CURDIR),target=/repo,readonly" -w /repo tufin/oasdiff:v1.32.1@sha256:3b14fe0112e5d1bf862f91ab234a4bcd161a3f399e98f8b0b665ce70857694ac
+BASE ?= main
+# Git Bash would rewrite /repo into a Windows path before Docker sees it.
+export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed codegen eval
+.PHONY: dev down test test-int lint typecheck migrate seed codegen contracts-check contracts-breaking eval
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -30,10 +38,21 @@ migrate:
 seed:
 	uv run --env-file .env python -m filinglens_db.seed
 
-codegen: ## export contracts/, then regenerate clients/python and clients/ts from them
+codegen: ## export contracts/ from the app, then regenerate every client in clients/ from them
 	$(PY) filinglens_api.contracts
-	$(PY) openapi_python_client generate --path contracts/openapi.json --output-path clients/python --meta uv --overwrite
-	npx --yes openapi-typescript@7.13.0 contracts/openapi.json --output clients/ts/openapi.d.ts
+	$(PY) strawberry export-schema filinglens_api.graph:schema --output contracts/schema.graphql
+	$(PY) openapi_python_client generate --path contracts/openapi.json --output-path clients/python --meta uv --overwrite --config clients/openapi-python-client.yaml
+	$(RMTREE) clients/python-graphql/filing_lens_graphql_client
+	$(ARIADNE) --config clients/python-graphql/pyproject.toml
+	npm --prefix clients/ts ci --ignore-scripts --no-audit --no-fund
+	npm --prefix clients/ts run codegen
+	npm --prefix clients/ts run typecheck
+
+contracts-check: codegen ## fail if a fresh codegen changes contracts/ or clients/ (staged files count)
+	$(PY) filinglens_api.contracts --check
+
+contracts-breaking: ## fail on breaking OpenAPI changes against BASE (default main); needs Docker
+	$(OASDIFF) breaking $(BASE):contracts/openapi.json contracts/openapi.json --fail-on ERR
 
 eval:
 	uv run python evals/harness.py

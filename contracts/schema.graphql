@@ -1,3 +1,242 @@
+type Answer {
+  answer: String!
+  citations: [Citation!]!
+
+  """True when retrieval skipped the reranker after a timeout."""
+  degraded: Boolean!
+  usage: Usage!
+}
+
+type Chunk {
+  id: ID!
+  sectionId: ID!
+  text: String!
+}
+
+"""A connection to a list of items."""
+type ChunkConnection {
+  """Pagination data for this connection"""
+  pageInfo: PageInfo!
+
+  """Contains the nodes in this connection"""
+  edges: [ChunkEdge!]!
+}
+
+"""An edge in a connection."""
+type ChunkEdge {
+  """A cursor for use in pagination"""
+  cursor: String!
+
+  """The item at the end of the edge"""
+  node: Chunk!
+}
+
+"""Exactly one of chunkId (filing text) and factId (XBRL fact) is set."""
+type Citation {
+  chunkId: ID
+  factId: ID
+  quote: String!
+  filingUrl: String!
+}
+
+type Company {
+  cik: Int!
+  ticker: String!
+  name: String!
+
+  """This company's filings, newest first."""
+  filings(
+    formType: FormType = null
+    fiscalYear: Int = null
+
+    """Page size (at most 100)."""
+    first: Int! = 20
+
+    """endCursor from the previous page."""
+    after: String = null
+  ): FilingConnection!
+}
+
+"""A connection to a list of items."""
+type CompanyConnection {
+  """Pagination data for this connection"""
+  pageInfo: PageInfo!
+
+  """Contains the nodes in this connection"""
+  edges: [CompanyEdge!]!
+}
+
+"""An edge in a connection."""
+type CompanyEdge {
+  """A cursor for use in pagination"""
+  cursor: String!
+
+  """The item at the end of the edge"""
+  node: Company!
+}
+
+"""Date (isoformat)"""
+scalar Date
+
+type Filing {
+  accessionNumber: String!
+  cik: Int!
+  formType: FormType!
+  filedOn: Date!
+  periodEnd: Date!
+  fiscalYear: Int!
+  fiscalPeriod: FiscalPeriod!
+  url: String!
+  sections: [Section!]!
+
+  """All text chunks of the filing, in reading order."""
+  chunks(
+    """Page size (at most 100)."""
+    first: Int! = 20
+
+    """endCursor from the previous page."""
+    after: String = null
+  ): ChunkConnection!
+
+  """XBRL facts reported in the filing, optionally one concept."""
+  facts(
+    concept: String = null
+
+    """Page size (at most 100)."""
+    first: Int! = 20
+
+    """endCursor from the previous page."""
+    after: String = null
+  ): FinancialFactConnection!
+}
+
+"""A connection to a list of items."""
+type FilingConnection {
+  """Pagination data for this connection"""
+  pageInfo: PageInfo!
+
+  """Contains the nodes in this connection"""
+  edges: [FilingEdge!]!
+}
+
+"""An edge in a connection."""
+type FilingEdge {
+  """A cursor for use in pagination"""
+  cursor: String!
+
+  """The item at the end of the edge"""
+  node: Filing!
+}
+
+type FinancialFact {
+  id: ID!
+  concept: String!
+  label: String!
+  value: Float!
+  unit: String!
+  periodStart: Date
+  periodEnd: Date!
+  fiscalYear: Int!
+  fiscalPeriod: FiscalPeriod!
+  accessionNumber: String!
+}
+
+"""A connection to a list of items."""
+type FinancialFactConnection {
+  """Pagination data for this connection"""
+  pageInfo: PageInfo!
+
+  """Contains the nodes in this connection"""
+  edges: [FinancialFactEdge!]!
+}
+
+"""An edge in a connection."""
+type FinancialFactEdge {
+  """A cursor for use in pagination"""
+  cursor: String!
+
+  """The item at the end of the edge"""
+  node: FinancialFact!
+}
+
+enum FiscalPeriod {
+  FY
+  Q1
+  Q2
+  Q3
+  Q4
+}
+
+enum FormType {
+  FORM_10K
+  FORM_10Q
+}
+
+"""Information to aid in pagination."""
+type PageInfo {
+  """When paginating forwards, are there more items?"""
+  hasNextPage: Boolean!
+
+  """When paginating backwards, are there more items?"""
+  hasPreviousPage: Boolean!
+
+  """When paginating backwards, the cursor to continue."""
+  startCursor: String
+
+  """When paginating forwards, the cursor to continue."""
+  endCursor: String
+}
+
 type Query {
-  status: String!
+  """Tracked companies in CIK order."""
+  companies(
+    """Page size (at most 100)."""
+    first: Int! = 20
+
+    """endCursor from the previous page."""
+    after: String = null
+  ): CompanyConnection!
+
+  """Ingested filings, newest first."""
+  filings(
+    cik: Int = null
+    formType: FormType = null
+    fiscalYear: Int = null
+
+    """Page size (at most 100)."""
+    first: Int! = 20
+
+    """endCursor from the previous page."""
+    after: String = null
+  ): FilingConnection!
+
+  """Answer a question from the filings, with citations."""
+  answer(
+    question: String!
+
+    """Only these companies (CIKs)."""
+    companyIds: [Int!] = null
+    fiscalYears: [Int!] = null
+  ): Answer!
+}
+
+type Section {
+  id: ID!
+  item: String!
+  title: String!
+
+  """This section's text chunks, in reading order."""
+  chunks(
+    """Page size (at most 100)."""
+    first: Int! = 20
+
+    """endCursor from the previous page."""
+    after: String = null
+  ): ChunkConnection!
+}
+
+type Usage {
+  inputTokens: Int!
+  outputTokens: Int!
+  costUsd: Float!
 }

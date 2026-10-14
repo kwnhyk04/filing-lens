@@ -4,6 +4,154 @@
  */
 
 export interface paths {
+    "/v1/ingest-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Ingest Job
+         * @description Queue ingestion of the companies' filings. Admin route: ADMIN_API_KEY only.
+         */
+        post: operations["create_ingest_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ingest-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ingest Job
+         * @description Per-filing status counts and a page of failures (limit and cursor page the failures).
+         *
+         *     Admin route: ADMIN_API_KEY only.
+         */
+        get: operations["get_ingest_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Companies
+         * @description Tracked companies in CIK order. Either key.
+         */
+        get: operations["list_companies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/filings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Filings
+         * @description Ingested filings, newest first. Either key.
+         */
+        get: operations["list_filings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search
+         * @description Hybrid search over filing text. Either key.
+         *
+         *     The cursor holds the last hit's score and chunk id and the index version, so later pages
+         *     come from the same index even while a new embedding model is rolled out.
+         */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Answer
+         * @description Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
+         */
+        post: operations["create_answer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/answers/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Answer
+         * @description POST /v1/answers as Server-Sent Events. Either key.
+         *
+         *     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
+         *     after the stream has started arrives as a `failed` event with a problem.
+         */
+        post: operations["stream_answer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -11,7 +159,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Healthz */
+        /**
+         * Healthz
+         * @description Liveness. No key.
+         */
         get: operations["healthz"];
         put?: never;
         post?: never;
@@ -28,7 +179,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Readyz */
+        /**
+         * Readyz
+         * @description Readiness: Postgres, RabbitMQ and Redis answer. No key.
+         */
         get: operations["readyz"];
         put?: never;
         post?: never;
@@ -42,6 +196,212 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Answer */
+        Answer: {
+            /** Answer */
+            answer: string;
+            /** Citations */
+            citations: components["schemas"]["Citation"][];
+            /**
+             * Degraded
+             * @description True when retrieval skipped the reranker after a timeout.
+             */
+            degraded: boolean;
+            usage: components["schemas"]["Usage"];
+        };
+        /** AnswerCompleted */
+        AnswerCompleted: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "completed";
+            answer: components["schemas"]["Answer"];
+        };
+        /** AnswerDelta */
+        AnswerDelta: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "delta";
+            /** Text */
+            text: string;
+        };
+        /** AnswerFailed */
+        AnswerFailed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "failed";
+            problem: components["schemas"]["Problem"];
+        };
+        /** AnswerRequest */
+        AnswerRequest: {
+            /** Question */
+            question: string;
+            /**
+             * Company Ids
+             * @description Only use these companies (CIKs).
+             */
+            company_ids?: number[] | null;
+            /** Fiscal Years */
+            fiscal_years?: number[] | null;
+        };
+        /**
+         * Citation
+         * @description Exactly one source: chunk_id for filing text, fact_id for an XBRL fact.
+         */
+        Citation: {
+            /** Chunk Id */
+            chunk_id: string | null;
+            /** Fact Id */
+            fact_id: string | null;
+            /** Quote */
+            quote: string;
+            /**
+             * Filing Url
+             * Format: uri
+             */
+            filing_url: string;
+        };
+        /** Company */
+        Company: {
+            /**
+             * Cik
+             * @description SEC Central Index Key.
+             */
+            cik: number;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string;
+        };
+        /** CompanyPage */
+        CompanyPage: {
+            /** Items */
+            items: components["schemas"]["Company"][];
+            /**
+             * Next Cursor
+             * @description Send as `cursor` to get the next page; null on the last page.
+             */
+            next_cursor: string | null;
+        };
+        /** FailurePage */
+        FailurePage: {
+            /** Items */
+            items: components["schemas"]["FilingFailure"][];
+            /**
+             * Next Cursor
+             * @description Send as `cursor` to get the next page; null on the last page.
+             */
+            next_cursor: string | null;
+        };
+        /** FieldError */
+        FieldError: {
+            /** Detail */
+            detail: string;
+            /**
+             * Pointer
+             * @description JSON Pointer to the invalid input, such as /query/limit.
+             */
+            pointer: string;
+        };
+        /** Filing */
+        Filing: {
+            /**
+             * Accession Number
+             * @example 0000320193-25-000079
+             */
+            accession_number: string;
+            /**
+             * Cik
+             * @description SEC Central Index Key.
+             */
+            cik: number;
+            form_type: components["schemas"]["FormType"];
+            /**
+             * Filed On
+             * Format: date
+             */
+            filed_on: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /** Fiscal Year */
+            fiscal_year: number;
+            fiscal_period: components["schemas"]["FiscalPeriod"];
+            /**
+             * Url
+             * Format: uri
+             */
+            url: string;
+        };
+        /**
+         * FilingCounts
+         * @description How many of the job's filings are in each status.
+         */
+        FilingCounts: {
+            /** Pending */
+            pending: number;
+            /** Running */
+            running: number;
+            /** Succeeded */
+            succeeded: number;
+            /** Failed */
+            failed: number;
+            /**
+             * Skipped
+             * @description Already ingested by an earlier job.
+             */
+            skipped: number;
+        };
+        /** FilingFailure */
+        FilingFailure: {
+            /**
+             * Accession Number
+             * @example 0000320193-25-000079
+             */
+            accession_number: string;
+            /**
+             * Cik
+             * @description SEC Central Index Key.
+             */
+            cik: number;
+            form_type: components["schemas"]["FormType"];
+            /** Error */
+            error: string;
+            /** Attempts */
+            attempts: number;
+            /**
+             * Failed At
+             * Format: date-time
+             */
+            failed_at: string;
+        };
+        /** FilingPage */
+        FilingPage: {
+            /** Items */
+            items: components["schemas"]["Filing"][];
+            /**
+             * Next Cursor
+             * @description Send as `cursor` to get the next page; null on the last page.
+             */
+            next_cursor: string | null;
+        };
+        /**
+         * FiscalPeriod
+         * @enum {string}
+         */
+        FiscalPeriod: "FY" | "Q1" | "Q2" | "Q3" | "Q4";
+        /**
+         * FormType
+         * @enum {string}
+         */
+        FormType: "10-K" | "10-Q";
         /** Health */
         Health: {
             /**
@@ -57,6 +417,121 @@ export interface components {
                 [key: string]: boolean;
             };
         };
+        /** IngestJob */
+        IngestJob: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "partially_failed" | "failed";
+            request: components["schemas"]["IngestJobRequest"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            counts: components["schemas"]["FilingCounts"];
+            failures: components["schemas"]["FailurePage"];
+        };
+        /** IngestJobAccepted */
+        IngestJobAccepted: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+        };
+        /** IngestJobRequest */
+        IngestJobRequest: {
+            /** Ciks */
+            ciks: number[];
+            /** Form Types */
+            form_types: components["schemas"]["FormType"][];
+            /**
+             * Since
+             * Format: date
+             * @description Ingest filings filed on or after this date.
+             */
+            since: string;
+        };
+        /**
+         * Problem
+         * @description RFC 9457 problem details (application/problem+json). Absent members are omitted.
+         */
+        Problem: {
+            /**
+             * Type
+             * @default about:blank
+             */
+            type: string;
+            /**
+             * Title
+             * @description HTTP status phrase.
+             */
+            title: string;
+            /** Status */
+            status: number;
+            /**
+             * Detail
+             * @default null
+             */
+            detail: string | null;
+            /**
+             * Code
+             * @description Stable machine-readable error code, such as rate_limited.
+             */
+            code: string;
+            /**
+             * Errors
+             * @description Each invalid input; sent with validation_failed only.
+             * @default null
+             */
+            errors: components["schemas"]["FieldError"][] | null;
+        };
+        /** SearchHit */
+        SearchHit: {
+            /** Chunk Id */
+            chunk_id: string;
+            /** Score */
+            score: number;
+            /** Text */
+            text: string;
+            /** Section */
+            section: string;
+            filing: components["schemas"]["Filing"];
+        };
+        /** SearchPage */
+        SearchPage: {
+            /** Items */
+            items: components["schemas"]["SearchHit"][];
+            /**
+             * Next Cursor
+             * @description Send as `cursor` to get the next page; null on the last page.
+             */
+            next_cursor: string | null;
+            /**
+             * Degraded
+             * @description True when the reranker timed out, so hits keep their fused order.
+             */
+            degraded: boolean;
+        };
+        /** Usage */
+        Usage: {
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /**
+             * Cost Usd
+             * @description Estimated provider cost; 0 on free tiers.
+             */
+            cost_usd: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -66,6 +541,593 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    create_ingest_job: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique per job. A retry with the same key and body gets the same job. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Job accepted. */
+            202: {
+                headers: {
+                    /** @description Job URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestJobAccepted"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The normal API key on an admin route (forbidden). Send ADMIN_API_KEY. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed), or an Idempotency-Key already used with a different body (idempotency_key_reused). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_ingest_job: {
+        parameters: {
+            query?: {
+                /** @description Page size (at most 100). */
+                limit?: number;
+                /** @description `next_cursor` from the previous page. */
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestJob"];
+                };
+            };
+            /** @description Unusable cursor (invalid_input). Start again without one. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The normal API key on an admin route (forbidden). Send ADMIN_API_KEY. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such resource (not_found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_companies: {
+        parameters: {
+            query?: {
+                /** @description Page size (at most 100). */
+                limit?: number;
+                /** @description `next_cursor` from the previous page. */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyPage"];
+                };
+            };
+            /** @description Unusable cursor (invalid_input). Start again without one. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_filings: {
+        parameters: {
+            query?: {
+                /** @description Page size (at most 100). */
+                limit?: number;
+                /** @description `next_cursor` from the previous page. */
+                cursor?: string | null;
+                cik?: number | null;
+                form_type?: components["schemas"]["FormType"] | null;
+                fiscal_year?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingPage"];
+                };
+            };
+            /** @description Unusable cursor (invalid_input). Start again without one. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query: {
+                /** @description Search text. */
+                q: string;
+                /** @description Page size (at most 100). */
+                limit?: number;
+                /** @description `next_cursor` from the previous page. */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            /** @description Unusable cursor (invalid_input). Start again without one. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_answer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Answer"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A model provider failed (upstream_error). */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stream_answer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-Sent Events, each carrying one AnswerEvent as JSON. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A model provider failed (upstream_error). */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     healthz: {
         parameters: {
             query?: never;
@@ -104,7 +1166,7 @@ export interface operations {
                     "application/json": components["schemas"]["Health"];
                 };
             };
-            /** @description Service Unavailable */
+            /** @description A dependency is unreachable. */
             503: {
                 headers: {
                     [name: string]: unknown;

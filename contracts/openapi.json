@@ -2,12 +2,1152 @@
   "openapi": "3.1.0",
   "info": {
     "title": "FilingLens API",
+    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 and 503 carry `Retry-After`; 429 also carries `RateLimit-Limit` and `RateLimit-Remaining`.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
     "version": "0.1.0"
   },
   "paths": {
+    "/v1/ingest-jobs": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Create Ingest Job",
+        "description": "Queue ingestion of the companies' filings. Admin route: ADMIN_API_KEY only.",
+        "operationId": "create_ingest_job",
+        "security": [
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Unique per job. A retry with the same key and body gets the same job.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Unique per job. A retry with the same key and body gets the same job."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestJobAccepted"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Job URL.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed), or an Idempotency-Key already used with a different body (idempotency_key_reused).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The normal API key on an admin route (forbidden). Send ADMIN_API_KEY.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ingest-jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Get Ingest Job",
+        "description": "Per-filing status counts and a page of failures (limit and cursor page the failures).\n\nAdmin route: ADMIN_API_KEY only.",
+        "operationId": "get_ingest_job",
+        "security": [
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size (at most 100).",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size (at most 100)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "`next_cursor` from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The normal API key on an admin route (forbidden). Send ADMIN_API_KEY.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable cursor (invalid_input). Start again without one.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource (not_found).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/companies": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Companies",
+        "description": "Tracked companies in CIK order. Either key.",
+        "operationId": "list_companies",
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size (at most 100).",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size (at most 100)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "`next_cursor` from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable cursor (invalid_input). Start again without one.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/filings": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Filings",
+        "description": "Ingested filings, newest first. Either key.",
+        "operationId": "list_filings",
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size (at most 100).",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size (at most 100)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "`next_cursor` from the previous page."
+          },
+          {
+            "name": "cik",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9999999999,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cik"
+            }
+          },
+          {
+            "name": "form_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/FormType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Form Type"
+            }
+          },
+          {
+            "name": "fiscal_year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2100,
+                  "minimum": 1993
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fiscal Year"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable cursor (invalid_input). Start again without one.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Search",
+        "description": "Hybrid search over filing text. Either key.\n\nThe cursor holds the last hit's score and chunk id and the index version, so later pages\ncome from the same index even while a new embedding model is rolled out.",
+        "operationId": "search",
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Search text.",
+              "title": "Q"
+            },
+            "description": "Search text."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size (at most 100).",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "Page size (at most 100)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "`next_cursor` from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable cursor (invalid_input). Start again without one.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/answers": {
+      "post": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "Create Answer",
+        "description": "Answer a question from the filings, citing a chunk or an XBRL fact. Either key.",
+        "operationId": "create_answer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Answer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A model provider failed (upstream_error).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/answers/stream": {
+      "post": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "Stream Answer",
+        "description": "POST /v1/answers as Server-Sent Events. Either key.\n\n`delta` events carry answer text, then one `completed` event carries the whole answer. An error\nafter the stream has started arrives as a `failed` event with a problem.",
+        "operationId": "stream_answer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events, each carrying one AnswerEvent as JSON.",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "string",
+                      "contentMediaType": "application/json",
+                      "contentSchema": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/AnswerDelta"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AnswerCompleted"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AnswerFailed"
+                          }
+                        ],
+                        "discriminator": {
+                          "propertyName": "type",
+                          "mapping": {
+                            "delta": "#/components/schemas/AnswerDelta",
+                            "completed": "#/components/schemas/AnswerCompleted",
+                            "failed": "#/components/schemas/AnswerFailed"
+                          }
+                        },
+                        "title": "Streamitem Stream Answer"
+                      }
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A model provider failed (upstream_error).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ]
+      }
+    },
     "/healthz": {
       "get": {
+        "tags": [
+          "health"
+        ],
         "summary": "Healthz",
+        "description": "Liveness. No key.",
         "operationId": "healthz",
         "responses": {
           "200": {
@@ -25,7 +1165,11 @@
     },
     "/readyz": {
       "get": {
+        "tags": [
+          "health"
+        ],
         "summary": "Readyz",
+        "description": "Readiness: Postgres, RabbitMQ and Redis answer. No key.",
         "operationId": "readyz",
         "responses": {
           "200": {
@@ -39,7 +1183,7 @@
             }
           },
           "503": {
-            "description": "Service Unavailable",
+            "description": "A dependency is unreachable.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54,6 +1198,479 @@
   },
   "components": {
     "schemas": {
+      "Answer": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True when retrieval skipped the reranker after a timeout."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer",
+          "citations",
+          "degraded",
+          "usage"
+        ],
+        "title": "Answer"
+      },
+      "AnswerCompleted": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "completed",
+            "title": "Type",
+            "default": "completed"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "answer"
+        ],
+        "title": "AnswerCompleted"
+      },
+      "AnswerDelta": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delta",
+            "title": "Type",
+            "default": "delta"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "AnswerDelta"
+      },
+      "AnswerFailed": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "failed",
+            "title": "Type",
+            "default": "failed"
+          },
+          "problem": {
+            "$ref": "#/components/schemas/Problem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "problem"
+        ],
+        "title": "AnswerFailed"
+      },
+      "AnswerRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Question"
+          },
+          "company_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "maximum": 9999999999.0,
+                  "minimum": 1.0,
+                  "description": "SEC Central Index Key."
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Ids",
+            "description": "Only use these companies (CIKs)."
+          },
+          "fiscal_years": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "maximum": 2100.0,
+                  "minimum": 1993.0
+                },
+                "type": "array",
+                "maxItems": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Years"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "AnswerRequest"
+      },
+      "Citation": {
+        "properties": {
+          "chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Id"
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "quote": {
+            "type": "string",
+            "title": "Quote"
+          },
+          "filing_url": {
+            "type": "string",
+            "format": "uri",
+            "title": "Filing Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "fact_id",
+          "quote",
+          "filing_url"
+        ],
+        "title": "Citation",
+        "description": "Exactly one source: chunk_id for filing text, fact_id for an XBRL fact."
+      },
+      "Company": {
+        "properties": {
+          "cik": {
+            "type": "integer",
+            "maximum": 9999999999.0,
+            "minimum": 1.0,
+            "title": "Cik",
+            "description": "SEC Central Index Key."
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cik",
+          "ticker",
+          "name"
+        ],
+        "title": "Company"
+      },
+      "CompanyPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Company"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Send as `cursor` to get the next page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "CompanyPage"
+      },
+      "FailurePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FilingFailure"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Send as `cursor` to get the next page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "FailurePage"
+      },
+      "FieldError": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "pointer": {
+            "description": "JSON Pointer to the invalid input, such as /query/limit.",
+            "title": "Pointer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail",
+          "pointer"
+        ],
+        "title": "FieldError",
+        "type": "object"
+      },
+      "Filing": {
+        "properties": {
+          "accession_number": {
+            "type": "string",
+            "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+            "title": "Accession Number",
+            "examples": [
+              "0000320193-25-000079"
+            ]
+          },
+          "cik": {
+            "type": "integer",
+            "maximum": 9999999999.0,
+            "minimum": 1.0,
+            "title": "Cik",
+            "description": "SEC Central Index Key."
+          },
+          "form_type": {
+            "$ref": "#/components/schemas/FormType"
+          },
+          "filed_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed On"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Period End"
+          },
+          "fiscal_year": {
+            "type": "integer",
+            "maximum": 2100.0,
+            "minimum": 1993.0,
+            "title": "Fiscal Year"
+          },
+          "fiscal_period": {
+            "$ref": "#/components/schemas/FiscalPeriod"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession_number",
+          "cik",
+          "form_type",
+          "filed_on",
+          "period_end",
+          "fiscal_year",
+          "fiscal_period",
+          "url"
+        ],
+        "title": "Filing"
+      },
+      "FilingCounts": {
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "title": "Pending"
+          },
+          "running": {
+            "type": "integer",
+            "title": "Running"
+          },
+          "succeeded": {
+            "type": "integer",
+            "title": "Succeeded"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped",
+            "description": "Already ingested by an earlier job."
+          }
+        },
+        "type": "object",
+        "required": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed",
+          "skipped"
+        ],
+        "title": "FilingCounts",
+        "description": "How many of the job's filings are in each status."
+      },
+      "FilingFailure": {
+        "properties": {
+          "accession_number": {
+            "type": "string",
+            "pattern": "^\\d{10}-\\d{2}-\\d{6}$",
+            "title": "Accession Number",
+            "examples": [
+              "0000320193-25-000079"
+            ]
+          },
+          "cik": {
+            "type": "integer",
+            "maximum": 9999999999.0,
+            "minimum": 1.0,
+            "title": "Cik",
+            "description": "SEC Central Index Key."
+          },
+          "form_type": {
+            "$ref": "#/components/schemas/FormType"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "failed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Failed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession_number",
+          "cik",
+          "form_type",
+          "error",
+          "attempts",
+          "failed_at"
+        ],
+        "title": "FilingFailure"
+      },
+      "FilingPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Filing"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Send as `cursor` to get the next page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "FilingPage"
+      },
+      "FiscalPeriod": {
+        "type": "string",
+        "enum": [
+          "FY",
+          "Q1",
+          "Q2",
+          "Q3",
+          "Q4"
+        ],
+        "title": "FiscalPeriod"
+      },
+      "FormType": {
+        "type": "string",
+        "enum": [
+          "10-K",
+          "10-Q"
+        ],
+        "title": "FormType"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -75,9 +1692,272 @@
         },
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "checks"
         ],
         "title": "Health"
+      },
+      "IngestJob": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "partially_failed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "request": {
+            "$ref": "#/components/schemas/IngestJobRequest"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/FilingCounts"
+          },
+          "failures": {
+            "$ref": "#/components/schemas/FailurePage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "request",
+          "created_at",
+          "counts",
+          "failures"
+        ],
+        "title": "IngestJob"
+      },
+      "IngestJobAccepted": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "IngestJobAccepted"
+      },
+      "IngestJobRequest": {
+        "properties": {
+          "ciks": {
+            "items": {
+              "type": "integer",
+              "maximum": 9999999999.0,
+              "minimum": 1.0,
+              "description": "SEC Central Index Key."
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Ciks"
+          },
+          "form_types": {
+            "items": {
+              "$ref": "#/components/schemas/FormType"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Form Types"
+          },
+          "since": {
+            "type": "string",
+            "format": "date",
+            "title": "Since",
+            "description": "Ingest filings filed on or after this date."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ciks",
+          "form_types",
+          "since"
+        ],
+        "title": "IngestJobRequest"
+      },
+      "Problem": {
+        "description": "RFC 9457 problem details (application/problem+json). Absent members are omitted.",
+        "properties": {
+          "type": {
+            "default": "about:blank",
+            "title": "Type",
+            "type": "string"
+          },
+          "title": {
+            "description": "HTTP status phrase.",
+            "title": "Title",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
+          },
+          "code": {
+            "description": "Stable machine-readable error code, such as rate_limited.",
+            "title": "Code",
+            "type": "string"
+          },
+          "errors": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FieldError"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Each invalid input; sent with validation_failed only.",
+            "title": "Errors"
+          }
+        },
+        "required": [
+          "title",
+          "status",
+          "code"
+        ],
+        "title": "Problem",
+        "type": "object"
+      },
+      "SearchHit": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "section": {
+            "type": "string",
+            "title": "Section"
+          },
+          "filing": {
+            "$ref": "#/components/schemas/Filing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "score",
+          "text",
+          "section",
+          "filing"
+        ],
+        "title": "SearchHit"
+      },
+      "SearchPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Send as `cursor` to get the next page; null on the last page."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True when the reranker timed out, so hits keep their fused order."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor",
+          "degraded"
+        ],
+        "title": "SearchPage"
+      },
+      "Usage": {
+        "properties": {
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Output Tokens"
+          },
+          "cost_usd": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Cost Usd",
+            "description": "Estimated provider cost; 0 on free tiers."
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "cost_usd"
+        ],
+        "title": "Usage"
+      }
+    },
+    "securitySchemes": {
+      "AdminApiKey": {
+        "type": "apiKey",
+        "description": "ADMIN_API_KEY. The only key for the admin routes (/v1/ingest-jobs).",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "ApiKey": {
+        "type": "apiKey",
+        "description": "API_KEY. Opens every route except the admin routes; ADMIN_API_KEY works too.",
+        "in": "header",
+        "name": "X-API-Key"
       }
     }
   }

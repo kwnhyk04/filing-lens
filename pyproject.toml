@@ -27,6 +27,9 @@ filinglens-llm = { workspace = true }
 filinglens-retrieval = { workspace = true }
 filinglens-sec-client = { workspace = true }
 filinglens-telemetry = { workspace = true }
+# Generated clients (`make codegen`), installed for the contract tests.
+filing-lens-api-client = { path = "clients/python", editable = true }
+filing-lens-graphql-client = { path = "clients/python-graphql", editable = true }
 
 [tool.ruff]
 line-length = 100
@@ -60,11 +63,14 @@ script_location = "%(here)s/packages/db/src/filinglens_db/migrations"
 
 [dependency-groups]
 dev = [
+    "filing-lens-api-client",
+    "filing-lens-graphql-client",
     "httpx2>=2.13.1",
     "openapi-python-client>=0.29.1",
     "pre-commit>=4.7.0",
     "pyright[nodejs]>=1.1.414",
     "pytest>=9.1.1",
     "ruff>=0.17.0",
+    "strawberry-graphql[cli]>=0.334.4",
     "testcontainers>=4.15.0",
 ]

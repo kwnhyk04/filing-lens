@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..models.health_status import HealthStatus
-from ..types import UNSET, Unset
+from ..models.health_status import HealthStatus, check_health_status
 
 if TYPE_CHECKING:
     from ..models.health_checks import HealthChecks
@@ -21,29 +20,26 @@ class Health:
     """
     Attributes:
         status (HealthStatus):
-        checks (HealthChecks | Unset):
+        checks (HealthChecks):
     """
 
     status: HealthStatus
-    checks: HealthChecks | Unset = UNSET
+    checks: HealthChecks
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        status = self.status.value
+        status: str = self.status
 
-        checks: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.checks, Unset):
-            checks = self.checks.to_dict()
+        checks = self.checks.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "status": status,
+                "checks": checks,
             }
         )
-        if checks is not UNSET:
-            field_dict["checks"] = checks
 
         return field_dict
 
@@ -52,14 +48,9 @@ class Health:
         from ..models.health_checks import HealthChecks  # noqa: PLC0415
 
         d = dict(src_dict)
-        status = HealthStatus(d.pop("status"))
+        status = check_health_status(d.pop("status"))
 
-        _checks = d.pop("checks", UNSET)
-        checks: HealthChecks | Unset
-        if isinstance(_checks, Unset):
-            checks = UNSET
-        else:
-            checks = HealthChecks.from_dict(_checks)
+        checks = HealthChecks.from_dict(d.pop("checks"))
 
         health = cls(
             status=status,

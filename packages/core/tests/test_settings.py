@@ -7,6 +7,7 @@ VALID = {
     "REDIS_URL": "redis://localhost:6380/0",
     "BROKER_URL": "amqp://app:mq-password@localhost:5672//",
     "API_KEY": "k" * 32,
+    "ADMIN_API_KEY": "a" * 32,
 }
 
 
@@ -31,6 +32,8 @@ def test_loads_valid_environment_and_hides_secrets(monkeypatch: pytest.MonkeyPat
     [
         ({"API_KEY": None}, "API_KEY"),
         ({"API_KEY": "short-api-key"}, "API_KEY"),
+        ({"ADMIN_API_KEY": None}, "ADMIN_API_KEY"),
+        ({"ADMIN_API_KEY": "k" * 32}, "ADMIN_API_KEY"),  # same as API_KEY
         ({"DATABASE_URL": "mysql://app:db-password@db/app"}, "DATABASE_URL"),
     ],
 )

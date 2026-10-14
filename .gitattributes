@@ -1,0 +1,4 @@
+# Some generators write CRLF on Windows. Keep contracts and generated clients LF in git, so
+# `make contracts-check` gives the same answer on every platform and core.autocrlf setting.
+contracts/** text eol=lf
+clients/** text eol=lf

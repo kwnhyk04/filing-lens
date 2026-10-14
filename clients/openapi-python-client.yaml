@@ -1,0 +1,3 @@
+# openapi-python-client settings for clients/python (`make codegen`). Kept outside clients/python
+# because --overwrite deletes that folder first.
+literal_enums: true # Literal["10-K", "10-Q"] instead of Enum classes, matching the server models

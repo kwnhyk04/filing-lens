@@ -5,7 +5,17 @@ Each process loads only the class it needs, so the worker never sees the API key
 
 from typing import Literal
 
-from pydantic import AmqpDsn, Field, PostgresDsn, RedisDsn, Secret, SecretStr, ValidationError
+from pydantic import (
+    AmqpDsn,
+    Field,
+    PostgresDsn,
+    RedisDsn,
+    Secret,
+    SecretStr,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,8 +33,20 @@ class ApiSettings(DatabaseSettings):
     redis_url: Secret[RedisDsn]
     broker_url: Secret[AmqpDsn]
     api_key: SecretStr = Field(min_length=32)
+    admin_api_key: SecretStr = Field(min_length=32)  # admin routes (ingest jobs) need this one
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=4100, ge=1, le=65535)
+
+    @field_validator("admin_api_key")
+    @classmethod
+    def _differs_from_api_key(cls, value: SecretStr, info: ValidationInfo) -> SecretStr:
+        api_key = info.data.get("api_key")
+        if (
+            isinstance(api_key, SecretStr)
+            and api_key.get_secret_value() == value.get_secret_value()
+        ):
+            raise ValueError("must differ from API_KEY")
+        return value
 
 
 class IngestSettings(DatabaseSettings):

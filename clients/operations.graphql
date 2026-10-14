@@ -1,0 +1,104 @@
+# Operations for the generated GraphQL clients: ariadne-codegen (clients/python-graphql) and
+# graphql-codegen (clients/ts/graphql). Edit here, then run `make codegen`.
+
+query Companies($first: Int! = 20, $after: String) {
+  companies(first: $first, after: $after) {
+    edges {
+      cursor
+      node {
+        cik
+        ticker
+        name
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
+query Filings(
+  $cik: Int
+  $formType: FormType
+  $fiscalYear: Int
+  $first: Int! = 20
+  $after: String
+  $chunks: Int! = 5
+  $facts: Int! = 5
+) {
+  filings(cik: $cik, formType: $formType, fiscalYear: $fiscalYear, first: $first, after: $after) {
+    edges {
+      cursor
+      node {
+        accessionNumber
+        cik
+        formType
+        filedOn
+        periodEnd
+        fiscalYear
+        fiscalPeriod
+        url
+        sections {
+          id
+          item
+          title
+        }
+        chunks(first: $chunks) {
+          edges {
+            node {
+              id
+              sectionId
+              text
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        facts(first: $facts) {
+          edges {
+            node {
+              id
+              concept
+              label
+              value
+              unit
+              periodStart
+              periodEnd
+              fiscalYear
+              fiscalPeriod
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
+query Answer($question: String!, $companyIds: [Int!], $fiscalYears: [Int!]) {
+  answer(question: $question, companyIds: $companyIds, fiscalYears: $fiscalYears) {
+    answer
+    degraded
+    citations {
+      chunkId
+      factId
+      quote
+      filingUrl
+    }
+    usage {
+      inputTokens
+      outputTokens
+      costUsd
+    }
+  }
+}
