@@ -35,6 +35,7 @@ def test_loads_valid_environment_and_hides_secrets(monkeypatch: pytest.MonkeyPat
         ({"ADMIN_API_KEY": None}, "ADMIN_API_KEY"),
         ({"ADMIN_API_KEY": "k" * 32}, "ADMIN_API_KEY"),  # same as API_KEY
         ({"DATABASE_URL": "mysql://app:db-password@db/app"}, "DATABASE_URL"),
+        ({"RETRIEVAL_EMBEDDING_COLUMN": "embedding_v3"}, "RETRIEVAL_EMBEDDING_COLUMN"),
     ],
 )
 def test_refuses_to_start_naming_the_variable_but_not_its_value(

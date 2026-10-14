@@ -5,7 +5,9 @@ services:
   postgres:
     ports: !reset []
     restart: unless-stopped
-    deploy: { resources: { limits: { memory: 1G } } }
+    shm_size: 256mb # parallel HNSW builds keep their graph in /dev/shm (docs/migrations.md)
+    # 1.5 GB covers shm_size, a 512 MB maintenance_work_mem, shared_buffers and connections.
+    deploy: { resources: { limits: { memory: 1536M } } }
 
   redis:
     ports: !reset []

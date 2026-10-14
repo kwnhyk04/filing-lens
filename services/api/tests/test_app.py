@@ -1,19 +1,37 @@
+import asyncio
 import re
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from filing_lens_api_client import AuthenticatedClient
 from filing_lens_api_client.api.catalog import list_companies
 from filing_lens_api_client.models import CompanyPage
 from filing_lens_api_client.types import UNSET, Unset
+from seed_fake import CIK_BASE, seed_fake
+from sqlalchemy import column, func, select, table, text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from filinglens_api.backend import CompanyKey, SearchKey, decode_cursor, encode_cursor
+from filinglens_api.backend import (
+    SEC_ARCHIVES,
+    CompanyKey,
+    ItemKey,
+    LiveBackend,
+    SearchKey,
+    decode_cursor,
+    encode_cursor,
+)
 from filinglens_api.main import app
+from filinglens_api.schemas import FormType, Page
 from filinglens_core.errors import InvalidInputError
 from filinglens_db.seed import COMPANIES
 
 QUERY = {"query": "{ __typename }"}
+PYPROJECT = Path(__file__).parents[3] / "pyproject.toml"
 
 
 def test_healthz(client: TestClient) -> None:
@@ -66,7 +84,6 @@ def test_graphql_accepts_either_key(
             {"ciks": [320193], "form_types": ["10-K"], "since": "2024-01-01"},
         ),
         ("GET", f"/v1/ingest-jobs/{uuid4()}", None),
-        ("GET", "/v1/filings", None),
         ("GET", "/v1/search?q=revenue", None),
         ("POST", "/v1/answers", {"question": "What was revenue?"}),
         ("POST", "/v1/answers/stream", {"question": "What was revenue?"}),
@@ -83,7 +100,7 @@ def test_routes_whose_backend_comes_later_answer_501(
 
 
 def test_graphql_errors_carry_the_taxonomy_code(client: TestClient, api_key: str) -> None:
-    query = {"query": "{ filings { edges { cursor } } }"}
+    query = {"query": '{ answer(question: "What was revenue?") { answer } }'}
     response = client.post("/graphql", json=query, headers={"X-API-Key": api_key})
     assert response.json()["errors"][0]["extensions"] == {"code": "not_implemented"}
 
@@ -126,3 +143,80 @@ def test_companies_come_from_postgres_in_cik_order(postgres_user: AuthenticatedC
             break
         cursor = page.next_cursor
     assert ciks == sorted(company["cik"] for company in COMPANIES)
+
+
+async def _all_pages[T](fetch: Callable[[str | None], Awaitable[Page[T]]]) -> list[T]:
+    """Every item, following next_cursor until it is null."""
+    items: list[T] = []
+    cursor: str | None = None
+    while True:
+        page = await fetch(cursor)
+        items += page.items
+        if page.next_cursor is None:
+            return items
+        cursor = page.next_cursor
+
+
+async def _page_through_live_backend(url: str, embedding: str) -> None:
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as connection:
+            count = select(func.count(column(embedding))).select_from(table("chunks"))
+            assert await connection.scalar(count) == 150  # every chunk has a vector
+            hnsw = text(
+                "SELECT indexname FROM pg_indexes"
+                " WHERE tablename = 'chunks' AND indexdef LIKE '%USING hnsw%'"
+            )
+            # The seed dropped and rebuilt it.
+            assert set((await connection.execute(hnsw)).scalars()) == {f"ix_chunks_{embedding}"}
+        backend = LiveBackend(engine)
+
+        filings = await _all_pages(lambda c: backend.list_filings(3, c))
+        assert len(filings) == 10
+        assert filings == sorted(filings, key=lambda f: (f.filed_on, f.accession_number))[::-1]
+        assert filings[0].url.startswith(f"{SEC_ARCHIVES}/{filings[0].cik}/")
+        quarters = await _all_pages(
+            lambda c: backend.list_filings(2, c, cik=CIK_BASE, form_type=FormType.FORM_10Q)
+        )
+        assert quarters == [
+            f for f in filings if f.cik == CIK_BASE and f.form_type == FormType.FORM_10Q
+        ]
+
+        accession = filings[0].accession_number
+        sections = await backend.list_sections(accession)
+        chunks = await _all_pages(lambda c: backend.list_chunks(accession, 4, c))
+        assert [c.section_id for c in chunks] == [s.id for s in sections for _ in range(3)]
+        second = await _all_pages(
+            lambda c: backend.list_chunks(accession, 2, c, section_id=sections[1].id)
+        )
+        assert second == chunks[3:6]
+        assert (await backend.list_chunks(accession, 2, None, section_id="1x")).items == []
+        with pytest.raises(InvalidInputError):
+            await backend.list_chunks(accession, 2, encode_cursor(ItemKey(id="unknown")))
+
+        facts = await _all_pages(lambda c: backend.list_facts(accession, 2, c))
+        assert [f.concept for f in facts] == [
+            "us-gaap:Revenues",
+            "us-gaap:NetIncomeLoss",
+            "us-gaap:EarningsPerShareDiluted",
+        ]
+        revenue = await backend.list_facts(accession, 5, None, concept="us-gaap:Revenues")
+        assert revenue.items == facts[:1]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("revision", "embedding"),
+    [("0003", "embedding"), ("head", "embedding_v2")],  # dev stays at 0003 until the live swap
+)
+def test_live_backend_pages_seeded_filings_sections_chunks_and_facts(
+    database_url: str, monkeypatch: pytest.MonkeyPatch, revision: str, embedding: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    command.upgrade(Config(toml_file=PYPROJECT), revision)
+    size = {"companies": 2, "filings_per_company": 5, "chunks_per_section": 3}
+    assert seed_fake(database_url, **size) == 2
+    assert seed_fake(database_url, **size) == 0  # a rerun loads nothing
+    asyncio.run(_page_through_live_backend(database_url, embedding))

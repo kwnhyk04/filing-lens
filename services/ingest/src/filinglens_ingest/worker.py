@@ -20,7 +20,11 @@ CHECK_TIMEOUT_S = 2.0
 log = structlog.get_logger(__name__)
 
 settings = load_settings(IngestSettings)
-app = Celery("filinglens_ingest", broker=str(settings.broker_url.get_secret_value()))
+app = Celery(
+    "filinglens_ingest",
+    broker=str(settings.broker_url.get_secret_value()),
+    include=["filinglens_ingest.reembed"],
+)
 app.conf.update(
     task_acks_late=True,  # ack after the task finishes, so a crashed worker's task is redelivered
     task_reject_on_worker_lost=True,

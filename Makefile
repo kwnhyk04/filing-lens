@@ -8,10 +8,11 @@ RMTREE = uv run python -c "import shutil, sys; shutil.rmtree(sys.argv[1], ignore
 ARIADNE = uv run --isolated --no-project --exclude-newer 2026-10-01T00:00:00Z --with ariadne-codegen==0.19.0 python -m ariadne_codegen
 OASDIFF = docker run --rm --mount "type=bind,source=$(CURDIR),target=/repo,readonly" -w /repo tufin/oasdiff:v1.32.1@sha256:3b14fe0112e5d1bf862f91ab234a4bcd161a3f399e98f8b0b665ce70857694ac
 BASE ?= main
+REV ?= head
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed codegen contracts-check contracts-breaking eval
+.PHONY: dev down test test-int lint typecheck migrate seed seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -32,11 +33,17 @@ lint:
 typecheck:
 	$(PY) pyright
 
-migrate:
-	uv run --env-file .env python -m alembic upgrade head
+migrate: ## upgrade to REV (default head); dev stays at REV=0003 until the live swap (docs/migrations.md)
+	uv run --env-file .env python -m alembic upgrade $(REV)
 
 seed:
 	uv run --env-file .env python -m filinglens_db.seed
+
+seed-fake: ## load and pagination tests only: 200 fake companies, 2,000 filings, 100k chunks
+	uv run --env-file .env python scripts/seed_fake.py
+
+check-parallel-hnsw: ## dev stack: a parallel HNSW build fits in postgres's shared memory (shm_size)
+	$(COMPOSE) exec -T postgres psql -f - < infra/check-parallel-hnsw.sql
 
 codegen: ## export contracts/ from the app, then regenerate every client in clients/ from them
 	$(PY) filinglens_api.contracts

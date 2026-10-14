@@ -50,11 +50,13 @@ pythonVersion = "3.12"
 typeCheckingMode = "standard"
 strict = ["packages/*/src"]
 exclude = ["clients", "web", "**/node_modules", "**/__pycache__", "**/.*"]
+extraPaths = ["scripts"]
 venvPath = "."
 venv = ".venv"
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers"]
+pythonpath = ["scripts"]  # tests seed with scripts/seed_fake.py
 testpaths = ["packages", "services", "evals"]
 markers = ["integration: needs Docker; starts throwaway containers with Testcontainers"]
 
@@ -63,11 +65,13 @@ script_location = "%(here)s/packages/db/src/filinglens_db/migrations"
 
 [dependency-groups]
 dev = [
+    "faker>=40.43.0",
     "filing-lens-api-client",
     "filing-lens-graphql-client",
     "httpx2>=2.13.1",
     "openapi-python-client>=0.29.1",
     "pre-commit>=4.7.0",
+    "psycopg[binary]>=3.3.6",
     "pyright[nodejs]>=1.1.414",
     "pytest>=9.1.1",
     "ruff>=0.17.0",

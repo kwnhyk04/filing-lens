@@ -18,6 +18,14 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Chunk embedding columns and the model behind each; a query must use its column's model.
+EmbeddingColumn = Literal["embedding", "embedding_v2"]
+EMBEDDING_MODELS: dict[EmbeddingColumn, str] = {
+    "embedding": "BAAI/bge-small-en-v1.5",  # migration 0006 drops the column
+    "embedding_v2": "BAAI/bge-base-en-v1.5",
+}
+EMBEDDING_DIMENSIONS: dict[EmbeddingColumn, int] = {"embedding": 384, "embedding_v2": 768}
+
 
 class DatabaseSettings(BaseSettings):
     """Enough for migrations and seed scripts."""
@@ -36,6 +44,8 @@ class ApiSettings(DatabaseSettings):
     admin_api_key: SecretStr = Field(min_length=32)  # admin routes (ingest jobs) need this one
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=4100, ge=1, le=65535)
+    # Embedding column that search reads on every query; docs/migrations.md says when to flip it.
+    retrieval_embedding_column: EmbeddingColumn = "embedding_v2"
 
     @field_validator("admin_api_key")
     @classmethod

@@ -1,10 +1,14 @@
 """Integration fixtures: throwaway Postgres and Redis on 127.0.0.1, using the compose images."""
 
+import asyncio
 import re
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from sqlalchemy import make_url, text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 COMPOSE_FILE = Path(__file__).parent / "infra" / "docker-compose.yml"
 
@@ -25,6 +29,27 @@ def postgres_url() -> Iterator[str]:
     container.ports["5432"] = ("127.0.0.1", None)  # pyright: ignore[reportArgumentType]
     with container:
         yield container.get_connection_url(host="127.0.0.1")
+
+
+async def _execute_outside_transaction(url: str, statement: str) -> None:
+    engine = create_async_engine(url, isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+def database_url(postgres_url: str) -> Iterator[str]:
+    """A new empty database on the shared container, so a test may leave it at any revision."""
+    name = f"test_{uuid.uuid4().hex}"
+    asyncio.run(_execute_outside_transaction(postgres_url, f'CREATE DATABASE "{name}"'))
+    try:
+        yield make_url(postgres_url).set(database=name).render_as_string(hide_password=False)
+    finally:
+        drop = f'DROP DATABASE "{name}" WITH (FORCE)'
+        asyncio.run(_execute_outside_transaction(postgres_url, drop))
 
 
 @pytest.fixture(scope="session")
