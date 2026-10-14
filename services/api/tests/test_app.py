@@ -1,24 +1,33 @@
 import asyncio
+import json
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import suppress
+from datetime import date
 from pathlib import Path
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from amqp.exceptions import NotFound
 from fastapi.testclient import TestClient
 from filing_lens_api_client import AuthenticatedClient
 from filing_lens_api_client.api.catalog import list_companies
 from filing_lens_api_client.models import CompanyPage
 from filing_lens_api_client.types import UNSET, Unset
+from kombu import Connection, Queue
+from redis import Redis
 from seed_fake import CIK_BASE, seed_fake
 from sqlalchemy import column, func, select, table, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from filinglens_api.backend import (
     SEC_ARCHIVES,
     CompanyKey,
+    DiscoverQueue,
     ItemKey,
     LiveBackend,
     SearchKey,
@@ -27,7 +36,9 @@ from filinglens_api.backend import (
 )
 from filinglens_api.main import app
 from filinglens_api.schemas import FormType, Page
+from filinglens_core import queues
 from filinglens_core.errors import InvalidInputError
+from filinglens_db.models import Company, Filing, IngestJobItem, ItemStatus
 from filinglens_db.seed import COMPANIES
 
 QUERY = {"query": "{ __typename }"}
@@ -78,12 +89,6 @@ def test_graphql_accepts_either_key(
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [
-        (
-            "POST",
-            "/v1/ingest-jobs",
-            {"ciks": [320193], "form_types": ["10-K"], "since": "2024-01-01"},
-        ),
-        ("GET", f"/v1/ingest-jobs/{uuid4()}", None),
         ("GET", "/v1/search?q=revenue", None),
         ("POST", "/v1/answers", {"question": "What was revenue?"}),
         ("POST", "/v1/answers/stream", {"question": "What was revenue?"}),
@@ -169,7 +174,7 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
             )
             # The seed dropped and rebuilt it.
             assert set((await connection.execute(hnsw)).scalars()) == {f"ix_chunks_{embedding}"}
-        backend = LiveBackend(engine)
+        backend = LiveBackend(engine, DiscoverQueue("amqp://unused:unused@127.0.0.1:1//"))
 
         filings = await _all_pages(lambda c: backend.list_filings(3, c))
         assert len(filings) == 10
@@ -209,7 +214,7 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("revision", "embedding"),
-    [("0003", "embedding"), ("head", "embedding_v2")],  # dev stays at 0003 until the live swap
+    [("0007", "embedding"), ("head", "embedding_v2")],  # dev stays at 0007 until the live swap
 )
 def test_live_backend_pages_seeded_filings_sections_chunks_and_facts(
     database_url: str, monkeypatch: pytest.MonkeyPatch, revision: str, embedding: str
@@ -220,3 +225,118 @@ def test_live_backend_pages_seeded_filings_sections_chunks_and_facts(
     assert seed_fake(database_url, **size) == 2
     assert seed_fake(database_url, **size) == 0  # a rerun loads nothing
     asyncio.run(_page_through_live_backend(database_url, embedding))
+
+
+@pytest.fixture
+def live(
+    env: pytest.MonkeyPatch, database_url: str, rabbitmq_url: str, redis_url: str
+) -> Iterator[TestClient]:
+    """The app with its real backend on Postgres at head, RabbitMQ and Redis."""
+    for name, url in [("DATABASE_URL", database_url), ("BROKER_URL", rabbitmq_url)]:
+        env.setenv(name, url)
+    env.setenv("REDIS_URL", redis_url)
+    command.upgrade(Config(toml_file=PYPROJECT), "head")
+    Redis.from_url(redis_url).flushdb()
+    # Purge, not delete: kombu's pooled connections remember the queues they declared.
+    with Connection(rabbitmq_url) as broker, suppress(NotFound):  # NotFound: not declared yet
+        broker.channel().queue_purge(queues.DISCOVER)
+    with TestClient(app) as client:
+        yield client
+
+
+def _queued_discovers(rabbitmq_url: str) -> list[list[Any]]:
+    """Take the discover messages off their queue; returns each task's args."""
+    found: list[list[Any]] = []
+    with Connection(rabbitmq_url) as broker:
+        queue = Queue(queues.DISCOVER)(broker)  # basic.get needs no declaration
+        while (message := queue.get(no_ack=True)) is not None:
+            assert message.headers["task"] == queues.DISCOVER_TASK
+            assert message.body is not None
+            found.append(json.loads(message.body)[0])
+    return found
+
+
+async def _worker_progress(url: str, job_id: UUID) -> None:
+    """What workers leave behind: two filings fetched, two failed for good, one in flight."""
+    statuses = [ItemStatus.SUCCEEDED] * 2 + [ItemStatus.FAILED] * 2 + [ItemStatus.RUNNING]
+    engine = create_async_engine(url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                insert(Company).values(cik=320193, ticker="AAPL", name="Apple")
+            )
+            for n, status in enumerate(statuses):
+                filing_id = await connection.scalar(
+                    insert(Filing)
+                    .values(
+                        accession_number=f"0000320193-24-{n:06d}",
+                        cik=320193,
+                        form_type="10-K",
+                        filed_on=date(2024, 11, 1),
+                        period_end=date(2024, 9, 28),
+                        primary_document=f"a{n}.htm",
+                    )
+                    .returning(Filing.id)
+                )
+                failed = status is ItemStatus.FAILED
+                await connection.execute(
+                    insert(IngestJobItem).values(
+                        job_id=job_id,
+                        filing_id=filing_id,
+                        status=status,
+                        attempts=7 if failed else 1,
+                        error="UpstreamError: SEC answered 503" if failed else None,
+                    )
+                )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.integration
+def test_ingest_jobs_are_idempotent_queue_discover_and_page_their_failures(
+    live: TestClient, database_url: str, rabbitmq_url: str, admin_key: str
+) -> None:
+    body = {"ciks": [789019, 320193, 789019], "form_types": ["10-K"], "since": "2024-01-01"}
+    headers = {"X-API-Key": admin_key, "Idempotency-Key": "job-1"}
+    created = live.post("/v1/ingest-jobs", json=body, headers=headers)
+    assert created.status_code == 202
+    job_id = created.json()["job_id"]
+    assert created.headers["Location"] == f"/v1/ingest-jobs/{job_id}"
+    assert _queued_discovers(rabbitmq_url) == [[job_id, 320193], [job_id, 789019]]
+
+    # A retry gets the same job; while it is still queued, discover is queued again.
+    assert live.post("/v1/ingest-jobs", json=body, headers=headers).json() == {"job_id": job_id}
+    assert _queued_discovers(rabbitmq_url) == [[job_id, 320193], [job_id, 789019]]
+    reused = live.post("/v1/ingest-jobs", json=body | {"since": "2025-01-01"}, headers=headers)
+    assert reused.status_code == 422
+    assert reused.json()["code"] == "idempotency_key_reused"
+
+    job = live.get(f"/v1/ingest-jobs/{job_id}", headers=headers).json()
+    assert (job["status"], job["request"]) == ("queued", body)
+    assert set(job["counts"].values()) == {0}
+
+    asyncio.run(_worker_progress(database_url, UUID(job_id)))
+    pages = []
+    cursor = None
+    for _ in range(3):
+        params = {"limit": 1} | ({"cursor": cursor} if cursor else {})
+        page = live.get(f"/v1/ingest-jobs/{job_id}", params=params, headers=headers).json()
+        assert page["counts"] == {
+            "pending": 0,
+            "running": 1,
+            "succeeded": 2,
+            "failed": 2,
+            "skipped": 0,
+        }
+        pages.append(page["failures"]["items"])
+        cursor = page["failures"]["next_cursor"]
+        if cursor is None:
+            break
+    assert [[f["accession_number"] for f in items] for items in pages] == [
+        ["0000320193-24-000002"],
+        ["0000320193-24-000003"],
+    ]
+    assert pages[0][0]["attempts"] == 7
+    assert pages[0][0]["error"] == "UpstreamError: SEC answered 503"
+    missing = live.get(f"/v1/ingest-jobs/{uuid4()}", headers=headers)
+    assert missing.status_code == 404

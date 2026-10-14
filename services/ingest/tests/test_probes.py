@@ -20,6 +20,7 @@ def test_probes_report_liveness_and_each_unreachable_dependency(
     monkeypatch.setenv("REDIS_URL", f"redis://127.0.0.1:{dead}/0")
     monkeypatch.setenv("BROKER_URL", f"amqp://app:app@127.0.0.1:{dead}//")
     monkeypatch.setenv("HEALTH_PORT", str(health))
+    monkeypatch.setenv("SEC_USER_AGENT", "FilingLens tests tests@filinglens.test")
     worker = importlib.import_module("filinglens_ingest.worker")
     server = worker.start_probes(sender=SimpleNamespace(hostname="celery@test"))
     base = f"http://127.0.0.1:{health}"

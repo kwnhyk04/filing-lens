@@ -15,10 +15,12 @@ from redis.asyncio import Redis
 from strawberry.fastapi import GraphQLRouter
 
 from filinglens_api import routes
-from filinglens_api.backend import LiveBackend
+from filinglens_api.backend import DiscoverQueue, LiveBackend
 from filinglens_api.graph import get_context, schema
+from filinglens_api.limits import BodyLimit, rate_limit
 from filinglens_api.problems import add_problem_handlers, internal_error
 from filinglens_api.schemas import Health, Problem
+from filinglens_core.ratelimit import BUCKET_SCRIPT
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_db import make_engine, ping
 
@@ -46,10 +48,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     redis_url = str(settings.redis_url.get_secret_value())
     app.state.settings = settings
     app.state.engine = make_engine(settings)
-    app.state.backend = LiveBackend(app.state.engine)
+    discover = DiscoverQueue(str(settings.broker_url.get_secret_value()))
+    app.state.backend = LiveBackend(app.state.engine, discover)
     app.state.redis = Redis.from_url(
         redis_url, socket_timeout=CHECK_TIMEOUT_S, socket_connect_timeout=CHECK_TIMEOUT_S
     )
+    app.state.token_bucket = app.state.redis.register_script(BUCKET_SCRIPT)  # the rate limits
     yield
     await app.state.redis.aclose()
     await app.state.engine.dispose()
@@ -63,12 +67,14 @@ app = FastAPI(
     generate_unique_id_function=lambda route: route.name,  # operationIds name the client functions
 )
 add_problem_handlers(app)
+# Added before the request-id middleware below, so it runs inside it and 413s get an id too.
+app.add_middleware(BodyLimit)
 app.include_router(routes.admin)
 app.include_router(routes.router)
 app.include_router(
     GraphQLRouter(schema, graphql_ide=None, include_in_schema=False, context_getter=get_context),
     prefix="/graphql",
-    dependencies=[Depends(routes.require_api_key)],
+    dependencies=[Depends(routes.require_api_key), Depends(rate_limit)],
 )
 
 

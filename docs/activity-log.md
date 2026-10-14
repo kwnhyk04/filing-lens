@@ -15,6 +15,38 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-14: Step 4 workers (SEC client, discover and fetch, dead letters, backpressure, API limits)
+
+- Changes:
+  - Scope (user decisions): step 4 builds discover and fetch; parse, chunk, facts and `scripts/seed_real.py` move to a new step 4b; the job status `partially_failed` stays as the prompt's `completed_with_errors`; the 30 golden-set companies are an editable `evals/golden-companies.csv`.
+  - `packages/sec_client`: the Redis token bucket (one Lua script on Redis's clock, 8 req/s, capacity 1) shared by every process; a cool-off key that pauses every process after a 403 or 429; the User-Agent from `SEC_USER_AGENT` (required, placeholder refused); 5 s connect and 30 s read timeouts; a gzipped disk cache.
+  - `filinglens_ingest.pipeline`:
+    - `discover` walks the submissions JSON and its older files one page at a time, skipping files older than the job's `since`.
+    - `fetch` follows the prompt's settings, with retries on the unbounded `fetch.retry` queue. On final failure it writes a `dead_letters` row, marks the filing and item failed, and raises `Reject(requeue=False)`.
+    - Queues come from `filinglens_core.queues`: dead-letter exchange `filinglens.dlx`, `fetch` limited to 10,000 with reject-publish. Publisher confirms are on, and discover queues itself again with backoff when a fetch publish is nacked.
+  - `python -m filinglens_ingest.replay`.
+  - Revision 0007 adds `ingest_job_companies`, so a job finishes once discovery and all its filings are done. 0007 slots in between 0003 and 0004, so the swap stays last and dev moves to `REV=0007`.
+  - `LiveBackend` creates ingest jobs (idempotent; it queues discover with confirms) and reports them (counts plus a keyset page of failures).
+  - API limits:
+    - Redis token buckets per key: 60/min everywhere (GraphQL included), plus 10/min shared by both answers routes.
+    - The AI switch and daily token budget (`filinglens_llm.budget`), which answer 503 `ai_unavailable`.
+    - 413 over 64 KB, chunked bodies included.
+    - A 30 s answer limit (502).
+  - `TransientError` is the new base of the retryable errors.
+  - Compose passes `SEC_USER_AGENT` and mounts a `sec-cache` volume for the worker, and passes `AI_ENABLED` and `DAILY_AI_TOKEN_BUDGET` to the API.
+- Files: packages/core (errors.py, settings.py, queues.py, ratelimit.py, tests), packages/sec_client, packages/llm (budget.py, pyproject), packages/db (models.py, versions/0007_ingest_job_companies.py, 0004 parent), services/ingest (pipeline.py, topology.py, replay.py, worker.py, tests/test_pipeline.py, tests/run_worker.py, test_probes.py, test_embedding_swap.py), services/api (limits.py, backend.py, routes.py, main.py, problems.py, tests), contracts/openapi.json, clients/python, clients/ts, infra (docker-compose.yml, Dockerfile), .env.example, Makefile, evals/golden-companies.csv, pyproject files, uv.lock, README.md, docs/*
+- Validation:
+  - `make lint` and `make typecheck` clean. `make test`: 68 passed. `make test-int`: 17 passed.
+  - The four done checks:
+    1. 20 processes x 4 requests through the shared bucket. Over three measuring runs, the 9th request after any request arrived at least 0.983 s later at the fake server: ~16 ms of arrival jitter, against a 50 ms allowance in the test. Throughput was 7.9 req/s.
+    2. A filing answering 503 every time was requested 7 times (first attempt plus `max_retries=6`), then landed in `fetch.dlq` (`x-death` reason rejected) and `dead_letters`, with the item failed after 7 attempts and the job `failed`. Replay then fetched it, and the job turned `succeeded`.
+    3. With `fetch` at 10,000 messages, discover logged its back-off and left 30 items pending while the queue stayed at the limit. After a purge it queued all 50 filings of both pages exactly once. It never requested the older file that predates `since`.
+    4. A worker killed mid-download had its message requeued and finished by a second worker: one row per filing, item and company, no dead letter, attempts 2.
+  - Also covered: the cool-off pauses a second client; the cache serves repeat reads; the API's ingest jobs are idempotent, 422 on a reused key, and page their failures; 429 headers and per-key buckets; 503 at the budget and with `AI_ENABLED=false`; 413 with and without a length; the 502 timeout for answers and their stream.
+  - `make codegen` regenerated `contracts/` and the clients (413 and 503 docs). `make contracts-breaking`: no breaking changes.
+  - The api and ingest images build. A one-off ingest container (uid 10001) wrote to the new `sec-cache` volume and loaded the queues, confirms and routes. Compose refuses to start without `SEC_USER_AGENT`.
+- Outstanding: the user's `.env` needs `SEC_USER_AGENT` before `make dev` (compose stops without it). Step 4b: parse, chunk, facts and `seed_real.py`. Nothing records LLM usage until step 6.
+
 ### 2026-10-14: Shared memory for parallel HNSW builds
 
 - Changes: Postgres gets `shm_size: 256mb` in `infra/docker-compose.yml` and `infra/docker-compose.prod.yml`, and its prod memory limit rises from 1G to 1.5G (user decision). Compose also sets `PGUSER` and `PGDATABASE` for psql inside the container. New `make check-parallel-hnsw` runs `infra/check-parallel-hnsw.sql` on the dev stack: a throwaway database, 10k random 768-dimension vectors, and an HNSW build with two parallel workers and a 200 MB `maintenance_work_mem`. Runbook step 3 and the live-swap todo now cover choosing between a parallel build within the 256 MB and a serial one, and setting the values with `ALTER DATABASE` before 0005.

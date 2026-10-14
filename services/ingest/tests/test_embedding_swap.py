@@ -157,12 +157,12 @@ def test_swap_keeps_search_on_an_hnsw_index_from_expand_to_contract(
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", database_url)
     config = Config(toml_file=PYPROJECT)
-    command.upgrade(config, "0003")  # chunks embedded by model A only
+    command.upgrade(config, "0007")  # the dev path: chunks embedded by model A only
     run(database_url, partial(add_chunks, first=0, count=300))
     run(database_url, embed_with_model_a)
 
     command.upgrade(config, "0004")  # expand
-    command.downgrade(config, "0003")  # rolling the expand step back leaves model A intact
+    command.downgrade(config, "0007")  # rolling the expand step back leaves model A intact
     assert "embedding_v2" not in run(database_url, chunk_columns)
     _, nearest = run(database_url, partial(search, column="embedding", text_="chunk 5"))
     assert nearest == chunk_id(ACCESSION, "7", 5)

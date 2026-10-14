@@ -8,7 +8,8 @@ ARG PACKAGE
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-editable --package "$PACKAGE"
 
 FROM python:3.12.15-slim-trixie
-RUN useradd --system --uid 10001 app
+# The SEC cache directory belongs to the app user, so a new named volume mounted there does too.
+RUN useradd --system --uid 10001 app && install -d -o app /var/cache/filinglens/sec
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1
 USER app

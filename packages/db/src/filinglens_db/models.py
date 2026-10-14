@@ -245,6 +245,24 @@ class IngestJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class IngestJobCompany(Base):
+    """One company of an ingest job; discovery done for every company lets the job finish."""
+
+    __tablename__ = "ingest_job_companies"
+
+    job_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ingest_jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    cik: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    status: Mapped[ItemStatus] = mapped_column(
+        _pg_enum(ItemStatus, "ingest_item_status"), server_default=ItemStatus.PENDING.value
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class IngestJobItem(Base):
     """One filing of an ingest job, with its attempts and last error."""
 

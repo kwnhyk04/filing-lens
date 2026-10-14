@@ -33,7 +33,7 @@ lint:
 typecheck:
 	$(PY) pyright
 
-migrate: ## upgrade to REV (default head); dev stays at REV=0003 until the live swap (docs/migrations.md)
+migrate: ## upgrade to REV (default head); dev stays at REV=0007, before the swap (docs/migrations.md)
 	uv run --env-file .env python -m alembic upgrade $(REV)
 
 seed:

@@ -1,0 +1,31 @@
+cik,ticker,name,sector
+320193,AAPL,Apple Inc.,Information Technology
+789019,MSFT,Microsoft Corporation,Information Technology
+1045810,NVDA,NVIDIA Corporation,Information Technology
+1652044,GOOGL,Alphabet Inc.,Communication Services
+1326801,META,"Meta Platforms, Inc.",Communication Services
+732712,VZ,Verizon Communications Inc.,Communication Services
+1018724,AMZN,"Amazon.com, Inc.",Consumer Discretionary
+1318605,TSLA,"Tesla, Inc.",Consumer Discretionary
+354950,HD,"The Home Depot, Inc.",Consumer Discretionary
+104169,WMT,Walmart Inc.,Consumer Staples
+80424,PG,The Procter & Gamble Company,Consumer Staples
+21344,KO,The Coca-Cola Company,Consumer Staples
+34088,XOM,Exxon Mobil Corporation,Energy
+93410,CVX,Chevron Corporation,Energy
+19617,JPM,JPMorgan Chase & Co.,Financials
+70858,BAC,Bank of America Corporation,Financials
+886982,GS,"The Goldman Sachs Group, Inc.",Financials
+1403161,V,Visa Inc.,Financials
+59478,LLY,Eli Lilly and Company,Health Care
+731766,UNH,UnitedHealth Group Incorporated,Health Care
+200406,JNJ,Johnson & Johnson,Health Care
+78003,PFE,Pfizer Inc.,Health Care
+18230,CAT,Caterpillar Inc.,Industrials
+936468,LMT,Lockheed Martin Corporation,Industrials
+100885,UNP,Union Pacific Corporation,Industrials
+1707925,LIN,Linde plc,Materials
+831259,FCX,Freeport-McMoRan Inc.,Materials
+1045609,PLD,"Prologis, Inc.",Real Estate
+753308,NEE,"NextEra Energy, Inc.",Utilities
+1326160,DUK,Duke Energy Corporation,Utilities

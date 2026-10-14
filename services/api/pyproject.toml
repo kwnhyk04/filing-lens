@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "FastAPI + Strawberry GraphQL API."
 requires-python = ">=3.12"
 dependencies = [
+    "celery>=5.6.3",
     "fastapi>=0.143.0",
     "filinglens-core",
     "filinglens-db",
+    "filinglens-llm",
     "filinglens-telemetry",
     "kombu>=5.6.2",
     "redis>=8.1.0",

@@ -44,12 +44,19 @@ class IdempotencyKeyReusedError(FilingLensError):
     http_status = 422
 
 
-class RateLimitedError(FilingLensError):
+class TransientError(FilingLensError):
+    """Expected to clear by itself; workers retry it with backoff (Celery autoretry_for)."""
+
+    code = "transient"
+    http_status = 503
+    retryable = True
+
+
+class RateLimitedError(TransientError):
     """A rate limit (ours or SEC's) is exhausted; retry after backoff."""
 
     code = "rate_limited"
     http_status = 429
-    retryable = True
 
     def __init__(
         self, message: str = "", *, retry_after_s: int | None = None, limit: int | None = None
@@ -65,17 +72,22 @@ class NotImplementedYetError(FilingLensError):
     http_status = 501
 
 
-class UpstreamError(FilingLensError):
+class UpstreamError(TransientError):
     """A dependency such as SEC EDGAR or an LLM provider failed or timed out."""
 
     code = "upstream_error"
     http_status = 502
-    retryable = True
 
 
-class OverloadedError(FilingLensError):
+class OverloadedError(TransientError):
     """Load shedding: too much work in flight, so callers should back off."""
 
     code = "overloaded"
     http_status = 503
-    retryable = True
+
+
+class AiUnavailableError(FilingLensError):
+    """Model calls are off: AI_ENABLED=false, or today's AI token budget is used up."""
+
+    code = "ai_unavailable"
+    http_status = 503

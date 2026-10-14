@@ -9,11 +9,13 @@ from typing import Any
 
 import structlog
 from celery import Celery
-from celery.signals import setup_logging, worker_init
+from celery.signals import setup_logging, worker_init, worker_ready
 from redis import Redis
 
+from filinglens_core import queues
 from filinglens_core.settings import IngestSettings, load_settings
 from filinglens_db import make_engine, ping
+from filinglens_ingest import topology
 from filinglens_telemetry import configure_logging
 
 CHECK_TIMEOUT_S = 2.0
@@ -23,7 +25,7 @@ settings = load_settings(IngestSettings)
 app = Celery(
     "filinglens_ingest",
     broker=str(settings.broker_url.get_secret_value()),
-    include=["filinglens_ingest.reembed"],
+    include=["filinglens_ingest.pipeline", "filinglens_ingest.reembed"],
 )
 app.conf.update(
     task_acks_late=True,  # ack after the task finishes, so a crashed worker's task is redelivered
@@ -38,7 +40,26 @@ app.conf.update(
     # RabbitMQ 4 refuses transient non-exclusive queues, which Celery uses for control and gossip.
     control_queue_exclusive=True,
     event_queue_exclusive=True,
+    task_queues=list(topology.WORK_QUEUES.values()),  # consumed by workers; the DLQs never are
+    task_routes={
+        queues.DISCOVER_TASK: {"queue": queues.DISCOVER},
+        queues.FETCH_TASK: {"queue": queues.FETCH},
+        "filinglens_ingest.reembed.reembed": {"queue": queues.REEMBED},
+    },
+    # Publisher confirms: RabbitMQ nacks a publish to a full queue instead of dropping it.
+    broker_transport_options={"confirm_publish": True},
 )
+
+
+@worker_ready.connect
+def declare_dead_letter_queues(**_: Any) -> None:
+    """Workers never consume the dead-letter queues, so declare them here.
+
+    RabbitMQ drops a dead letter when no queue is bound for it.
+    """
+    with app.connection_for_write() as connection:
+        for queue in topology.DEAD_LETTER_QUEUES.values():
+            queue(connection.default_channel).declare()
 
 
 @setup_logging.connect

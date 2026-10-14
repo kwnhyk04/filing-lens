@@ -1,5 +1,6 @@
 """REST v1. Every route declares its response model and the problem responses it can send."""
 
+import asyncio
 import secrets
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -11,6 +12,7 @@ from fastapi.sse import EventSourceResponse
 from pydantic import SecretStr
 
 from filinglens_api.backend import BackendDep
+from filinglens_api.limits import ANSWER_TIMEOUT_S, answer_limits, rate_limit
 from filinglens_api.problems import problem_doc, problem_for, problems
 from filinglens_api.schemas import (
     Answer,
@@ -27,7 +29,12 @@ from filinglens_api.schemas import (
     IngestJobRequest,
     SearchPage,
 )
-from filinglens_core.errors import FilingLensError, ForbiddenError, UnauthorizedError
+from filinglens_core.errors import (
+    FilingLensError,
+    ForbiddenError,
+    UnauthorizedError,
+    UpstreamError,
+)
 
 # One header, two schemes, so the spec can say which key each route takes.
 api_key = APIKeyHeader(
@@ -70,12 +77,15 @@ def require_admin_key(request: Request, key: Annotated[str | None, Security(admi
 
 
 COMMON = problems(401, 422, 429, 503)
+# Keys first, then the per-key rate limit.
 admin = APIRouter(
     prefix="/v1",
-    dependencies=[Depends(require_admin_key)],
+    dependencies=[Depends(require_admin_key), Depends(rate_limit)],
     responses=COMMON | problems(403),
 )
-router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)], responses=COMMON)
+router = APIRouter(
+    prefix="/v1", dependencies=[Depends(require_api_key), Depends(rate_limit)], responses=COMMON
+)
 
 Limit = Annotated[int, Query(ge=1, le=100, description="Page size (at most 100).")]
 Cursor = Annotated[
@@ -91,6 +101,7 @@ Cursor = Annotated[
     response_description="Job accepted.",
     responses={
         202: {"headers": {"Location": {"description": "Job URL.", "schema": {"type": "string"}}}},
+        **problems(413),
         422: problem_doc(
             "Invalid request (validation_failed), or an Idempotency-Key already used with a"
             " different body (idempotency_key_reused)."
@@ -171,10 +182,23 @@ async def search(
     return await backend.search(q, limit, cursor)
 
 
-@router.post("/answers", tags=["answers"], response_model=Answer, responses=problems(502))
+@router.post(
+    "/answers",
+    tags=["answers"],
+    response_model=Answer,
+    dependencies=[Depends(answer_limits)],
+    responses=problems(413, 502),
+)
 async def create_answer(body: AnswerRequest, backend: BackendDep) -> Answer:
-    """Answer a question from the filings, citing a chunk or an XBRL fact. Either key."""
-    return await backend.answer(body)
+    """Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
+
+    At most 10 a minute per key, and 30 s each (then 502).
+    """
+    try:
+        async with asyncio.timeout(ANSWER_TIMEOUT_S):
+            return await backend.answer(body)
+    except TimeoutError:
+        raise UpstreamError(f"No answer within {ANSWER_TIMEOUT_S} s.") from None
 
 
 async def _answer_events(
@@ -190,18 +214,28 @@ async def _answer_events(
     tags=["answers"],
     response_class=EventSourceResponse,
     response_description="Server-Sent Events, each carrying one AnswerEvent as JSON.",
-    responses=problems(502),
+    dependencies=[Depends(answer_limits)],
+    responses=problems(413, 502),
 )
 async def stream_answer(
     events: Annotated[AsyncIterator[AnswerDelta | AnswerCompleted], Depends(_answer_events)],
 ) -> AsyncIterator[AnswerEvent]:
-    """POST /v1/answers as Server-Sent Events. Either key.
+    """POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem.
+    after the stream has started arrives as a `failed` event with a problem, and so does a stream
+    still running after 30 s.
     """
+    deadline = asyncio.get_running_loop().time() + ANSWER_TIMEOUT_S
     try:
-        async for event in events:
+        while True:
+            async with asyncio.timeout_at(deadline):  # never around a yield
+                event = await anext(events)
             yield event
+    except StopAsyncIteration:
+        return
+    except TimeoutError:
+        timeout = UpstreamError(f"No answer within {ANSWER_TIMEOUT_S} s.")
+        yield AnswerFailed(problem=problem_for(timeout))
     except FilingLensError as exc:
         yield AnswerFailed(problem=problem_for(exc))

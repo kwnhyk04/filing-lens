@@ -58,12 +58,16 @@ async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResp
     return _response(problem(422, "validation_failed", "The request is not valid.", errors))
 
 
-async def _http_error(_: Request, exc: HTTPException) -> JSONResponse:
-    """Framework errors, such as an unknown path (404) or method (405)."""
+def http_problem(exc: HTTPException) -> JSONResponse:
+    """Framework errors, such as an unknown path (404), method (405) or a large body (413)."""
     phrase = HTTPStatus(exc.status_code).phrase
     detail = str(exc.detail) if exc.detail != phrase else None  # detail may be any JSON value
     code = phrase.lower().replace(" ", "_").replace("-", "_")
     return _response(problem(exc.status_code, code, detail), exc.headers)
+
+
+async def _http_error(_: Request, exc: HTTPException) -> JSONResponse:
+    return http_problem(exc)
 
 
 def internal_error() -> JSONResponse:
@@ -104,6 +108,7 @@ PROBLEMS: dict[int, dict[str, Any]] = {
     ),
     403: problem_doc("The normal API key on an admin route (forbidden). Send ADMIN_API_KEY."),
     404: problem_doc("No such resource (not_found)."),
+    413: problem_doc("Request body larger than 64 KB (request_entity_too_large)."),
     422: problem_doc("Invalid request (validation_failed); `errors` lists each input."),
     429: problem_doc(
         "Rate limit exhausted (rate_limited).",
@@ -114,7 +119,11 @@ PROBLEMS: dict[int, dict[str, Any]] = {
         },
     ),
     502: problem_doc("A model provider failed (upstream_error)."),
-    503: problem_doc("Overloaded (overloaded), or a dependency is down. Retry later.", RETRY_AFTER),
+    503: problem_doc(
+        "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false"
+        " or today's AI token budget is used up (ai_unavailable). Retry later.",
+        RETRY_AFTER,
+    ),
 }
 
 

@@ -121,6 +121,8 @@ export interface paths {
         /**
          * Create Answer
          * @description Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
+         *
+         *     At most 10 a minute per key, and 30 s each (then 502).
          */
         post: operations["create_answer"];
         delete?: never;
@@ -140,10 +142,11 @@ export interface paths {
         put?: never;
         /**
          * Stream Answer
-         * @description POST /v1/answers as Server-Sent Events. Either key.
+         * @description POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
          *
          *     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-         *     after the stream has started arrives as a `failed` event with a problem.
+         *     after the stream has started arrives as a `failed` event with a problem, and so does a stream
+         *     still running after 30 s.
          */
         post: operations["stream_answer"];
         delete?: never;
@@ -588,6 +591,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Request body larger than 64 KB (request_entity_too_large). */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Invalid request (validation_failed), or an Idempotency-Key already used with a different body (idempotency_key_reused). */
             422: {
                 headers: {
@@ -612,7 +624,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -712,7 +724,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -792,7 +804,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -875,7 +887,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -957,7 +969,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1003,6 +1015,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Request body larger than 64 KB (request_entity_too_large). */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Invalid request (validation_failed); `errors` lists each input. */
             422: {
                 headers: {
@@ -1036,7 +1057,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1082,6 +1103,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Request body larger than 64 KB (request_entity_too_large). */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Invalid request (validation_failed); `errors` lists each input. */
             422: {
                 headers: {
@@ -1115,7 +1145,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or a dependency is down. Retry later. */
+            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */

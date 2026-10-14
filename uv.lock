@@ -549,9 +549,11 @@ name = "filinglens-api"
 version = "0.1.0"
 source = { editable = "services/api" }
 dependencies = [
+    { name = "celery" },
     { name = "fastapi" },
     { name = "filinglens-core" },
     { name = "filinglens-db" },
+    { name = "filinglens-llm" },
     { name = "filinglens-telemetry" },
     { name = "kombu" },
     { name = "redis" },
@@ -562,9 +564,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "celery", specifier = ">=5.6.3" },
     { name = "fastapi", specifier = ">=0.143.0" },
     { name = "filinglens-core", editable = "packages/core" },
     { name = "filinglens-db", editable = "packages/db" },
+    { name = "filinglens-llm", editable = "packages/llm" },
     { name = "filinglens-telemetry", editable = "packages/telemetry" },
     { name = "kombu", specifier = ">=5.6.2" },
     { name = "redis", specifier = ">=8.1.0" },
@@ -620,7 +624,9 @@ dependencies = [
     { name = "filinglens-core" },
     { name = "filinglens-db" },
     { name = "filinglens-llm" },
+    { name = "filinglens-sec-client" },
     { name = "filinglens-telemetry" },
+    { name = "kombu" },
     { name = "redis" },
     { name = "structlog" },
 ]
@@ -631,7 +637,9 @@ requires-dist = [
     { name = "filinglens-core", editable = "packages/core" },
     { name = "filinglens-db", editable = "packages/db" },
     { name = "filinglens-llm", editable = "packages/llm" },
+    { name = "filinglens-sec-client", editable = "packages/sec_client" },
     { name = "filinglens-telemetry", editable = "packages/telemetry" },
+    { name = "kombu", specifier = ">=5.6.2" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "structlog", specifier = ">=26.1.0" },
 ]
@@ -642,10 +650,14 @@ version = "0.1.0"
 source = { editable = "packages/llm" }
 dependencies = [
     { name = "filinglens-core" },
+    { name = "redis" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "filinglens-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "filinglens-core", editable = "packages/core" },
+    { name = "redis", specifier = ">=8.1.0" },
+]
 
 [[package]]
 name = "filinglens-retrieval"
@@ -668,6 +680,18 @@ requires-dist = [
 name = "filinglens-sec-client"
 version = "0.1.0"
 source = { editable = "packages/sec_client" }
+dependencies = [
+    { name = "filinglens-core" },
+    { name = "httpx" },
+    { name = "redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "filinglens-core", editable = "packages/core" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "redis", specifier = ">=8.1.0" },
+]
 
 [[package]]
 name = "filinglens-telemetry"

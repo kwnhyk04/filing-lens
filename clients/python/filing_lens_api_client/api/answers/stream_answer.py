@@ -39,6 +39,11 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_401
 
+    if response.status_code == 413:
+        response_413 = Problem.from_dict(response.json())
+
+        return response_413
+
     if response.status_code == 422:
         response_422 = Problem.from_dict(response.json())
 
@@ -81,10 +86,11 @@ def sync_detailed(
 ) -> Response[Any | Problem]:
     """Stream Answer
 
-     POST /v1/answers as Server-Sent Events. Either key.
+     POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem.
+    after the stream has started arrives as a `failed` event with a problem, and so does a stream
+    still running after 30 s.
 
     Args:
         body (AnswerRequest):
@@ -115,10 +121,11 @@ def sync(
 ) -> Any | Problem | None:
     """Stream Answer
 
-     POST /v1/answers as Server-Sent Events. Either key.
+     POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem.
+    after the stream has started arrives as a `failed` event with a problem, and so does a stream
+    still running after 30 s.
 
     Args:
         body (AnswerRequest):
@@ -144,10 +151,11 @@ async def asyncio_detailed(
 ) -> Response[Any | Problem]:
     """Stream Answer
 
-     POST /v1/answers as Server-Sent Events. Either key.
+     POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem.
+    after the stream has started arrives as a `failed` event with a problem, and so does a stream
+    still running after 30 s.
 
     Args:
         body (AnswerRequest):
@@ -176,10 +184,11 @@ async def asyncio(
 ) -> Any | Problem | None:
     """Stream Answer
 
-     POST /v1/answers as Server-Sent Events. Either key.
+     POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem.
+    after the stream has started arrives as a `failed` event with a problem, and so does a stream
+    still running after 30 s.
 
     Args:
         body (AnswerRequest):

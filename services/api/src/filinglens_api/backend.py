@@ -1,14 +1,19 @@
 """The routes' data seam. LiveBackend serves production; the tests swap in an in-memory fake."""
 
+import asyncio
 import base64
 from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import date
 from typing import Annotated, Any, Protocol
 from uuid import UUID
 
+from celery import Celery
 from fastapi import Depends, Request
+from kombu import Queue
+from kombu.exceptions import OperationalError
 from pydantic import BaseModel
-from sqlalchemy import Row, Select, select, tuple_
+from sqlalchemy import Row, Select, func, select, tuple_
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from filinglens_api.schemas import (
@@ -21,7 +26,10 @@ from filinglens_api.schemas import (
     Company,
     CompanyPage,
     FactPage,
+    FailurePage,
     Filing,
+    FilingCounts,
+    FilingFailure,
     FilingPage,
     FinancialFact,
     FormType,
@@ -30,12 +38,22 @@ from filinglens_api.schemas import (
     SearchPage,
     Section,
 )
-from filinglens_core.errors import InvalidInputError, NotImplementedYetError
+from filinglens_core import queues
+from filinglens_core.errors import (
+    IdempotencyKeyReusedError,
+    InvalidInputError,
+    NotFoundError,
+    NotImplementedYetError,
+    OverloadedError,
+)
 from filinglens_db.models import Chunk as ChunkRow
 from filinglens_db.models import Company as CompanyRow
 from filinglens_db.models import Filing as FilingRow
-from filinglens_db.models import FilingStatus
+from filinglens_db.models import FilingStatus, ItemStatus, JobStatus
 from filinglens_db.models import FinancialFact as FactRow
+from filinglens_db.models import IngestJob as JobRow
+from filinglens_db.models import IngestJobCompany as JobCompanyRow
+from filinglens_db.models import IngestJobItem as ItemRow
 from filinglens_db.models import Section as SectionRow
 
 SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
@@ -164,11 +182,30 @@ def get_backend(request: Request) -> Backend:
 BackendDep = Annotated[Backend, Depends(get_backend)]
 
 
-class LiveBackend:
-    """Production backend: catalog reads come from Postgres; the rest is 501 until its step."""
+class DiscoverQueue:
+    """Queues discover tasks for the ingest worker, with publisher confirms."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, broker_url: str) -> None:
+        self._celery = Celery("filinglens_api", broker=broker_url, set_as_current=False)
+        self._celery.conf.update(
+            broker_transport_options={"confirm_publish": True}, broker_connection_timeout=5
+        )
+        arguments = queues.QUEUE_ARGUMENTS[queues.DISCOVER]  # must match the worker's declaration
+        self._queue = Queue(queues.DISCOVER, routing_key=queues.DISCOVER, queue_arguments=arguments)
+
+    def publish(self, job_id: UUID, ciks: Sequence[int]) -> None:
+        for cik in ciks:
+            self._celery.send_task(
+                queues.DISCOVER_TASK, args=[str(job_id), cik], queue=self._queue, confirm_timeout=5
+            )
+
+
+class LiveBackend:
+    """Production backend: Postgres, plus RabbitMQ for ingest jobs; search and answers come next."""
+
+    def __init__(self, engine: AsyncEngine, discover: DiscoverQueue) -> None:
         self._engine = engine
+        self._discover = discover
 
     async def _rows[*Ts](self, query: Select[*Ts]) -> Sequence[Row[*Ts]]:
         async with self._engine.connect() as connection:
@@ -184,10 +221,87 @@ class LiveBackend:
         return CompanyPage(items=items, next_cursor=next_cursor)
 
     async def create_ingest_job(self, request: IngestJobRequest, idempotency_key: str) -> UUID:
-        raise NotImplementedYetError("Ingest jobs are not available yet.")
+        ciks = sorted(set(request.ciks))
+        insert_job = (
+            insert(JobRow)
+            .values(idempotency_key=idempotency_key, request=request.model_dump(mode="json"))
+            .on_conflict_do_nothing(index_elements=["idempotency_key"])
+            .returning(JobRow.id)
+        )
+        async with self._engine.begin() as connection:
+            job_id = (await connection.execute(insert_job)).scalar_one_or_none()
+            if job_id is None:  # the key came before
+                query = select(JobRow.id, JobRow.request, JobRow.status)
+                job = (
+                    await connection.execute(query.where(JobRow.idempotency_key == idempotency_key))
+                ).one()
+                if IngestJobRequest.model_validate(job.request) != request:
+                    raise IdempotencyKeyReusedError(
+                        "This Idempotency-Key came with a different body."
+                    )
+                job_id, queued = job.id, job.status == JobStatus.QUEUED
+            else:
+                rows = [{"job_id": job_id, "cik": cik} for cik in ciks]
+                await connection.execute(insert(JobCompanyRow).values(rows))
+                queued = True
+        if queued:  # a retry queues again, in case the first request died before queueing
+            try:
+                await asyncio.to_thread(self._discover.publish, job_id, ciks)
+            except (OperationalError, OSError) as exc:
+                raise OverloadedError(
+                    "Could not queue the job; retry with the same Idempotency-Key.",
+                    retry_after_s=5,
+                ) from exc
+        return job_id
 
     async def get_ingest_job(self, job_id: UUID, limit: int, cursor: str | None) -> IngestJob:
-        raise NotImplementedYetError("Ingest jobs are not available yet.")
+        query = select(JobRow.request, JobRow.status, JobRow.created_at).where(JobRow.id == job_id)
+        failures = (
+            select(
+                FilingRow.accession_number,
+                FilingRow.cik,
+                FilingRow.form_type,
+                ItemRow.error,
+                ItemRow.attempts,
+                ItemRow.updated_at,
+            )
+            .join(FilingRow, FilingRow.id == ItemRow.filing_id)
+            .where(ItemRow.job_id == job_id, ItemRow.status == ItemStatus.FAILED)
+        )
+        if cursor is not None:
+            after = decode_cursor(cursor, FailureKey).accession_number
+            failures = failures.where(FilingRow.accession_number > after)
+        failures = failures.order_by(FilingRow.accession_number).limit(limit + 1)
+        counts = select(ItemRow.status, func.count()).where(ItemRow.job_id == job_id)
+        async with self._engine.connect() as connection:
+            job = (await connection.execute(query)).one_or_none()
+            if job is None:
+                raise NotFoundError("No such ingest job.")
+            by_status = {s: n for s, n in await connection.execute(counts.group_by(ItemRow.status))}
+            rows = (await connection.execute(failures)).all()
+        items, next_cursor = _page(
+            [
+                FilingFailure(
+                    accession_number=row.accession_number,
+                    cik=row.cik,
+                    form_type=row.form_type,
+                    error=row.error or "",
+                    attempts=row.attempts,
+                    failed_at=row.updated_at,
+                )
+                for row in rows
+            ],
+            limit,
+            lambda f: FailureKey(accession_number=f.accession_number),
+        )
+        return IngestJob(
+            job_id=job_id,
+            status=job.status.value,
+            request=IngestJobRequest.model_validate(job.request),
+            created_at=job.created_at,
+            counts=FilingCounts(**{s.value: by_status.get(s, 0) for s in ItemStatus}),
+            failures=FailurePage(items=items, next_cursor=next_cursor),
+        )
 
     async def list_filings(
         self,

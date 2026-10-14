@@ -1,6 +1,6 @@
 import pytest
 
-from filinglens_core.settings import ApiSettings, load_settings
+from filinglens_core.settings import ApiSettings, IngestSettings, load_settings
 
 VALID = {
     "DATABASE_URL": "postgresql+asyncpg://app:db-password@localhost:5433/app",
@@ -48,3 +48,23 @@ def test_refuses_to_start_naming_the_variable_but_not_its_value(
     assert message.startswith(f"Invalid configuration: {variable}: ")
     assert "db-password" not in message
     assert "short-api-key" not in message
+
+
+@pytest.mark.parametrize(
+    ("agent", "accepted"),
+    [
+        (None, False),
+        ("FilingLens", False),  # no contact address
+        ("FilingLens Your Name you@example.com", False),  # the .env.example placeholder
+        ("FilingLens Jane Doe jane.doe@mail.net", True),
+    ],
+)
+def test_ingest_needs_a_sec_user_agent_with_a_real_contact(
+    monkeypatch: pytest.MonkeyPatch, agent: str | None, accepted: bool
+) -> None:
+    set_env(monkeypatch, SEC_USER_AGENT=agent)
+    if accepted:
+        assert load_settings(IngestSettings).sec_user_agent == agent
+        return
+    with pytest.raises(SystemExit, match=r"^Invalid configuration: SEC_USER_AGENT: "):
+        load_settings(IngestSettings)

@@ -29,6 +29,7 @@ from filinglens_api.backend import (
     encode_cursor,
     get_backend,
 )
+from filinglens_api.limits import answer_limits, rate_limit
 from filinglens_api.main import app
 from filinglens_api.schemas import (
     Answer,
@@ -209,6 +210,7 @@ class FakeBackend:
     def __init__(self) -> None:
         self.fail_with: Exception | None = None
         self.fail_mid_stream: Exception | None = None
+        self.delay_s = 0.0  # answers wait this long before each part
         self.jobs: dict[UUID, IngestJobRequest] = {}
         self.job_ids: dict[str, UUID] = {}  # by Idempotency-Key
 
@@ -308,17 +310,19 @@ class FakeBackend:
 
     async def answer(self, request: AnswerRequest) -> Answer:
         self._admit()
+        await asyncio.sleep(self.delay_s)
         return ANSWER
 
     async def stream_answer(
         self, request: AnswerRequest
     ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
         self._admit()  # before the stream, so the route can still answer with a status code
-        failure = self.fail_mid_stream
+        failure, delay_s = self.fail_mid_stream, self.delay_s
 
         async def events() -> AsyncIterator[AnswerDelta | AnswerCompleted]:
             text = ANSWER.answer
             for start in range(0, len(text), 20):
+                await asyncio.sleep(delay_s)
                 yield AnswerDelta(text=text[start : start + 20])
                 if failure is not None:
                     raise failure
@@ -348,11 +352,25 @@ def admin_key() -> str:
     return ADMIN_KEY
 
 
+async def _no_limit() -> None:
+    """Stands in for the Redis-backed limits, which test_limits.py covers against real Redis."""
+
+
+UNLIMITED: dict[Callable[..., object], Callable[..., object]] = {
+    rate_limit: _no_limit,
+    answer_limits: _no_limit,
+}
+
+
 @pytest.fixture
 def client(env: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """The app with its real backend, in process."""
-    with TestClient(app) as test_client:
-        yield test_client
+    """The app with its real backend, in process, without the Redis-backed limits."""
+    app.dependency_overrides.update(UNLIMITED)
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @contextmanager
@@ -382,9 +400,10 @@ def fake() -> FakeBackend:
 
 @pytest.fixture
 def server_url(env: pytest.MonkeyPatch, fake: FakeBackend) -> Iterator[str]:
-    """The app over the in-memory backend, served over HTTP."""
+    """The app over the in-memory backend, served over HTTP, without the Redis-backed limits."""
     backend: Backend = fake  # pyright checks that the fake matches the protocol
     app.dependency_overrides[get_backend] = lambda: backend
+    app.dependency_overrides.update(UNLIMITED)
     try:
         with _serve() as url:
             yield url
@@ -443,5 +462,9 @@ def postgres_user(env: pytest.MonkeyPatch, postgres_url: str) -> Iterator[Authen
     env.setenv("DATABASE_URL", postgres_url)
     command.upgrade(Config(toml_file=PYPROJECT), "head")
     asyncio.run(_seed())
-    with _serve() as url:
-        yield _rest_client(url, API_KEY)
+    app.dependency_overrides.update(UNLIMITED)
+    try:
+        with _serve() as url:
+            yield _rest_client(url, API_KEY)
+    finally:
+        app.dependency_overrides.clear()

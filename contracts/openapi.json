@@ -122,7 +122,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -141,6 +141,16 @@
           },
           "403": {
             "description": "The normal API key on an admin route (forbidden). Send ADMIN_API_KEY.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body larger than 64 KB (request_entity_too_large).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -280,7 +290,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -451,7 +461,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -654,7 +664,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -818,7 +828,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -854,7 +864,7 @@
           "answers"
         ],
         "summary": "Create Answer",
-        "description": "Answer a question from the filings, citing a chunk or an XBRL fact. Either key.",
+        "description": "Answer a question from the filings, citing a chunk or an XBRL fact. Either key.\n\nAt most 10 a minute per key, and 30 s each (then 502).",
         "operationId": "create_answer",
         "requestBody": {
           "content": {
@@ -936,7 +946,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "headers": {
               "Retry-After": {
                 "description": "Seconds to wait before retrying.",
@@ -945,6 +955,16 @@
                 }
               }
             },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body larger than 64 KB (request_entity_too_large).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -980,7 +1000,7 @@
           "answers"
         ],
         "summary": "Stream Answer",
-        "description": "POST /v1/answers as Server-Sent Events. Either key.\n\n`delta` events carry answer text, then one `completed` event carries the whole answer. An error\nafter the stream has started arrives as a `failed` event with a problem.",
+        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry answer text, then one `completed` event carries the whole answer. An error\nafter the stream has started arrives as a `failed` event with a problem, and so does a stream\nstill running after 30 s.",
         "operationId": "stream_answer",
         "requestBody": {
           "content": {
@@ -1103,7 +1123,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or a dependency is down. Retry later.",
+            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
             "headers": {
               "Retry-After": {
                 "description": "Seconds to wait before retrying.",
@@ -1112,6 +1132,16 @@
                 }
               }
             },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body larger than 64 KB (request_entity_too_large).",
             "content": {
               "application/problem+json": {
                 "schema": {

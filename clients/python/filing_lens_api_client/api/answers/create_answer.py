@@ -41,6 +41,11 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_401
 
+    if response.status_code == 413:
+        response_413 = Problem.from_dict(response.json())
+
+        return response_413
+
     if response.status_code == 422:
         response_422 = Problem.from_dict(response.json())
 
@@ -85,6 +90,8 @@ def sync_detailed(
 
      Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
 
+    At most 10 a minute per key, and 30 s each (then 502).
+
     Args:
         body (AnswerRequest):
 
@@ -116,6 +123,8 @@ def sync(
 
      Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
 
+    At most 10 a minute per key, and 30 s each (then 502).
+
     Args:
         body (AnswerRequest):
 
@@ -141,6 +150,8 @@ async def asyncio_detailed(
     """Create Answer
 
      Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
+
+    At most 10 a minute per key, and 30 s each (then 502).
 
     Args:
         body (AnswerRequest):
@@ -170,6 +181,8 @@ async def asyncio(
     """Create Answer
 
      Answer a question from the filings, citing a chunk or an XBRL fact. Either key.
+
+    At most 10 a minute per key, and 30 s each (then 502).
 
     Args:
         body (AnswerRequest):
