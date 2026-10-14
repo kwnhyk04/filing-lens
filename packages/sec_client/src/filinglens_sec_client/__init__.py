@@ -2,7 +2,9 @@
 
 Responses are cached on disk, gzipped, under their URL path: a filing document is downloaded once,
 and submissions JSON again only after SUBMISSIONS_MAX_AGE. When SEC throttles, a shared cool-off
-key pauses every worker process, not only the one that was refused.
+key pauses every worker process, not only the one that was refused. A 403 that comes back right
+after a cool-off is a refusal, not a throttle: from then on every request fails at once, without
+reaching SEC, until a worker restarts. Without Redis nothing is sent (LimiterUnavailableError).
 """
 
 import gzip
@@ -10,9 +12,10 @@ import json
 import re
 import time
 import uuid
+from contextlib import suppress
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 import httpx
 from redis import Redis
@@ -26,6 +29,9 @@ BUCKET_KEY = "sec:bucket"
 COOL_OFF_KEY = "sec:cool-off"
 COOL_OFF_S = 60  # pause after a refusal that carries no usable Retry-After
 MAX_COOL_OFF_S = 120  # well inside the tasks' 300 s soft time limit
+STRIKE_KEY = "sec:403-strike"  # a 403 started a cool-off; a success clears it
+STRIKE_GRACE_S = 60  # a 403 this long after the cool-off still counts as the second one
+REFUSED_KEY = "sec:refused"  # why SEC refuses; a worker restart clears it (worker_ready)
 TIMEOUT = httpx.Timeout(30.0, connect=5.0)  # connect 5 s; read, write and pool waits 30 s
 SUBMISSIONS_MAX_AGE = timedelta(hours=1)
 ACCESSION = re.compile(r"\d{10}-\d{2}-\d{6}")
@@ -33,6 +39,17 @@ FILE_NAME = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}"
 )  # one path segment: keeps the cache safe
 OLDER_FILE = re.compile(r"CIK\d{10}-submissions-\d{3}\.json")
+
+
+class LimiterUnavailableError(UpstreamError):
+    """Redis, which holds the shared rate limit, is unreachable, so nothing was sent to SEC."""
+
+
+class SecRefusedError(FilingLensError):
+    """SEC still answers 403 after a cool-off: a refusal that retries cannot fix."""
+
+    code = "sec_refused"
+    http_status = 502
 
 
 class SecClient:
@@ -92,16 +109,11 @@ class SecClient:
             raise UpstreamError(f"SEC request failed ({type(exc).__name__}): {url}") from exc
         status = response.status_code
         if status == 200:
+            with suppress(RedisError):  # left alone, the strike only expires later
+                self._redis.delete(STRIKE_KEY)  # any throttling is over
             return response.content
         if status in (403, 429):  # SEC answers 403 to clients over its rate
-            seconds = self._cool_off(response.headers.get("Retry-After"))
-            hint = (
-                " Check SEC_USER_AGENT." if b"Undeclared Automated Tool" in response.content else ""
-            )
-            raise RateLimitedError(
-                f"SEC refused {url} ({status}); every worker pauses {seconds} s.{hint}",
-                retry_after_s=seconds,
-            )
+            self._refused(url, status, response)
         if status == 404:
             raise NotFoundError(f"SEC has no {url}")
         if status >= 500:
@@ -109,23 +121,47 @@ class SecClient:
         raise FilingLensError(f"SEC answered {status} for {url}")
 
     def _acquire(self) -> None:
-        """Wait for a token from the shared bucket; a cool-off holds every process meanwhile."""
-        while True:
-            try:
+        """Wait for a token from the shared bucket; a cool-off holds every process meanwhile.
+
+        Fails closed: without Redis no request goes out, and a recorded refusal fails at once.
+        """
+        try:
+            while True:
                 taken, wait_ms = self._bucket(
                     keys=[BUCKET_KEY, COOL_OFF_KEY], args=[RATE_PER_SECOND, 1]
                 )
-            except RedisError as exc:
-                raise UpstreamError("Redis is unavailable for the SEC rate limit.") from exc
-            if taken:
-                return
-            time.sleep(wait_ms / 1000)
-
-    def _cool_off(self, retry_after: str | None) -> int:
-        seconds = int(retry_after) if retry_after and retry_after.isdigit() else COOL_OFF_S
-        seconds = min(max(seconds, 1), MAX_COOL_OFF_S)
-        try:
-            self._redis.set(COOL_OFF_KEY, 1, ex=seconds)
+                if taken:
+                    refused = cast(bytes | None, self._redis.get(REFUSED_KEY))
+                    break
+                time.sleep(wait_ms / 1000)
         except RedisError as exc:
-            raise UpstreamError("Redis is unavailable for the SEC cool-off.") from exc
-        return seconds
+            message = "Redis is unavailable, so no SEC request can be rate limited."
+            raise LimiterUnavailableError(message) from exc
+        if refused is not None:
+            raise SecRefusedError(refused.decode())
+
+    def _refused(self, url: str, status: int, response: httpx.Response) -> NoReturn:
+        """Cool every process off after a 403 or 429, unless a 403 already outlasted a cool-off."""
+        try:
+            strike = status == 403 and self._redis.exists(STRIKE_KEY)
+            if strike and not self._redis.exists(COOL_OFF_KEY):
+                reason = (
+                    f"SEC still refuses requests after a cool-off (403 for {url}), so this is not"
+                    " a rate limit. Check SEC_USER_AGENT: it must name the tool and give a contact"
+                    " email. Fix it, restart the workers, then replay the dead letters."
+                )
+                self._redis.set(REFUSED_KEY, reason)
+                raise SecRefusedError(reason)
+            retry_after = response.headers.get("Retry-After", "")
+            seconds = int(retry_after) if retry_after.isdigit() else COOL_OFF_S
+            seconds = min(max(seconds, 1), MAX_COOL_OFF_S)
+            self._redis.set(COOL_OFF_KEY, 1, ex=seconds)
+            if status == 403:
+                self._redis.set(STRIKE_KEY, 1, ex=seconds + STRIKE_GRACE_S)
+        except RedisError as exc:
+            raise LimiterUnavailableError("Redis is unavailable for the SEC cool-off.") from exc
+        hint = " Check SEC_USER_AGENT." if b"Undeclared Automated Tool" in response.content else ""
+        raise RateLimitedError(
+            f"SEC refused {url} ({status}); every worker pauses {seconds} s.{hint}",
+            retry_after_s=seconds,
+        )

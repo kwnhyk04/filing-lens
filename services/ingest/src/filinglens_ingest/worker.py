@@ -16,6 +16,7 @@ from filinglens_core import queues
 from filinglens_core.settings import IngestSettings, load_settings
 from filinglens_db import make_engine, ping
 from filinglens_ingest import topology
+from filinglens_sec_client import REFUSED_KEY, STRIKE_KEY
 from filinglens_telemetry import configure_logging
 
 CHECK_TIMEOUT_S = 2.0
@@ -49,6 +50,15 @@ app.conf.update(
     # Publisher confirms: RabbitMQ nacks a publish to a full queue instead of dropping it.
     broker_transport_options={"confirm_publish": True},
 )
+
+
+@worker_ready.connect
+def clear_sec_refusal(**_: Any) -> None:
+    """A restart may bring a fixed SEC_USER_AGENT, so SEC gets another chance."""
+    url = str(settings.redis_url.get_secret_value())
+    timeouts = {"socket_timeout": CHECK_TIMEOUT_S, "socket_connect_timeout": CHECK_TIMEOUT_S}
+    with Redis.from_url(url, **timeouts) as client:
+        client.delete(REFUSED_KEY, STRIKE_KEY)
 
 
 @worker_ready.connect

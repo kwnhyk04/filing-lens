@@ -48,7 +48,13 @@ from filinglens_db.models import (
 )
 from filinglens_ingest import topology
 from filinglens_ingest.replay import replay
-from filinglens_sec_client import COOL_OFF_KEY, SecClient
+from filinglens_sec_client import (
+    COOL_OFF_KEY,
+    REFUSED_KEY,
+    STRIKE_KEY,
+    SecClient,
+    SecRefusedError,
+)
 
 pytestmark = pytest.mark.integration
 PYPROJECT = Path(__file__).parents[3] / "pyproject.toml"
@@ -221,12 +227,12 @@ def start_worker(
     }
     workers: list[Worker] = []
 
-    def start(name: str, consume: str) -> Worker:
+    def start(name: str, consume: str, **extra_env: str) -> Worker:
         log = tmp_path / f"{name}.log"
         with log.open("wb") as out:
             process = subprocess.Popen(  # noqa: S603 - this interpreter and our own script
                 [sys.executable, str(RUN_WORKER), name, consume],
-                env=env | {"HEALTH_PORT": str(_free_port())},
+                env=env | {"HEALTH_PORT": str(_free_port())} | extra_env,
                 stdout=out,
                 stderr=subprocess.STDOUT,
             )
@@ -258,19 +264,22 @@ async def add_job(engine: AsyncEngine, *, discovered: bool) -> UUID:
     return job_id
 
 
-async def add_filing(engine: AsyncEngine, job_id: UUID) -> int:
-    """Filing ACCESSION as discover leaves it: discovered, its job item queued."""
+async def add_filing(
+    engine: AsyncEngine, job_id: UUID, accession: str = ACCESSION, document: str = "one-10k.htm"
+) -> int:
+    """A filing as discover leaves it: discovered, its job item queued."""
     async with engine.begin() as connection:
-        await connection.execute(insert(Company).values(cik=CIK, ticker="ONE", name="One Corp"))
+        company = insert(Company).values(cik=CIK, ticker="ONE", name="One Corp")
+        await connection.execute(company.on_conflict_do_nothing())
         filing_id = await connection.scalar(
             insert(Filing)
             .values(
-                accession_number=ACCESSION,
+                accession_number=accession,
                 cik=CIK,
                 form_type="10-K",
                 filed_on=date(2026, 2, 1),
                 period_end=date(2025, 12, 31),
-                primary_document="one-10k.htm",
+                primary_document=document,
             )
             .returning(Filing.id)
         )
@@ -345,7 +354,7 @@ def test_twenty_workers_never_exceed_eight_sec_requests_a_second(
     assert arrivals[-1] - arrivals[0] <= (len(arrivals) - 1) / 6
 
 
-def test_a_throttled_request_pauses_every_client_and_responses_are_cached(
+def test_a_403_cools_every_client_off_once_and_a_second_one_is_a_refusal(
     fake_sec: FakeSec,
     redis: Redis,
     redis_url: str,
@@ -354,18 +363,30 @@ def test_a_throttled_request_pauses_every_client_and_responses_are_cached(
 ) -> None:
     monkeypatch.setattr(filinglens_sec_client, "COOL_OFF_S", 1)
     folder = f"/Archives/edgar/data/{CIK}/{ACCESSION.replace('-', '')}"
-    fake_sec.routes[f"{folder}/throttled.htm"] = lambda: (403, b"Request Rate Threshold Exceeded")
+    fake_sec.routes[f"{folder}/refused.htm"] = lambda: (403, b"Request Rate Threshold Exceeded")
     fake_sec.routes[f"{folder}/busy.htm"] = lambda: (503, b"")
     fake_sec.routes[f"{folder}/fine.htm"] = lambda: (200, b"<html>fine</html>")
     one, two = (sec_client(fake_sec, redis_url, tmp_path / name) for name in ("one", "two"))
 
-    with pytest.raises(RateLimitedError):
-        one.document(CIK, ACCESSION, "throttled.htm")
+    with pytest.raises(RateLimitedError):  # a 403 pauses every client for one cool-off
+        one.document(CIK, ACCESSION, "refused.htm")
     assert 0 < redis.pttl(COOL_OFF_KEY) <= 1000
-    started = time.monotonic()
+    started = time.perf_counter()
     assert two.document(CIK, ACCESSION, "fine.htm") == b"<html>fine</html>"
-    assert time.monotonic() - started >= 0.8  # the other client waited out the cool-off
+    assert time.perf_counter() - started >= 0.8  # the other client waited out the cool-off
 
+    # A success in between makes the next 403 another throttle, not a refusal.
+    with pytest.raises(RateLimitedError):
+        one.document(CIK, ACCESSION, "refused.htm")
+    # A 403 right after that cool-off is a refusal: this request and every later one fail.
+    with pytest.raises(SecRefusedError, match="Check SEC_USER_AGENT"):
+        one.document(CIK, ACCESSION, "refused.htm")
+    sent = len(fake_sec.requests)
+    with pytest.raises(SecRefusedError):
+        two.document(CIK, ACCESSION, "busy.htm")
+    assert len(fake_sec.requests) == sent  # failed without reaching SEC
+
+    redis.delete(REFUSED_KEY, STRIKE_KEY)  # what a worker restart does
     assert two.document(CIK, ACCESSION, "fine.htm") == b"<html>fine</html>"
     assert fake_sec.hits(f"{folder}/fine.htm") == 1  # the second read came from the cache
     with pytest.raises(UpstreamError):  # transient: the task retries
@@ -533,8 +554,80 @@ def test_a_killed_worker_has_its_message_redelivered_without_duplicate_rows(
 
     assert run(db, counts) == (1, 1, 1, 0)  # no duplicate rows, nothing dead-lettered
     state = run(db, snapshot)
-    assert state["items"] == [(ItemStatus.SUCCEEDED, 2)]  # attempt 1 died with worker A
+    assert state["items"] == [(ItemStatus.SUCCEEDED, 1)]  # worker A's try never finished
     assert state["filings"] == [FilingStatus.FETCHED]
     assert fake_sec.hits(DOCUMENT) == 2
     cached = tmp_path / "sec" / f"{DOCUMENT.lstrip('/')}.gz"
     assert cached.exists()
+
+
+def test_without_redis_fetch_pauses_without_contacting_sec_and_resumes_later(
+    db: str,
+    fake_sec: FakeSec,
+    broker: Connection,
+    producer: Celery,
+    start_worker: Callable[..., Worker],
+) -> None:
+    job_id = run(db, lambda engine: add_job(engine, discovered=True))
+    filing_id = run(db, lambda engine: add_filing(engine, job_id))
+    fake_sec.routes[DOCUMENT] = lambda: (200, b"<html>10-K</html>")
+    consume = f"{queues.FETCH},{queues.FETCH_RETRY}"
+    dead_redis = f"redis://127.0.0.1:{_free_port()}/0"  # nothing listens there
+    paused = start_worker("no-redis", consume, REDIS_URL=dead_redis)
+    wait_for(lambda: queue_state(broker, queues.FETCH)[1] == 1, 60, paused)
+    producer.send_task(
+        queues.FETCH_TASK, args=[filing_id, str(job_id)], queue=topology.WORK_QUEUES[queues.FETCH]
+    )
+
+    def pauses() -> int:
+        return paused.output().count("SEC rate limiter unavailable, task paused")
+
+    # More pauses than max_retries: had a pause spent a retry, the filing would be dead by now.
+    wait_for(lambda: pauses() > 7, 120, paused)
+    assert fake_sec.requests == []  # fail closed: nothing reached SEC
+    state = run(db, snapshot)
+    assert state["items"] == [(ItemStatus.RUNNING, 0)]  # pauses are no attempts
+    assert state["letters"] == []
+    assert queue_state(broker, "fetch.dlq")[0] == 0
+
+    paused.process.kill()  # Redis is back: the next worker reaches it
+    paused.process.wait()
+    healthy = start_worker("redis", consume)
+    wait_for(lambda: run(db, snapshot)["jobs"] == [JobStatus.SUCCEEDED], 60, healthy)
+    assert run(db, snapshot)["items"] == [(ItemStatus.SUCCEEDED, 1)]
+    assert fake_sec.hits(DOCUMENT) == 1
+
+
+def test_a_403_after_a_cool_off_fails_the_job_with_a_clear_reason(
+    db: str,
+    fake_sec: FakeSec,
+    redis: Redis,
+    broker: Connection,
+    producer: Celery,
+    start_worker: Callable[..., Worker],
+) -> None:
+    job_id = run(db, lambda engine: add_job(engine, discovered=True))
+    filings = [
+        run(db, lambda engine: add_filing(engine, job_id)),
+        run(db, lambda engine: add_filing(engine, job_id, "0000000001-26-000002", "two.htm")),
+    ]
+    fake_sec.default = lambda: (403, b"Your Request Originates from an Undeclared Automated Tool")
+    worker = start_worker("refused", f"{queues.FETCH},{queues.FETCH_RETRY}")
+    wait_for(lambda: queue_state(broker, queues.FETCH)[1] == 1, 60, worker)
+    for filing_id in filings:
+        producer.send_task(
+            queues.FETCH_TASK,
+            args=[filing_id, str(job_id)],
+            queue=topology.WORK_QUEUES[queues.FETCH],
+        )
+
+    wait_for(lambda: run(db, snapshot)["jobs"] == [JobStatus.FAILED], 60, worker)
+    assert len(fake_sec.requests) == 2  # the 403 that cooled off, the 403 after it; then none
+    state = run(db, snapshot)
+    assert sorted(state["items"]) == [(ItemStatus.FAILED, 1), (ItemStatus.FAILED, 2)]
+    assert state["filings"] == [FilingStatus.FAILED] * 2
+    assert len(state["letters"]) == 2
+    for _, _, error in state["letters"]:
+        assert error.startswith("SecRefusedError: SEC still refuses requests after a cool-off")
+        assert "Check SEC_USER_AGENT" in error
+    assert redis.get(REFUSED_KEY) is not None  # later requests fail without reaching SEC

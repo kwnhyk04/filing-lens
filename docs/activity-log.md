@@ -15,6 +15,20 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-15: SEC limiter fails closed; a 403 after a cool-off fails the job
+
+- Changes (user request):
+  - Fails closed: without Redis, `SecClient` raises `LimiterUnavailableError` before any request. fetch and discover then send themselves again after a jittered 30 s pause, with the same task id and retry count, so an outage dead-letters nothing.
+  - Attempts: `attempts` now counts tries that ran (a pause or a try killed mid-request does not).
+  - Refusals: a 403 sets a strike beside its cool-off, and a 403 after that cool-off is a refusal. The reason goes to `sec:refused`, and every SEC call fails at once with `SecRefusedError` (not retried). The job's filings fail with the reason, which names SEC_USER_AGENT, and the job ends `failed`. A success clears the strike, a 429 always only cools off, and the worker clears the refusal on start.
+- Files: packages/sec_client/src/filinglens_sec_client/__init__.py, services/ingest/src/filinglens_ingest (pipeline.py, worker.py), services/ingest/tests (test_pipeline.py, run_worker.py), README.md, docs/*
+- Validation:
+  - `make lint` and `make typecheck` clean. `make test`: 68 passed. `make test-int`: 19 passed.
+  - Redis down: a worker on a dead Redis port paused the fetch more than 7 times, with no request to the fake SEC, no attempt, nothing dead-lettered and an empty `fetch.dlq`. Then a worker with Redis fetched it: 1 attempt, job `succeeded`.
+  - Refused User-Agent: two filings answered 403 by every request. SEC saw exactly 2 requests (the 403 that cooled off and the 403 after it), and both filings failed with `SecRefusedError` naming SEC_USER_AGENT. The job was `failed` within seconds.
+  - Client level: a 403, then a success, then a 403 is a throttle; a 403 after a cool-off is a refusal, and later calls fail without a request.
+- Outstanding: None new.
+
 ### 2026-10-14: Step 4 workers (SEC client, discover and fetch, dead letters, backpressure, API limits)
 
 - Changes:

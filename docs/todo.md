@@ -34,6 +34,10 @@ None.
 
 ## Completed
 
+- [x] Step 4 fixes (2026-10-15):
+  - The SEC limiter fails closed: without Redis, tasks pause and keep their retries. Tested with a worker on a dead Redis.
+  - A 403 after one cool-off fails the job with a reason that names SEC_USER_AGENT. Tested with a refused User-Agent: 2 requests, job `failed`.
+  - `make test` 68, `make test-int` 19.
 - [x] 4. Workers (2026-10-14): integration tests show:
   - 20 worker processes stay at 8 SEC requests a second: the 9th request after any request arrived at least 0.983 s later at the fake server, within a 50 ms jitter allowance.
   - A filing that fails every attempt (1 + 6 retries) lands in `fetch.dlq` and `dead_letters`, then replays.

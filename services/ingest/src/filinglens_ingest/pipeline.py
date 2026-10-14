@@ -41,10 +41,11 @@ from filinglens_db.models import (
     ItemStatus,
     JobStatus,
 )
-from filinglens_sec_client import ACCESSION, FILE_NAME, SecClient
+from filinglens_sec_client import ACCESSION, FILE_NAME, LimiterUnavailableError, SecClient
 
 MAX_RETRIES = 6
 QUEUE_FULL_BACKOFF_MAX_S = 60
+LIMITER_PAUSE_S = 30  # without Redis no SEC request is allowed, so tasks check back this often
 NEEDS_FETCH = (FilingStatus.DISCOVERED, FilingStatus.FAILED)  # anything else is at or past fetched
 OPEN = (ItemStatus.PENDING, ItemStatus.RUNNING)
 COLUMNS = ("accessionNumber", "filingDate", "reportDate", "form", "primaryDocument")
@@ -108,6 +109,8 @@ def fetch(self: Task, filing_id: int, job_id: str | None = None) -> None:
     settle = partial(_fail_filing, filing_id=filing_id, job_id=job)
     try:
         _run(partial(_fetch, filing_id=filing_id, job_id=job))
+    except LimiterUnavailableError:
+        _pause(self, queues.FETCH_RETRY)
     except TransientError as exc:
         if self.request.retries < MAX_RETRIES:
             raise  # autoretry_for queues the next attempt with backoff
@@ -133,6 +136,8 @@ def discover(
     settle = partial(_fail_company, job_id=job, cik=cik)
     try:
         _discover(self, job, cik, files, backoffs)
+    except LimiterUnavailableError:
+        _pause(self, queues.DISCOVER)
     except TransientError as exc:
         if self.request.retries < MAX_RETRIES:
             raise
@@ -185,6 +190,25 @@ def _queue_fetches(job: UUID, filing_ids: Sequence[int]) -> list[int]:
             raise UpstreamError("RabbitMQ did not take the fetch message.") from exc
         queued.append(filing_id)
     return queued
+
+
+def _pause(task: Task, queue: str) -> None:
+    """Send the task again after a pause, with its retry count unchanged: nothing reached SEC."""
+    delay = LIMITER_PAUSE_S * random.uniform(0.5, 1.5)  # noqa: S311 - jitter
+    log.warning(
+        "SEC rate limiter unavailable, task paused",
+        task=task.name,
+        task_id=task.request.id,
+        delay_s=round(delay, 1),
+    )
+    task.apply_async(
+        task.request.args,
+        task.request.kwargs,
+        task_id=task.request.id,
+        countdown=delay,
+        retries=task.request.retries,
+        queue=queue,
+    )
 
 
 def _give_up(task: Task, exc: Exception, settle: Settle) -> NoReturn:
@@ -314,18 +338,25 @@ async def _fetch(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
     if filing is None:
         log.warning("fetch skipped: no such filing", filing_id=filing_id)
         return
-    if filing.status in NEEDS_FETCH:  # otherwise a redelivery or another job got here first
-        if job_id is not None:
+    tried = filing.status in NEEDS_FETCH  # otherwise a redelivery or another job got here first
+    if tried:
+        if job_id is not None:  # a replayed item is in progress again
             async with engine.begin() as connection:
                 await connection.execute(
                     _item(job_id, [filing_id])
-                    .where(IngestJobItem.status.in_((*OPEN, ItemStatus.FAILED)))
-                    .values(status=ItemStatus.RUNNING, attempts=IngestJobItem.attempts + 1)
+                    .where(IngestJobItem.status.in_((ItemStatus.PENDING, ItemStatus.FAILED)))
+                    .values(status=ItemStatus.RUNNING)
                 )
         sec = _sec()
-        await asyncio.to_thread(
-            sec.document, filing.cik, filing.accession_number, filing.primary_document
-        )
+        try:
+            await asyncio.to_thread(
+                sec.document, filing.cik, filing.accession_number, filing.primary_document
+            )
+        except LimiterUnavailableError:
+            raise  # a pause: nothing went to SEC, so it is no attempt
+        except Exception:
+            await _count_attempt(engine, job_id, filing_id)
+            raise
     async with engine.begin() as connection:
         await connection.execute(
             update(Filing)
@@ -333,8 +364,18 @@ async def _fetch(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
             .values(status=FilingStatus.FETCHED)
         )
         if job_id is not None:
-            change = _item(job_id, [filing_id]).values(status=ItemStatus.SUCCEEDED, error=None)
+            attempts = IngestJobItem.attempts + 1 if tried else IngestJobItem.attempts
+            change = _item(job_id, [filing_id]).values(
+                status=ItemStatus.SUCCEEDED, error=None, attempts=attempts
+            )
             await _settle(connection, job_id, change)
+
+
+async def _count_attempt(engine: AsyncEngine, job_id: UUID | None, filing_id: int) -> None:
+    if job_id is not None:
+        async with engine.begin() as connection:
+            change = _item(job_id, [filing_id]).values(attempts=IngestJobItem.attempts + 1)
+            await connection.execute(change)
 
 
 async def _fail_filing(

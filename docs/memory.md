@@ -79,6 +79,9 @@ From step 4 (workers):
 - 2026-10-14: The API rate limiter fails open while Redis is down (logged), but the AI budget fails closed (503). Reason: an outage should not stop reads, and nobody should spend LLM tokens that cannot be counted.
 - 2026-10-14: `SEC_USER_AGENT` is required and must contain an email; the `.env.example` placeholder (`@example.`) is refused, and compose stops without it. Verified on sec.gov ("Accessing EDGAR Data"): at most 10 requests a second, and a declared User-Agent with a company name and an admin contact email.
 
+- 2026-10-15: The SEC limiter fails closed (user request). Without Redis the client raises `LimiterUnavailableError` before any request, and fetch and discover send themselves again after a jittered 30 s pause with their retry count unchanged. `attempts` counts tries that ran, so neither a pause nor a try killed mid-request counts. The API's inbound limiter still fails open. Reason: unlimited requests could get the IP blocked by SEC, and a Redis outage is no fault of the filing.
+- 2026-10-15: A 403 sets a strike beside its cool-off. A 403 after that cool-off ends (within 60 s, with no success between) is a refusal, not a throttle (user request). The client then stores the reason in `sec:refused`, and every SEC call fails at once with `SecRefusedError` without reaching SEC. The job's remaining filings therefore fail fast, and each failure and dead letter carries the reason (check SEC_USER_AGENT). A success clears the strike, a 429 always only cools off, and a worker restart clears the refusal. Reason: a bad User-Agent would otherwise cool off forever.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
