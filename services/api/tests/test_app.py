@@ -214,7 +214,7 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("revision", "embedding"),
-    [("0007", "embedding"), ("head", "embedding_v2")],  # dev stays at 0007 until the live swap
+    [("0008", "embedding"), ("head", "embedding_v2")],  # dev stays at 0008 until the live swap
 )
 def test_live_backend_pages_seeded_filings_sections_chunks_and_facts(
     database_url: str, monkeypatch: pytest.MonkeyPatch, revision: str, embedding: str

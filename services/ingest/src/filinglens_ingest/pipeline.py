@@ -1,11 +1,15 @@
-"""Ingest pipeline: discover walks a company's EDGAR submissions, fetch downloads each filing.
+"""Ingest pipeline: discover, fetch, parse and chunk each filing; facts once per company.
 
-Both tasks are idempotent: filings are keyed by accession number and job items by (job, filing),
-so a redelivered message redoes only what is missing. A task that fails for good writes a
-dead_letters row and is rejected into its dead-letter queue (fetch.dlq or discover.dlq). A job
-finishes once discovery walked every company and every filing settled: succeeded; partially_failed
+discover walks a company's EDGAR submissions and records the job's filings; fetch downloads each
+one into the SEC cache; parse splits it into item sections; chunk cuts those into chunks and marks
+the filing parsed. Once discovery has walked every page, facts loads the company's XBRL facts and
+sets its filings' fiscal year and period. Every task is idempotent: filings are keyed by accession
+number, sections by (filing, item), chunks by chunk_id(), facts by their fact key and job items by
+(job, filing), so a redelivered message redoes only what is missing. A task that fails for good
+writes a dead_letters row and is rejected into its dead-letter queue (<queue>.dlq). A job item
+succeeds once its filing is chunked, a job company once its facts are loaded; one bad filing fails
+only its item. A job finishes once every company and filing settled: succeeded; partially_failed
 (the prompt's completed_with_errors) when a filing succeeded beside a failure; failed otherwise.
-Parse, chunk and facts follow fetch in step 4b.
 """
 
 import asyncio
@@ -13,6 +17,7 @@ import random
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import date
 from functools import cache, partial
+from itertools import batched
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -27,27 +32,35 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from filinglens_core import queues
-from filinglens_core.errors import TransientError, UpstreamError
+from filinglens_core.errors import FilingLensError, NotFoundError, TransientError, UpstreamError
 from filinglens_core.settings import IngestSettings, load_settings
 from filinglens_db import make_engine
 from filinglens_db.models import (
+    Chunk,
     Company,
     DeadLetter,
     Filing,
     FilingStatus,
+    FinancialFact,
+    FiscalSource,
     IngestJob,
     IngestJobCompany,
     IngestJobItem,
     ItemStatus,
     JobStatus,
+    Section,
+    chunk_id,
 )
+from filinglens_ingest import chunking, companyfacts, parsing
 from filinglens_sec_client import ACCESSION, FILE_NAME, LimiterUnavailableError, SecClient
 
 MAX_RETRIES = 6
 QUEUE_FULL_BACKOFF_MAX_S = 60
 LIMITER_PAUSE_S = 30  # without Redis no SEC request is allowed, so tasks check back this often
 NEEDS_FETCH = (FilingStatus.DISCOVERED, FilingStatus.FAILED)  # anything else is at or past fetched
+DONE = (FilingStatus.PARSED, FilingStatus.EMBEDDED, FilingStatus.INDEXED)  # chunks stored
 OPEN = (ItemStatus.PENDING, ItemStatus.RUNNING)
+ROWS_PER_INSERT = 5_000
 COLUMNS = ("accessionNumber", "filingDate", "reportDate", "form", "primaryDocument")
 TASK_OPTIONS: dict[str, Any] = {
     "bind": True,
@@ -101,49 +114,68 @@ def _run[T](work: Callable[[AsyncEngine], Awaitable[T]]) -> T:
 
 @shared_task(**TASK_OPTIONS, retry_kwargs={"queue": queues.FETCH_RETRY})
 def fetch(self: Task, filing_id: int, job_id: str | None = None) -> None:
-    """Download a filing's primary document into the SEC cache, then mark the filing fetched.
+    """Download a filing's primary document into the SEC cache, mark it fetched, queue parse.
 
     Retries go to fetch.retry, which has no length limit, so a full fetch queue cannot drop them.
     """
     job = UUID(job_id) if job_id else None
-    settle = partial(_fail_filing, filing_id=filing_id, job_id=job)
-    try:
-        _run(partial(_fetch, filing_id=filing_id, job_id=job))
-    except LimiterUnavailableError:
-        _pause(self, queues.FETCH_RETRY)
-    except TransientError as exc:
-        if self.request.retries < MAX_RETRIES:
-            raise  # autoretry_for queues the next attempt with backoff
-        _give_up(self, exc, settle)
-    except Exception as exc:
-        _give_up(self, exc, settle)
+
+    def work() -> None:
+        if _run(partial(_fetch, filing_id=filing_id, job_id=job)):
+            _queue(PARSE, filing_id, job_id)
+
+    settle = partial(_fail_filing, filing_id=filing_id, job_id=job, stage=FilingStatus.DISCOVERED)
+    _attempt(self, work, settle, queues.FETCH_RETRY)
 
 
-FETCH = cast(Task, fetch)  # Celery's decorators are untyped
+@shared_task(**TASK_OPTIONS)
+def parse(self: Task, filing_id: int, job_id: str | None = None) -> None:
+    """Split a fetched filing into item sections, then queue chunk."""
+    job = UUID(job_id) if job_id else None
+
+    def work() -> None:
+        if _run(partial(_parse, filing_id=filing_id, job_id=job)):
+            _queue(CHUNK, filing_id, job_id)
+
+    settle = partial(_fail_filing, filing_id=filing_id, job_id=job, stage=FilingStatus.FETCHED)
+    _attempt(self, work, settle, queues.PARSE)
+
+
+@shared_task(**TASK_OPTIONS)
+def chunk(self: Task, filing_id: int, job_id: str | None = None) -> None:
+    """Cut a filing's sections into chunks, then mark it parsed and its job item succeeded."""
+    job = UUID(job_id) if job_id else None
+    settle = partial(_fail_filing, filing_id=filing_id, job_id=job, stage=FilingStatus.FETCHED)
+    _attempt(
+        self, lambda: _run(partial(_chunk, filing_id=filing_id, job_id=job)), settle, queues.CHUNK
+    )
+
+
+@shared_task(**TASK_OPTIONS)
+def facts(self: Task, job_id: str, cik: int) -> None:
+    """Load a company's XBRL facts and its filings' fiscal periods, then finish the company."""
+    job = UUID(job_id)
+    settle = partial(_fail_company, job_id=job, cik=cik)
+    _attempt(self, lambda: _run(partial(_facts, job_id=job, cik=cik)), settle, queues.FACTS)
+
+
+# Celery's decorators are untyped.
+FETCH, PARSE, CHUNK, FACTS = (cast(Task, task) for task in (fetch, parse, chunk, facts))
 
 
 @shared_task(**TASK_OPTIONS)
 def discover(
     self: Task, job_id: str, cik: int, files: list[str] | None = None, backoffs: int = 0
 ) -> None:
-    """Walk one page of a company's submissions, then queue the next page.
+    """Walk one page of a company's submissions, then queue the next page, or facts after the last.
 
-    Records the page's filings, queues fetch for those not yet fetched and, when RabbitMQ refuses a
+    Records the page's filings, queues fetch for those not yet chunked and, when RabbitMQ refuses a
     publish because the fetch queue is full, queues itself again after a backoff. `files` lists
     the older pages still to walk; None means the main submissions file.
     """
     job = UUID(job_id)
     settle = partial(_fail_company, job_id=job, cik=cik)
-    try:
-        _discover(self, job, cik, files, backoffs)
-    except LimiterUnavailableError:
-        _pause(self, queues.DISCOVER)
-    except TransientError as exc:
-        if self.request.retries < MAX_RETRIES:
-            raise
-        _give_up(self, exc, settle)
-    except Exception as exc:
-        _give_up(self, exc, settle)
+    _attempt(self, partial(_discover, self, job, cik, files, backoffs), settle, queues.DISCOVER)
 
 
 def _discover(task: Task, job: UUID, cik: int, files: list[str] | None, backoffs: int) -> None:
@@ -175,7 +207,7 @@ def _discover(task: Task, job: UUID, cik: int, files: list[str] | None, backoffs
     if remaining:
         task.apply_async((str(job), cik, remaining))
     else:
-        _run(partial(_finish_company, job_id=job, cik=cik))
+        _queue(FACTS, str(job), cik)  # facts settles the company
 
 
 def _queue_fetches(job: UUID, filing_ids: Sequence[int]) -> list[int]:
@@ -190,6 +222,28 @@ def _queue_fetches(job: UUID, filing_ids: Sequence[int]) -> list[int]:
             raise UpstreamError("RabbitMQ did not take the fetch message.") from exc
         queued.append(filing_id)
     return queued
+
+
+def _queue(task: Task, *args: object) -> None:
+    """Queue the next stage; a broker failure is transient, so the calling task retries."""
+    try:
+        task.apply_async(args, retry=False)
+    except OperationalError as exc:
+        raise UpstreamError(f"RabbitMQ did not take the {task.name} message.") from exc
+
+
+def _attempt(task: Task, work: Callable[[], None], settle: Settle, queue: str) -> None:
+    """Run a task's work: pause without Redis, retry transient errors, dead-letter the rest."""
+    try:
+        work()
+    except LimiterUnavailableError:
+        _pause(task, queue)
+    except TransientError as exc:
+        if task.request.retries < MAX_RETRIES:
+            raise  # autoretry_for queues the next attempt with backoff
+        _give_up(task, exc, settle)
+    except Exception as exc:
+        _give_up(task, exc, settle)
 
 
 def _pause(task: Task, queue: str) -> None:
@@ -293,7 +347,7 @@ async def _record_page(
             {
                 "job_id": job_id,
                 "filing_id": row.id,
-                "status": ItemStatus.PENDING if row.status in NEEDS_FETCH else ItemStatus.SKIPPED,
+                "status": ItemStatus.SKIPPED if row.status in DONE else ItemStatus.PENDING,
             }
             for row in found
         ]
@@ -323,13 +377,8 @@ async def _mark_queued(engine: AsyncEngine, *, job_id: UUID, filing_ids: list[in
         )
 
 
-async def _finish_company(engine: AsyncEngine, *, job_id: UUID, cik: int) -> None:
-    async with engine.begin() as connection:
-        change = _company(job_id, cik).values(status=ItemStatus.SUCCEEDED, error=None)
-        await _settle(connection, job_id, change)
-
-
-async def _fetch(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> None:
+async def _fetch(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> bool:
+    """Download the document unless the filing is past that; False when the filing is gone."""
     async with engine.connect() as connection:
         query = select(
             Filing.cik, Filing.accession_number, Filing.primary_document, Filing.status
@@ -337,26 +386,20 @@ async def _fetch(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
         filing = (await connection.execute(query)).one_or_none()
     if filing is None:
         log.warning("fetch skipped: no such filing", filing_id=filing_id)
-        return
-    tried = filing.status in NEEDS_FETCH  # otherwise a redelivery or another job got here first
-    if tried:
-        if job_id is not None:  # a replayed item is in progress again
-            async with engine.begin() as connection:
-                await connection.execute(
-                    _item(job_id, [filing_id])
-                    .where(IngestJobItem.status.in_((ItemStatus.PENDING, ItemStatus.FAILED)))
-                    .values(status=ItemStatus.RUNNING)
-                )
-        sec = _sec()
-        try:
-            await asyncio.to_thread(
-                sec.document, filing.cik, filing.accession_number, filing.primary_document
-            )
-        except LimiterUnavailableError:
-            raise  # a pause: nothing went to SEC, so it is no attempt
-        except Exception:
-            await _count_attempt(engine, job_id, filing_id)
-            raise
+        return False
+    if filing.status not in NEEDS_FETCH:  # a redelivery, or another job got here first
+        return True
+    if job_id is not None:  # a replayed item is in progress again
+        await _reopen(engine, job_id, filing_id)
+    try:
+        await asyncio.to_thread(
+            _sec().document, filing.cik, filing.accession_number, filing.primary_document
+        )
+    except LimiterUnavailableError:
+        raise  # a pause: nothing went to SEC, so it is no attempt
+    except Exception:
+        await _count_attempt(engine, job_id, filing_id)
+        raise
     async with engine.begin() as connection:
         await connection.execute(
             update(Filing)
@@ -364,10 +407,156 @@ async def _fetch(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
             .values(status=FilingStatus.FETCHED)
         )
         if job_id is not None:
-            attempts = IngestJobItem.attempts + 1 if tried else IngestJobItem.attempts
             change = _item(job_id, [filing_id]).values(
-                status=ItemStatus.SUCCEEDED, error=None, attempts=attempts
+                attempts=IngestJobItem.attempts + 1, error=None
             )
+            await connection.execute(change)
+    return True
+
+
+async def _parse(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> bool:
+    """Store the filing's sections and missing items; returns whether chunk should follow."""
+    async with engine.connect() as connection:
+        query = select(
+            Filing.cik,
+            Filing.accession_number,
+            Filing.primary_document,
+            Filing.form_type,
+            Filing.status,
+        ).where(Filing.id == filing_id)
+        filing = (await connection.execute(query)).one_or_none()
+    if filing is None:
+        log.warning("parse skipped: no such filing", filing_id=filing_id)
+        return False
+    if filing.status in DONE:  # a redelivery after chunk
+        await _succeed(engine, job_id, filing_id)
+        return False
+    if job_id is not None:  # a replayed item is in progress again
+        await _reopen(engine, job_id, filing_id)
+    document = await asyncio.to_thread(  # the cached copy, unless the cache lost it
+        _sec().document, filing.cik, filing.accession_number, filing.primary_document
+    )
+    parsed = parsing.parse_filing(parsing.decode(document), filing.form_type)
+    sections = [
+        {
+            "filing_id": filing_id,
+            "item": section.item,
+            "title": section.title,
+            "char_start": section.start,
+            "char_end": section.end,
+            "text": parsed.text[section.start : section.end],
+        }
+        for section in parsed.sections
+    ]
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(Section)
+            .values(sections)
+            .on_conflict_do_nothing(index_elements=["filing_id", "item"])
+        )
+        await connection.execute(
+            update(Filing).where(Filing.id == filing_id).values(missing_items=parsed.missing)
+        )
+    if parsed.missing:
+        log.warning(
+            "filing lacks required items",
+            accession_number=filing.accession_number,
+            missing=parsed.missing,
+        )
+    return True
+
+
+async def _chunk(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> None:
+    async with engine.connect() as connection:
+        query = select(Filing.accession_number, Filing.status).where(Filing.id == filing_id)
+        filing = (await connection.execute(query)).one_or_none()
+        query = select(Section.id, Section.item, Section.char_start, Section.text).where(
+            Section.filing_id == filing_id
+        )
+        sections = (await connection.execute(query)).all()
+    if filing is None:
+        log.warning("chunk skipped: no such filing", filing_id=filing_id)
+        return
+    if filing.status in DONE:  # a redelivery
+        await _succeed(engine, job_id, filing_id)
+        return
+    if not any(section.text for section in sections):
+        raise FilingLensError(f"Filing {filing.accession_number} has no section text to chunk.")
+    rows = [
+        {
+            "id": chunk_id(filing.accession_number, section.item, section.char_start + piece.start),
+            "section_id": section.id,
+            "char_start": section.char_start + piece.start,
+            "text": section.text[piece.start : piece.end],
+            "token_count": piece.token_count,
+        }
+        for section in sections
+        if section.text
+        for piece in chunking.split(section.text)
+    ]
+    async with engine.begin() as connection:
+        for batch in batched(rows, ROWS_PER_INSERT):
+            await connection.execute(insert(Chunk).on_conflict_do_nothing(), list(batch))
+        await connection.execute(
+            update(Filing)
+            .where(Filing.id == filing_id, Filing.status.not_in(DONE))
+            .values(status=FilingStatus.PARSED)
+        )
+        if job_id is not None:
+            change = _item(job_id, [filing_id]).values(status=ItemStatus.SUCCEEDED, error=None)
+            await _settle(connection, job_id, change)
+
+
+async def _facts(engine: AsyncEngine, *, job_id: UUID, cik: int) -> None:
+    sec = _sec()
+    try:
+        data = await asyncio.to_thread(sec.companyfacts, cik)
+    except NotFoundError:
+        data = {}  # SEC has no XBRL facts for this company
+    fiscal = companyfacts.fiscal_by_accession(data)
+    async with engine.connect() as connection:
+        query = select(
+            Filing.id, Filing.accession_number, Filing.form_type, Filing.period_end
+        ).where(Filing.cik == cik)
+        filings = (await connection.execute(query)).all()
+    year_end: str | None = None
+    if any(filing.accession_number not in fiscal for filing in filings):
+        year_end = (await asyncio.to_thread(sec.submissions, cik)).get("fiscalYearEnd")
+    async with engine.begin() as connection:
+        for batch in batched(companyfacts.fact_rows(data, cik), ROWS_PER_INSERT):
+            await connection.execute(insert(FinancialFact).on_conflict_do_nothing(), list(batch))
+        for filing in filings:
+            if filing.accession_number in fiscal:
+                (year, period), source = fiscal[filing.accession_number], FiscalSource.COMPANYFACTS
+            else:
+                year, period = companyfacts.fiscal_from_period(
+                    filing.form_type, filing.period_end, year_end
+                )
+                source = FiscalSource.PERIOD_OF_REPORT
+            await connection.execute(
+                update(Filing)
+                .where(Filing.id == filing.id)
+                .values(fiscal_year=year, fiscal_period=period, fiscal_source=source)
+            )
+        change = _company(job_id, cik).values(status=ItemStatus.SUCCEEDED, error=None)
+        await _settle(connection, job_id, change)
+
+
+async def _reopen(engine: AsyncEngine, job_id: UUID, filing_id: int) -> None:
+    """Put a failed item back in progress: its message was replayed from a dead-letter queue."""
+    async with engine.begin() as connection:
+        await connection.execute(
+            _item(job_id, [filing_id])
+            .where(IngestJobItem.status.in_((ItemStatus.PENDING, ItemStatus.FAILED)))
+            .values(status=ItemStatus.RUNNING)
+        )
+
+
+async def _succeed(engine: AsyncEngine, job_id: UUID | None, filing_id: int) -> None:
+    """Settle the item of a filing that is chunked already."""
+    if job_id is not None:
+        async with engine.begin() as connection:
+            change = _item(job_id, [filing_id]).values(status=ItemStatus.SUCCEEDED, error=None)
             await _settle(connection, job_id, change)
 
 
@@ -379,11 +568,17 @@ async def _count_attempt(engine: AsyncEngine, job_id: UUID | None, filing_id: in
 
 
 async def _fail_filing(
-    connection: AsyncConnection, error: str, *, filing_id: int, job_id: UUID | None
+    connection: AsyncConnection,
+    error: str,
+    *,
+    filing_id: int,
+    job_id: UUID | None,
+    stage: FilingStatus,
 ) -> None:
+    """Fail the filing, if it is still at the stage that failed, and its job item."""
     await connection.execute(
         update(Filing)
-        .where(Filing.id == filing_id, Filing.status == FilingStatus.DISCOVERED)
+        .where(Filing.id == filing_id, Filing.status == stage)
         .values(status=FilingStatus.FAILED)
     )
     if job_id is not None:

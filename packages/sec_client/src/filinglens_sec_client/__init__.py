@@ -1,7 +1,8 @@
 """EDGAR client: every SEC request goes through the shared Redis rate limiter (8 req/s).
 
 Responses are cached on disk, gzipped, under their URL path: a filing document is downloaded once,
-and submissions JSON again only after SUBMISSIONS_MAX_AGE. When SEC throttles, a shared cool-off
+and JSON (submissions, companyfacts, company tickers) again only after JSON_MAX_AGE. Every request
+sent is counted by kind in the Redis hash REQUESTS_KEY. When SEC throttles, a shared cool-off
 key pauses every worker process, not only the one that was refused. A 403 that comes back right
 after a cool-off is a refusal, not a throttle: from then on every request fails at once, without
 reaching SEC, until a worker restarts. Without Redis nothing is sent (LimiterUnavailableError).
@@ -12,8 +13,10 @@ import json
 import re
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
@@ -32,8 +35,9 @@ MAX_COOL_OFF_S = 120  # well inside the tasks' 300 s soft time limit
 STRIKE_KEY = "sec:403-strike"  # a 403 started a cool-off; a success clears it
 STRIKE_GRACE_S = 60  # a 403 this long after the cool-off still counts as the second one
 REFUSED_KEY = "sec:refused"  # why SEC refuses; a worker restart clears it (worker_ready)
+REQUESTS_KEY = "sec:requests"  # requests sent to SEC, by kind: document, submissions, ...
 TIMEOUT = httpx.Timeout(30.0, connect=5.0)  # connect 5 s; read, write and pool waits 30 s
-SUBMISSIONS_MAX_AGE = timedelta(hours=1)
+JSON_MAX_AGE = timedelta(hours=1)
 ACCESSION = re.compile(r"\d{10}-\d{2}-\d{6}")
 FILE_NAME = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}"
@@ -67,42 +71,56 @@ class SecClient:
 
     def submissions(self, cik: int) -> dict[str, Any]:
         """A company's submissions: its recent filings and the names of its older files."""
-        return self._json(self._data, f"submissions/CIK{cik:010d}.json")
+        return self._json(self._data, f"submissions/CIK{cik:010d}.json", "submissions")
 
     def submissions_file(self, name: str) -> dict[str, Any]:
         """An older submissions file, such as CIK0000320193-submissions-001.json."""
         if not OLDER_FILE.fullmatch(name):
             raise FilingLensError(f"Not a submissions file name: {name!r}")
-        return self._json(self._data, f"submissions/{name}")
+        return self._json(self._data, f"submissions/{name}", "submissions")
+
+    def companyfacts(self, cik: int) -> dict[str, Any]:
+        """A company's XBRL facts; decimals stay Decimal, so values keep SEC's digits."""
+        path = f"api/xbrl/companyfacts/CIK{cik:010d}.json"
+        return self._json(self._data, path, "companyfacts", parse_float=Decimal)
+
+    def company_tickers(self) -> dict[str, Any]:
+        """SEC's ticker list: {"0": {"cik_str": 320193, "ticker": "AAPL", "title": ...}, ...}."""
+        return self._json(self._www, "files/company_tickers.json", "tickers")
 
     def document(self, cik: int, accession_number: str, name: str) -> bytes:
         """A filing document from EDGAR's archives; filings never change, so it is kept for good."""
         if not ACCESSION.fullmatch(accession_number) or not FILE_NAME.fullmatch(name):
             raise FilingLensError(f"Not a filing document: {accession_number} {name!r}")
         folder = accession_number.replace("-", "")
-        return self._get(self._www, f"Archives/edgar/data/{cik}/{folder}/{name}")
+        return self._get(self._www, f"Archives/edgar/data/{cik}/{folder}/{name}", "document")
 
     def close(self) -> None:
         self._http.close()
 
-    def _json(self, base: str, path: str) -> dict[str, Any]:
-        return cast(dict[str, Any], json.loads(self._get(base, path, SUBMISSIONS_MAX_AGE)))
+    def _json(
+        self, base: str, path: str, kind: str, parse_float: Callable[[str], Any] = float
+    ) -> dict[str, Any]:
+        body = self._get(base, path, kind, JSON_MAX_AGE)
+        return cast(dict[str, Any], json.loads(body, parse_float=parse_float))
 
-    def _get(self, base: str, path: str, max_age: timedelta | None = None) -> bytes:
+    def _get(self, base: str, path: str, kind: str, max_age: timedelta | None = None) -> bytes:
         cached = self._cache_dir / f"{path}.gz"
         if cached.exists() and (
             max_age is None or time.time() - cached.stat().st_mtime < max_age.total_seconds()
         ):
             return gzip.decompress(cached.read_bytes())
-        body = self._download(f"{base}/{path}")
+        body = self._download(f"{base}/{path}", kind)
         cached.parent.mkdir(parents=True, exist_ok=True)
         partial = cached.with_name(f"{cached.name}.{uuid.uuid4().hex}.part")
         partial.write_bytes(gzip.compress(body))
         partial.replace(cached)  # atomic, so a reader never sees half a file
         return body
 
-    def _download(self, url: str) -> bytes:
+    def _download(self, url: str, kind: str) -> bytes:
         self._acquire()
+        with suppress(RedisError):  # a lost count must not cost the request
+            self._redis.hincrby(REQUESTS_KEY, kind, 1)
         try:
             response = self._http.get(url)
         except httpx.HTTPError as exc:  # timeouts and connection errors

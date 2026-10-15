@@ -89,7 +89,9 @@ services:
     environment:
       <<: *app-environment
       SEC_USER_AGENT: ${SEC_USER_AGENT:?set SEC_USER_AGENT in .env, with your contact for SEC}
-    volumes: ["sec-cache:/var/cache/filinglens/sec"] # raw SEC responses (SEC_CACHE_DIR)
+    # Raw SEC responses (SEC_CACHE_DIR) in the repo's .cache/sec (gitignored), shared with host
+    # runs such as scripts/seed_real.py, so the cache stays on this disk.
+    volumes: ["../.cache/sec:/var/cache/filinglens/sec"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -149,4 +151,3 @@ services:
 volumes:
   postgres-data:
   rabbitmq-data:
-  sec-cache:

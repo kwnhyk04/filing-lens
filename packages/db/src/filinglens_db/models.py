@@ -25,7 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql.base import (  # untyped dict[str, type]
     ischema_names,  # pyright: ignore[reportUnknownVariableType]
 )
@@ -72,7 +72,7 @@ def chunk_id(accession_number: str, item: str, char_start: int) -> str:
 class FilingStatus(StrEnum):
     DISCOVERED = "discovered"
     FETCHED = "fetched"
-    PARSED = "parsed"
+    PARSED = "parsed"  # sections and chunks stored
     EMBEDDED = "embedded"
     INDEXED = "indexed"
     FAILED = "failed"
@@ -84,6 +84,13 @@ class JobStatus(StrEnum):
     SUCCEEDED = "succeeded"
     PARTIALLY_FAILED = "partially_failed"
     FAILED = "failed"
+
+
+class FiscalSource(StrEnum):
+    """Where a filing's fiscal year and period came from."""
+
+    COMPANYFACTS = "companyfacts"  # the companyfacts entries of its accession number
+    PERIOD_OF_REPORT = "period_of_report"  # derived from period_end and the fiscal year end
 
 
 class ItemStatus(StrEnum):
@@ -144,14 +151,19 @@ class Filing(Base):
     accession_number: Mapped[str] = mapped_column(String(20), unique=True)
     cik: Mapped[int] = mapped_column(ForeignKey("companies.cik"))
     form_type: Mapped[str] = mapped_column(String(20))
-    fiscal_year: Mapped[int | None] = mapped_column(SmallInteger)  # known once parsed
+    fiscal_year: Mapped[int | None] = mapped_column(SmallInteger)  # set by the facts task
     fiscal_period: Mapped[str | None] = mapped_column(String(2))
+    fiscal_source: Mapped[FiscalSource | None] = mapped_column(
+        _pg_enum(FiscalSource, "fiscal_source")
+    )
     filed_on: Mapped[date]
     period_end: Mapped[date]
     primary_document: Mapped[str] = mapped_column(String(200))
     status: Mapped[FilingStatus] = mapped_column(
         _pg_enum(FilingStatus, "filing_status"), server_default=FilingStatus.DISCOVERED.value
     )
+    # Required items parse did not find, such as ["7A"]; empty when it found them all.
+    missing_items: Mapped[list[str] | None] = mapped_column(ARRAY(String(10)))
 
 
 class Section(Base):
@@ -166,6 +178,8 @@ class Section(Base):
     title: Mapped[str] = mapped_column(Text)
     char_start: Mapped[int]
     char_end: Mapped[int]
+    # What chunk splits; deferred, as only the chunk task reads it.
+    text: Mapped[str | None] = mapped_column(Text, deferred=True)
 
 
 class Chunk(Base):
@@ -199,18 +213,26 @@ class Chunk(Base):
 
 
 class FinancialFact(Base):
-    """An XBRL fact as SEC's companyfacts API reports it: one row per filing that reported it."""
+    """An XBRL fact as SEC's companyfacts API reports it: one row per filing that reported it.
+
+    fiscal_year and fiscal_period belong to the reporting filing, so a comparative carries the
+    later filing's year. docs/memory.md has the rule for picking one value per period.
+    """
 
     __tablename__ = "financial_facts"
     __table_args__ = (
-        # Upsert key: one row per concept, unit and period in a filing (instant facts: no start).
-        UniqueConstraint(
-            "accession_number",
+        # Upsert key (instant facts have no start). cik is in it because one combined filing
+        # reports facts for several registrants. Its leading columns serve the per-period lookup.
+        Index(
+            "uq_financial_facts_cik",
+            "cik",
             "taxonomy",
             "concept",
             "unit",
-            "period_start",
             "period_end",
+            "period_start",
+            "accession_number",
+            unique=True,
             postgresql_nulls_not_distinct=True,
         ),
     )
@@ -226,8 +248,9 @@ class FinancialFact(Base):
     period_end: Mapped[date]
     fiscal_year: Mapped[int] = mapped_column(SmallInteger)
     fiscal_period: Mapped[str] = mapped_column(String(2))
-    form: Mapped[str] = mapped_column(String(20))
+    form: Mapped[str] = mapped_column(String(20))  # as SEC reports it, 10-K/A included
     accession_number: Mapped[str] = mapped_column(String(20))
+    filed_on: Mapped[date | None]  # the reporting filing's date; NULL in fake data only
 
 
 class IngestJob(Base):

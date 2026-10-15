@@ -6,10 +6,10 @@ Schema changes follow expand, migrate, contract:
 2. Migrate: backfill data and move code to the new shape.
 3. Contract: drop the old shape in a later release, once no running code reads it.
 
-- Apply: `make migrate` upgrades to head; `make migrate REV=0007` stops at a revision (dev uses it, see below). Both read `DATABASE_URL` from `.env`. To go back: `uv run --env-file .env python -m alembic downgrade <revision>`.
-- New revision: `uv run --env-file .env python -m alembic revision --autogenerate --rev-id 0007 -m "<change>"`, then review the file. Alembic config lives under `[tool.alembic]` in the root `pyproject.toml`.
+- Apply: `make migrate` upgrades to head; `make migrate REV=0008` stops at a revision (dev uses it, see below). Both read `DATABASE_URL` from `.env`. To go back: `uv run --env-file .env python -m alembic downgrade <revision>`.
+- New revision: `uv run --env-file .env python -m alembic revision --autogenerate --rev-id 0009 -m "<change>"`, then review the file. Alembic config lives under `[tool.alembic]` in the root `pyproject.toml`.
 - Revisions live in `packages/db/src/filinglens_db/migrations/versions/`.
-- `make test-int` upgrades an empty database to head, downgrades to base, upgrades again, and fails if the models and the migrations disagree. It also runs the embedding swap below from 0007 to 0006.
+- `make test-int` upgrades an empty database to head, downgrades to base, upgrades again, and fails if the models and the migrations disagree. It also runs the embedding swap below from 0008 to 0006.
 
 ## Rules
 
@@ -21,13 +21,13 @@ Schema changes follow expand, migrate, contract:
 
 ## Dev path: model A until the live swap
 
-Dev, and the backend on the PC, stays on the last revision before the swap (now 0007) through steps 4-6, so the pipeline, search and the step 6 evals run on model A (`embedding`). After the step 6 evals, the swap below runs for real, and recall@10 is measured before and after.
+Dev, and the backend on the PC, stays on the last revision before the swap (now 0008) through steps 4-6, so the pipeline, search and the step 6 evals run on model A (`embedding`). After the step 6 evals, the swap below runs for real, and recall@10 is measured before and after.
 
-- Migrate with `make migrate REV=0007`, and set `RETRIEVAL_EMBEDDING_COLUMN=embedding` in `.env` (as `.env.example` does).
-- The swap revisions stay at the end of the chain until the live swap. A new revision revises the one 0004 revises today, and 0004 then revises the new one. That is why the chain runs 0001, 0002, 0003, 0007, 0004, 0005, 0006. The dev path then moves to the new revision.
+- Migrate with `make migrate REV=0008`, and set `RETRIEVAL_EMBEDDING_COLUMN=embedding` in `.env` (as `.env.example` does).
+- The swap revisions stay at the end of the chain until the live swap. A new revision revises the one 0004 revises today, and 0004 then revises the new one. That is why the chain runs 0001, 0002, 0003, 0007, 0008, 0004, 0005, 0006. The dev path then moves to the new revision.
 - Code must run on the dev revision. It reads and writes embeddings through the column `RETRIEVAL_EMBEDDING_COLUMN` names, with that column's model from `EMBEDDING_MODELS`, as `nearest_chunks` does. It never uses `Chunk.embedding_v2`, which exists only from 0004 on. The ORM maps head's columns but defers the embedding ones, so loading chunks still works without them.
 - `make seed-fake` fills whichever embedding columns exist.
-- A plain `make migrate` goes to head: 0004 and 0005 only add, and 0006 refuses to drop model A while any chunk lacks `embedding_v2`. To return to the dev path: `uv run --env-file .env python -m alembic downgrade 0007`.
+- A plain `make migrate` goes to head: 0004 and 0005 only add, and 0006 refuses to drop model A while any chunk lacks `embedding_v2`. To return to the dev path: `uv run --env-file .env python -m alembic downgrade 0008`.
 
 The live swap, after step 6:
 
@@ -43,7 +43,7 @@ Chunks start on model A (`embedding`, BAAI/bge-small-en-v1.5, 384 dimensions) an
 
 Release N ships 0004 and 0005, with code that knows both columns:
 
-1. Expand: `alembic upgrade 0004` adds nullable `embedding_v2` and `embedding_v2_model`. Rollback: `alembic downgrade 0007`.
+1. Expand: `alembic upgrade 0004` adds nullable `embedding_v2` and `embedding_v2_model`. Rollback: `alembic downgrade 0008`.
 2. Migrate: start the backfill once, with `docker compose exec ingest celery -A filinglens_ingest.worker call filinglens_ingest.reembed.reembed`. Each run embeds the next 256 chunks, in chunk id order, that model B has not embedded, then queues the next run with the last id. Runs are rate limited to 60 a minute; Celery's limit is per worker, but only one run is queued at a time. A crash or restart redelivers the message, and the run skips the rows already done. Progress: `SELECT count(*) FILTER (WHERE embedding_v2_model = 'BAAI/bge-base-en-v1.5'), count(*) FROM chunks;`
 3. Index: when the backfill finishes, `alembic upgrade 0005` builds the HNSW index on `embedding_v2` concurrently. One build after the backfill is faster than updating the index row by row. Size the build first:
    - A parallel build keeps its graph in shared memory of about `maintenance_work_mem`. Compose gives postgres `shm_size: 256mb` in dev and prod, so keep `maintenance_work_mem` at 200 MB or less for a parallel build; `make check-parallel-hnsw` confirms on the dev stack that one fits. With Docker's default 64 MB it fails with "could not resize shared memory segment".
@@ -68,6 +68,7 @@ The next swap repeats these steps with a new column such as `embedding_v3`, adde
 | 0002 | expand | Add `companies.sector`. Create `filings` (status enum), `sections`, `chunks` (generated `tsv`, `embedding` vector(384)), `financial_facts`, `ingest_jobs`, `ingest_job_items`, `dead_letters` and `eval_runs`. |
 | 0003 | expand | Concurrent indexes: HNSW (cosine) on `chunks.embedding`, GIN on `chunks.tsv`, `chunks (section_id, char_start)`, `filings (filed_on, accession_number)`, and `(created_at, id)` on `ingest_jobs`, `dead_letters` and `eval_runs`. |
 | 0007 | expand | Create `ingest_job_companies` (job, CIK, discovery status, error), so a job knows when discovery is done. Revises 0003; 0004 revises it, which keeps the swap last. |
+| 0008 | expand, plus one unused key dropped | Add nullable `filings.fiscal_source` (enum `companyfacts`, `period_of_report`), `filings.missing_items`, `sections.text` and `financial_facts.filed_on`. Build the unique index `uq_financial_facts_cik` (cik, taxonomy, concept, unit, period_end, period_start, accession number; `NULLS NOT DISTINCT`) concurrently, then drop the old key `uq_financial_facts_accession_number`: no code names it, and it would drop one registrant's facts from a combined filing. The new key holds the old one's columns, so building it cannot fail. The downgrade loses the new columns' data and fails while one filing reports a fact for two CIKs. Revises 0007; 0004 revises it. |
 | 0004 | expand | Add nullable `chunks.embedding_v2` vector(768) and `chunks.embedding_v2_model`. |
 | 0005 | expand | Concurrent HNSW (cosine) index on `chunks.embedding_v2`. |
 | 0006 | contract | Drop `ix_chunks_embedding`, `chunks.embedding` and `chunks.embedding_model` (separate release). Refuses while any chunk lacks `embedding_v2`. |

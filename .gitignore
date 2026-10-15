@@ -4,6 +4,8 @@
 !.env.example
 
 .venv/
+# Raw SEC responses (SEC_CACHE_DIR), shared with the ingest container.
+.cache/
 __pycache__/
 .pytest_cache/
 .ruff_cache/

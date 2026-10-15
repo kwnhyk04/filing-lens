@@ -3,6 +3,8 @@
 The step 4 done checks: 20 workers stay under 8 SEC requests a second, a filing that fails every
 attempt lands in fetch.dlq and dead_letters (then replays), a full fetch queue makes discover back
 off without losing filings, and a killed worker's message is redelivered without duplicate rows.
+Step 4b: facts load once and set fiscal periods; one unparseable filing fails only its own item,
+and a rerun downloads no document again. The fake SEC serves a trimmed real Apple 10-K.
 """
 
 import asyncio
@@ -16,6 +18,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -36,21 +39,26 @@ import filinglens_sec_client
 from filinglens_core import queues
 from filinglens_core.errors import NotFoundError, RateLimitedError, UpstreamError
 from filinglens_db.models import (
+    Chunk,
     Company,
     DeadLetter,
     Filing,
     FilingStatus,
+    FinancialFact,
+    FiscalSource,
     IngestJob,
     IngestJobCompany,
     IngestJobItem,
     ItemStatus,
     JobStatus,
+    Section,
 )
 from filinglens_ingest import topology
 from filinglens_ingest.replay import replay
 from filinglens_sec_client import (
     COOL_OFF_KEY,
     REFUSED_KEY,
+    REQUESTS_KEY,
     STRIKE_KEY,
     SecClient,
     SecRefusedError,
@@ -64,6 +72,11 @@ CIK = 1
 ACCESSION = "0000000001-26-000001"
 DOCUMENT = f"/Archives/edgar/data/{CIK}/{ACCESSION.replace('-', '')}/one-10k.htm"
 JITTER_S = 0.05  # scheduling noise between a Redis grant and the fake server's clock
+FIXTURES = Path(__file__).with_name("fixtures")
+TEN_K = (FIXTURES / "aapl-10k-2025.htm").read_bytes()  # a real 10-K, trimmed
+FINISHED = (JobStatus.SUCCEEDED, JobStatus.PARTIALLY_FAILED, JobStatus.FAILED)
+# A worker that takes a filing from fetch to chunk.
+TO_CHUNK = f"{queues.FETCH},{queues.FETCH_RETRY},{queues.PARSE},{queues.CHUNK}"
 
 type Route = Callable[[], tuple[int, bytes]]
 
@@ -247,9 +260,9 @@ def start_worker(
             worker.process.wait()
 
 
-async def add_job(engine: AsyncEngine, *, discovered: bool) -> UUID:
-    """A job over company CIK; `discovered` says discovery already walked every page."""
-    request = {"ciks": [CIK], "form_types": ["10-K", "10-Q"], "since": "2000-01-01"}
+async def add_job(engine: AsyncEngine, *, discovered: bool, cik: int = CIK) -> UUID:
+    """A job over one company; `discovered` says discovery already walked every page."""
+    request = {"ciks": [cik], "form_types": ["10-K", "10-Q"], "since": "2000-01-01"}
     async with engine.begin() as connection:
         job_id = await connection.scalar(
             insert(IngestJob)
@@ -258,7 +271,7 @@ async def add_job(engine: AsyncEngine, *, discovered: bool) -> UUID:
         )
         status = ItemStatus.SUCCEEDED if discovered else ItemStatus.PENDING
         await connection.execute(
-            insert(IngestJobCompany).values(job_id=job_id, cik=CIK, status=status)
+            insert(IngestJobCompany).values(job_id=job_id, cik=cik, status=status)
         )
     assert job_id is not None
     return job_id
@@ -405,7 +418,7 @@ def test_a_filing_failing_every_attempt_lands_in_fetch_dlq_and_dead_letters_then
     job_id = run(db, lambda engine: add_job(engine, discovered=True))
     filing_id = run(db, lambda engine: add_filing(engine, job_id))
     fake_sec.routes[DOCUMENT] = lambda: (503, b"busy")
-    worker = start_worker("dlq", f"{queues.FETCH},{queues.FETCH_RETRY}")
+    worker = start_worker("dlq", TO_CHUNK)
     wait_for(lambda: queue_state(broker, queues.FETCH)[1] == 1, 60, worker)
 
     producer.send_task(
@@ -427,12 +440,12 @@ def test_a_filing_failing_every_attempt_lands_in_fetch_dlq_and_dead_letters_then
     message.requeue()
 
     # SEC recovers: the replayed message starts over with a fresh retry count and succeeds.
-    fake_sec.routes[DOCUMENT] = lambda: (200, b"<html>10-K</html>")
+    fake_sec.routes[DOCUMENT] = lambda: (200, TEN_K)
     assert replay(broker, "fetch.dlq", 100) == 1
     wait_for(lambda: run(db, snapshot)["jobs"] == [JobStatus.SUCCEEDED], 60, worker)
     state = run(db, snapshot)
     assert state["items"] == [(ItemStatus.SUCCEEDED, 8)]
-    assert state["filings"] == [FilingStatus.FETCHED]
+    assert state["filings"] == [FilingStatus.PARSED]
     assert len(state["letters"]) == 1  # kept as history
     assert queue_state(broker, "fetch.dlq")[0] == 0
 
@@ -486,7 +499,7 @@ def test_a_full_fetch_queue_makes_discover_back_off_without_losing_filings(
             fill.publish(b"filler", exchange="", routing_key=queues.FETCH)
     wait_for(lambda: queue_state(broker, queues.FETCH)[0] == queues.FETCH_MAX_LENGTH, 30)
 
-    worker = start_worker("discover", queues.DISCOVER)
+    worker = start_worker("discover", f"{queues.DISCOVER},{queues.FACTS}")  # no companyfacts: 404
     producer.send_task(
         queues.DISCOVER_TASK, args=[str(job_id), CIK], queue=topology.WORK_QUEUES[queues.DISCOVER]
     )
@@ -525,10 +538,10 @@ def test_a_killed_worker_has_its_message_redelivered_without_duplicate_rows(
     def first_hangs() -> tuple[int, bytes]:
         if fake_sec.hits(DOCUMENT) == 1:
             release.wait(30)  # worker A dies while it waits for this answer
-        return 200, b"<html>10-K</html>"
+        return 200, TEN_K
 
     fake_sec.routes[DOCUMENT] = first_hangs
-    consume = f"{queues.FETCH},{queues.FETCH_RETRY}"
+    consume = TO_CHUNK
     first = start_worker("a", consume)
     wait_for(lambda: queue_state(broker, queues.FETCH)[1] == 1, 60, first)
     producer.send_task(
@@ -555,7 +568,7 @@ def test_a_killed_worker_has_its_message_redelivered_without_duplicate_rows(
     assert run(db, counts) == (1, 1, 1, 0)  # no duplicate rows, nothing dead-lettered
     state = run(db, snapshot)
     assert state["items"] == [(ItemStatus.SUCCEEDED, 1)]  # worker A's try never finished
-    assert state["filings"] == [FilingStatus.FETCHED]
+    assert state["filings"] == [FilingStatus.PARSED]
     assert fake_sec.hits(DOCUMENT) == 2
     cached = tmp_path / "sec" / f"{DOCUMENT.lstrip('/')}.gz"
     assert cached.exists()
@@ -570,7 +583,7 @@ def test_without_redis_fetch_pauses_without_contacting_sec_and_resumes_later(
 ) -> None:
     job_id = run(db, lambda engine: add_job(engine, discovered=True))
     filing_id = run(db, lambda engine: add_filing(engine, job_id))
-    fake_sec.routes[DOCUMENT] = lambda: (200, b"<html>10-K</html>")
+    fake_sec.routes[DOCUMENT] = lambda: (200, TEN_K)
     consume = f"{queues.FETCH},{queues.FETCH_RETRY}"
     dead_redis = f"redis://127.0.0.1:{_free_port()}/0"  # nothing listens there
     paused = start_worker("no-redis", consume, REDIS_URL=dead_redis)
@@ -592,7 +605,7 @@ def test_without_redis_fetch_pauses_without_contacting_sec_and_resumes_later(
 
     paused.process.kill()  # Redis is back: the next worker reaches it
     paused.process.wait()
-    healthy = start_worker("redis", consume)
+    healthy = start_worker("redis", TO_CHUNK)
     wait_for(lambda: run(db, snapshot)["jobs"] == [JobStatus.SUCCEEDED], 60, healthy)
     assert run(db, snapshot)["items"] == [(ItemStatus.SUCCEEDED, 1)]
     assert fake_sec.hits(DOCUMENT) == 1
@@ -631,3 +644,173 @@ def test_a_403_after_a_cool_off_fails_the_job_with_a_clear_reason(
         assert error.startswith("SecRefusedError: SEC still refuses requests after a cool-off")
         assert "Check SEC_USER_AGENT" in error
     assert redis.get(REFUSED_KEY) is not None  # later requests fail without reaching SEC
+
+
+APPLE = 320193
+APPLE_10K = "0000320193-25-000079"  # in the companyfacts fixture
+APPLE_10Q = "0000320193-26-000001"  # made up, so companyfacts lacks it
+
+
+async def job_status(engine: AsyncEngine, job_id: UUID) -> JobStatus:
+    async with engine.connect() as connection:
+        query = select(IngestJob.status).where(IngestJob.id == job_id)
+        return (await connection.execute(query)).scalar_one()
+
+
+def finished(db: str, job_id: UUID) -> Callable[[], bool]:
+    """A wait_for check: the job reached a final status."""
+    return lambda: run(db, lambda engine: job_status(engine, job_id)) in FINISHED
+
+
+async def count(engine: AsyncEngine, table: type[Any]) -> int:
+    async with engine.connect() as connection:
+        return await connection.scalar(select(func.count()).select_from(table)) or 0
+
+
+async def items_of(engine: AsyncEngine, job_id: UUID) -> dict[str, tuple[ItemStatus, str | None]]:
+    """Each filing's item in the job: accession number -> (status, error)."""
+    query = (
+        select(Filing.accession_number, IngestJobItem.status, IngestJobItem.error)
+        .join(Filing, Filing.id == IngestJobItem.filing_id)
+        .where(IngestJobItem.job_id == job_id)
+    )
+    async with engine.connect() as connection:
+        return {
+            row.accession_number: (row.status, row.error) for row in await connection.execute(query)
+        }
+
+
+async def filings(engine: AsyncEngine) -> dict[str, tuple[Any, ...]]:
+    """accession number -> (status, fiscal year, fiscal period, fiscal source)."""
+    query = select(
+        Filing.accession_number,
+        Filing.status,
+        Filing.fiscal_year,
+        Filing.fiscal_period,
+        Filing.fiscal_source,
+    )
+    async with engine.connect() as connection:
+        return {row[0]: tuple(row[1:]) for row in await connection.execute(query)}
+
+
+async def add_apple_filings(engine: AsyncEngine) -> None:
+    async with engine.begin() as connection:
+        await connection.execute(
+            insert(Company).values(cik=APPLE, ticker="AAPL", name="Apple Inc.")
+        )
+        rows = [
+            (APPLE_10K, "10-K", date(2025, 10, 31), date(2025, 9, 27)),
+            (APPLE_10Q, "10-Q", date(2026, 1, 30), date(2025, 12, 27)),
+        ]
+        await connection.execute(
+            insert(Filing).values(
+                [
+                    {
+                        "accession_number": accession,
+                        "cik": APPLE,
+                        "form_type": form,
+                        "filed_on": filed,
+                        "period_end": period_end,
+                        "primary_document": "doc.htm",
+                    }
+                    for accession, form, filed, period_end in rows
+                ]
+            )
+        )
+
+
+def test_facts_load_once_and_give_each_filing_its_fiscal_period(
+    db: str,
+    fake_sec: FakeSec,
+    broker: Connection,
+    producer: Celery,
+    start_worker: Callable[[str, str], Worker],
+) -> None:
+    facts = (FIXTURES / "aapl-companyfacts.json").read_bytes()
+    fake_sec.routes[f"/api/xbrl/companyfacts/CIK{APPLE:010d}.json"] = lambda: (200, facts)
+    submissions = json.dumps({"fiscalYearEnd": "0927"}).encode()
+    fake_sec.routes[f"/submissions/CIK{APPLE:010d}.json"] = lambda: (200, submissions)
+    run(db, add_apple_filings)
+    worker = start_worker("facts", queues.FACTS)
+
+    loaded: list[int] = []
+    for _ in range(2):  # the second run must insert nothing
+        job_id = run(db, lambda engine: add_job(engine, discovered=False, cik=APPLE))
+        producer.send_task(
+            queues.FACTS_TASK, args=[str(job_id), APPLE], queue=topology.WORK_QUEUES[queues.FACTS]
+        )
+        wait_for(finished(db, job_id), 60, worker)
+        assert run(db, partial(job_status, job_id=job_id)) == JobStatus.SUCCEEDED
+        loaded.append(run(db, partial(count, table=FinancialFact)))
+    assert loaded == [28, 28]  # 29 entries, less the 8-K one without a fiscal year
+    assert {accession: row[1:] for accession, row in run(db, filings).items()} == {
+        APPLE_10K: (2025, "FY", FiscalSource.COMPANYFACTS),
+        APPLE_10Q: (2026, "Q1", FiscalSource.PERIOD_OF_REPORT),
+    }
+
+
+def test_an_unparseable_filing_fails_alone_and_a_rerun_downloads_no_document(
+    db: str,
+    fake_sec: FakeSec,
+    redis: Redis,
+    broker: Connection,
+    producer: Celery,
+    start_worker: Callable[[str, str], Worker],
+) -> None:
+    good, bad = "0000000001-26-000010", "0000000001-26-000011"
+    recent = {
+        "accessionNumber": [good, bad],
+        "filingDate": ["2026-02-02", "2026-02-01"],
+        "reportDate": ["2025-12-31", "2025-12-31"],
+        "form": ["10-K", "10-K"],
+        "primaryDocument": ["good.htm", "bad.htm"],
+    }
+    main = json.dumps(
+        {
+            "name": "One Corp",
+            "tickers": ["ONE"],
+            "fiscalYearEnd": "1231",
+            "filings": {"recent": recent, "files": []},
+        }
+    ).encode()
+    fake_sec.routes[f"/submissions/CIK{CIK:010d}.json"] = lambda: (200, main)
+    no_items = b"<html><body><p>Exhibit 99.1</p><p>Press release.</p></body></html>"
+    documents = {
+        f"/Archives/edgar/data/{CIK}/{good.replace('-', '')}/good.htm": TEN_K,
+        f"/Archives/edgar/data/{CIK}/{bad.replace('-', '')}/bad.htm": no_items,
+    }
+    for path, body in documents.items():
+        fake_sec.routes[path] = lambda body=body: (200, body)
+    worker = start_worker("all", f"{queues.DISCOVER},{TO_CHUNK},{queues.FACTS}")
+
+    def ingest() -> UUID:
+        job_id = run(db, lambda engine: add_job(engine, discovered=False))
+        producer.send_task(
+            queues.DISCOVER_TASK,
+            args=[str(job_id), CIK],
+            queue=topology.WORK_QUEUES[queues.DISCOVER],
+        )
+        wait_for(finished(db, job_id), 120, worker)
+        return job_id
+
+    first = ingest()
+    assert run(db, partial(job_status, job_id=first)) == JobStatus.PARTIALLY_FAILED
+    items = run(db, partial(items_of, job_id=first))
+    assert items[good] == (ItemStatus.SUCCEEDED, None)
+    assert items[bad][0] == ItemStatus.FAILED
+    assert str(items[bad][1]).startswith("ParseError: No required item found")
+    state = run(db, filings)
+    assert state[good] == (FilingStatus.PARSED, 2025, "FY", FiscalSource.PERIOD_OF_REPORT)
+    assert state[bad][0] == FilingStatus.FAILED
+    assert run(db, partial(count, table=Section)) == 23  # the 10-K's items
+    chunks = run(db, partial(count, table=Chunk))
+    assert chunks > 0
+    assert queue_state(broker, "parse.dlq")[0] == 1
+
+    second = ingest()  # the parsed filing is skipped; the bad one fails again from the cache
+    assert run(db, partial(job_status, job_id=second)) == JobStatus.PARTIALLY_FAILED
+    statuses = {status for status, _ in run(db, partial(items_of, job_id=second)).values()}
+    assert statuses == {ItemStatus.SKIPPED, ItemStatus.FAILED}
+    assert all(fake_sec.hits(path) == 1 for path in documents)  # no document downloaded again
+    assert redis.hget(REQUESTS_KEY, "document") == b"2"
+    assert run(db, partial(count, table=Chunk)) == chunks

@@ -5,7 +5,7 @@ columns until the reembed task fills them. Runbook: docs/migrations.md. The swap
 of the chain until the live swap: a new revision slots in before this one.
 
 Revision ID: 0004
-Revises: 0007
+Revises: 0008
 Create Date: 2026-10-14
 """
 
@@ -17,7 +17,7 @@ from alembic import op
 from filinglens_db.models import Vector
 
 revision: str = "0004"
-down_revision: str | Sequence[str] | None = "0007"
+down_revision: str | Sequence[str] | None = "0008"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

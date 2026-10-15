@@ -12,7 +12,7 @@ REV ?= head
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval
+.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -33,11 +33,14 @@ lint:
 typecheck:
 	$(PY) pyright
 
-migrate: ## upgrade to REV (default head); dev stays at REV=0007, before the swap (docs/migrations.md)
+migrate: ## upgrade to REV (default head); dev stays at REV=0008, before the swap (docs/migrations.md)
 	uv run --env-file .env python -m alembic upgrade $(REV)
 
 seed:
 	uv run --env-file .env python -m filinglens_db.seed
+
+seed-real: ## live SEC: the latest 10-K of the 30 golden-set companies, through the worker (make dev)
+	uv run --env-file .env python scripts/seed_real.py
 
 seed-fake: ## load and pagination tests only: 200 fake companies, 2,000 filings, 100k chunks
 	uv run --env-file .env python scripts/seed_fake.py

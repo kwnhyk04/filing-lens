@@ -9,20 +9,12 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 - [ ] (manual) Get free API keys: Google AI Studio (Gemini) and Groq; optional Cloudflare Workers AI token. Put them in `.env`, never in the repo.
 - [ ] (manual, before step 7) GitHub repo created; provider keys added as Actions secrets.
 - [ ] (manual, before step 10) Vercel and Tailscale accounts created.
-- [ ] (manual, now) Fix `API_KEY` on line 34 of `.env`: it holds the command `uv run python -c "import secrets; ..."` instead of its output, so `uv run --env-file .env` (make migrate, make seed) cannot parse the file. Also add `RETRIEVAL_EMBEDDING_COLUMN=embedding` (as in `.env.example`). Then `make migrate REV=0007` and `make seed` (and `make seed-fake` for load tests): the compose Postgres has no tables, so `/v1/companies` returns 500.
-- [ ] (manual, now) Add `SEC_USER_AGENT` to `.env`: your tool name and a contact email, such as `SEC_USER_AGENT="FilingLens Jane Doe jane.doe@mail.com"`. Compose (`make dev`, plain `docker compose`) refuses to start without it, and the worker refuses the `.env.example` placeholder. Then `make dev` picks up the new api and ingest images.
 - [ ] (manual, before step 10) Replace the example passwords in `.env`, and set both `API_KEY` and `ADMIN_API_KEY` (step 2 appended a random `ADMIN_API_KEY`).
-- [ ] 4b. Parse, chunk, facts and `scripts/seed_real.py` (user decision 2026-10-14):
-  - Parse each fetched 10-K and 10-Q from the SEC cache into item sections, and set the filing's fiscal year and period.
-  - Chunk the sections, with token counts and offsets (`chunk_id`).
-  - Load XBRL companyfacts into `financial_facts`.
-  - `seed_real.py` checks each CIK and ticker in `evals/golden-companies.csv` against SEC's `company_tickers.json`, then ingests the 30 companies through the pipeline.
-  - Done when one seed run leaves their filings parsed and chunked, with facts and full-text search, and a rerun downloads no document again.
-  - Vectors wait for step 6's embedder; the embed stage writes the column `RETRIEVAL_EMBEDDING_COLUMN` names, so the ingest settings need the flag then.
-  - Needs `SEC_USER_AGENT` with your contact; it runs against live SEC.
+- [ ] (manual, optional) `SEC_USER_AGENT` in `.env` holds only an email. SEC asks for a tool or company name plus a contact, such as `FilingLens Jane Doe jane.doe@mail.com`.
+- [ ] (manual, optional) Remove the unused Docker volume `filinglens_sec-cache` (`docker volume rm filinglens_sec-cache`); the SEC cache now lives in `.cache/sec`.
 - [ ] 5. Tests: unit and integration suites green three runs in a row
-- [ ] 6. AI: pipeline built, golden dataset v1 created, eval report lists every target with pass or fail. Replace the `search`, `answer` and `stream_answer` stubs in `LiveBackend`; search reads `RETRIEVAL_EMBEDDING_COLUMN` through `filinglens_retrieval.nearest_chunks` and puts the column in the cursor's `index_version`. Implement `filinglens_llm.embed` (local sentence-transformers first), which also makes the `reembed` task run for real. Raise `OverloadedError(retry_after_s=...)` when shedding load. The evals run on model A at the dev revision (0007, or a newer one before 0004).
-- [ ] Live embedding swap (after step 6; user decision): with dev on the last revision before 0004 (now 0007), record the model A baseline (`make eval`, recall@10 and MRR@10, golden set version); run 0004, the reembed backfill, 0005 (run `make check-parallel-hnsw` first, then pick a parallel build within the 256 MB `shm_size` or a serial one with more `maintenance_work_mem`, by corpus size; runbook step 3), the catch-up run and the flip to `embedding_v2`; run `make eval` again on the same golden set; record both runs in `eval_runs` and the activity log; then run 0006 in the next release and set `.env.example` to `embedding_v2`. Done when both recall@10 values are recorded and dev is at head. Runbook: `docs/migrations.md`.
+- [ ] 6. AI: pipeline built, golden dataset v1 created, eval report lists every target with pass or fail. Replace the `search`, `answer` and `stream_answer` stubs in `LiveBackend`; search reads `RETRIEVAL_EMBEDDING_COLUMN` through `filinglens_retrieval.nearest_chunks` and puts the column in the cursor's `index_version`. Implement `filinglens_llm.embed` (local sentence-transformers first), which also makes the `reembed` task run for real. Raise `OverloadedError(retry_after_s=...)` when shedding load. The evals run on model A at the dev revision (0008, or a newer one before 0004). `get_financial_fact` follows the latest-filed rule in `docs/memory.md` (step 4b).
+- [ ] Live embedding swap (after step 6; user decision): with dev on the last revision before 0004 (now 0008), record the model A baseline (`make eval`, recall@10 and MRR@10, golden set version); run 0004, the reembed backfill, 0005 (run `make check-parallel-hnsw` first, then pick a parallel build within the 256 MB `shm_size` or a serial one with more `maintenance_work_mem`, by corpus size; runbook step 3), the catch-up run and the flip to `embedding_v2`; run `make eval` again on the same golden set; record both runs in `eval_runs` and the activity log; then run 0006 in the next release and set `.env.example` to `embedding_v2`. Done when both recall@10 values are recorded and dev is at head. Runbook: `docs/migrations.md`.
 - [ ] 7. CI/CD: GitHub Actions for test, build, docker push; actionlint passes; test PR green. CI also runs `make contracts-check` and `make contracts-breaking BASE=origin/main` (fetch main first).
 - [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved
 - [ ] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, demo snapshot shown when the backend is offline; Playwright tests pass. The BFF uses `clients/ts` (`createApiClient`, `executeGraphql`) with `API_KEY` only.
@@ -33,6 +25,15 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 None.
 
 ## Completed
+
+- [x] 4b. Parse, chunk, facts and `scripts/seed_real.py` (2026-10-15):
+  - One live `make seed-real` run left the 30 golden-set 10-Ks parsed and chunked with facts loaded: 11,263 chunks (158 to 938 per 10-K, median 314), 856,438 facts, no required item missing, fiscal year and period from companyfacts for all 30. 91 SEC requests (30 documents) in 32 s.
+  - A second run made 0 SEC requests and downloaded 0 documents.
+  - "supply chain risk" on Apple's chunks returned only Item 1A chunks.
+  - `make test` 85 passed, `make test-int` 21 passed.
+  - User decisions: missing items stored and listed; whole companyfacts with the facts key including `cik`; the latest-filed rule for `get_financial_fact`; only a 10-K/A stops the seed; ConocoPhillips replaced ExxonMobil in the golden set (SEC moved XOM to a new holding company that has no 10-K yet).
+
+- [x] Manual setup checked (2026-10-15): `.env` parses with `uv run --env-file .env`; `API_KEY` (43 characters) holds a value, not a command, and differs from `ADMIN_API_KEY`; `RETRIEVAL_EMBEDDING_COLUMN=embedding`; `SEC_USER_AGENT` set with an email; dev database at 0007 with the 6 seeded companies (now at 0008).
 
 - [x] Step 4 fixes (2026-10-15):
   - The SEC limiter fails closed: without Redis, tasks pause and keep their retries. Tested with a worker on a dead Redis.

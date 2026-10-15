@@ -1,0 +1,357 @@
+{
+ "cik": 320193,
+ "entityName": "Apple Inc.",
+ "facts": {
+  "us-gaap": {
+   "RevenueFromContractWithCustomerExcludingAssessedTax": {
+    "label": "Revenue from Contract with Customer, Excluding Assessed Tax",
+    "description": "Amount, excluding tax collected from customer, of revenue from satisfaction of performance obligation by transferring promised good or service to customer. Tax collected from customer is tax assessed by governmental authority that is both imposed on and concurrent with specific revenue-producing transaction, including, but not limited to, sales, use, value added and excise.",
+    "units": {
+     "USD": [
+      {
+       "start": "2022-09-25",
+       "end": "2023-09-30",
+       "val": 383285000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2023"
+      },
+      {
+       "start": "2023-10-01",
+       "end": "2024-06-29",
+       "val": 296105000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2024-03-31",
+       "end": "2024-06-29",
+       "val": 85777000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01",
+       "frame": "CY2024Q2"
+      },
+      {
+       "start": "2023-10-01",
+       "end": "2024-09-28",
+       "val": 391035000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2024-09-29",
+       "end": "2025-06-28",
+       "val": 313695000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2025-03-30",
+       "end": "2025-06-28",
+       "val": 94036000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2024-09-29",
+       "end": "2025-09-27",
+       "val": 416161000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2025"
+      }
+     ]
+    }
+   },
+   "NetIncomeLoss": {
+    "label": "Net Income (Loss) Attributable to Parent",
+    "description": "The portion of profit or loss for the period, net of income taxes, which is attributable to the parent.",
+    "units": {
+     "USD": [
+      {
+       "start": "2022-09-25",
+       "end": "2023-09-30",
+       "val": 96995000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2023"
+      },
+      {
+       "start": "2023-10-01",
+       "end": "2024-06-29",
+       "val": 79000000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2024-03-31",
+       "end": "2024-06-29",
+       "val": 21448000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01",
+       "frame": "CY2024Q2"
+      },
+      {
+       "start": "2023-10-01",
+       "end": "2024-09-28",
+       "val": 93736000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2024-09-29",
+       "end": "2025-06-28",
+       "val": 84544000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2025-03-30",
+       "end": "2025-06-28",
+       "val": 23434000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2024-09-29",
+       "end": "2025-09-27",
+       "val": 112010000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2025"
+      }
+     ]
+    }
+   },
+   "Assets": {
+    "label": "Assets",
+    "description": "Sum of the carrying amounts as of the balance sheet date of all assets that are recognized. Assets are probable future economic benefits obtained or controlled by an entity as a result of past transactions or events.",
+    "units": {
+     "USD": [
+      {
+       "end": "2024-09-28",
+       "val": 364980000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "end": "2024-09-28",
+       "val": 364980000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2024Q3I"
+      },
+      {
+       "end": "2025-06-28",
+       "val": 331495000000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-09-27",
+       "val": 359241000000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31"
+      }
+     ]
+    }
+   },
+   "EarningsPerShareBasic": {
+    "label": "Earnings Per Share, Basic",
+    "description": "The amount of net income (loss) for the period per each share of common stock or unit outstanding during the reporting period.",
+    "units": {
+     "USD/shares": [
+      {
+       "start": "2022-09-25",
+       "end": "2023-09-30",
+       "val": 6.16,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2023"
+      },
+      {
+       "start": "2023-10-01",
+       "end": "2024-06-29",
+       "val": 5.13,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2024-03-31",
+       "end": "2024-06-29",
+       "val": 1.4,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01",
+       "frame": "CY2024Q2"
+      },
+      {
+       "start": "2023-10-01",
+       "end": "2024-09-28",
+       "val": 6.11,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2024-09-29",
+       "end": "2025-06-28",
+       "val": 5.64,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2025-03-30",
+       "end": "2025-06-28",
+       "val": 1.57,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01"
+      },
+      {
+       "start": "2024-09-29",
+       "end": "2025-09-27",
+       "val": 7.49,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2025"
+      }
+     ]
+    }
+   },
+   "AccountsPayableCurrent": {
+    "label": "Accounts Payable, Current",
+    "units": {
+     "USD": [
+      {
+       "end": "2013-09-28",
+       "val": 22367000000,
+       "accn": "0001193125-15-023732",
+       "fy": null,
+       "fp": null,
+       "form": "8-K",
+       "filed": "2015-01-28",
+       "frame": "CY2013Q3I"
+      }
+     ]
+    }
+   }
+  },
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {
+    "label": "Entity Common Stock, Shares Outstanding",
+    "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests, if and as stated on cover of related periodic report. Where multiple classes or units exist define each class/interest by adding class of stock items such as Common Class A [Member], Common Class B [Member] or Partnership Interest [Member] onto the Instrument [Domain] of the Entity Listings, Instrument.",
+    "units": {
+     "shares": [
+      {
+       "end": "2025-07-18",
+       "val": 14840390000,
+       "accn": "0000320193-25-000073",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-08-01",
+       "frame": "CY2025Q2I"
+      },
+      {
+       "end": "2025-10-17",
+       "val": 14776353000,
+       "accn": "0000320193-25-000079",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-10-31",
+       "frame": "CY2025Q3I"
+      },
+      {
+       "end": "2009-10-16",
+       "val": 900678473,
+       "accn": "0001193125-10-012091",
+       "fy": 2009,
+       "fp": "FY",
+       "form": "10-K/A",
+       "filed": "2010-01-25",
+       "frame": "CY2009Q3I"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

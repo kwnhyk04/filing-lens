@@ -45,6 +45,9 @@ app.conf.update(
     task_routes={
         queues.DISCOVER_TASK: {"queue": queues.DISCOVER},
         queues.FETCH_TASK: {"queue": queues.FETCH},
+        queues.PARSE_TASK: {"queue": queues.PARSE},
+        queues.CHUNK_TASK: {"queue": queues.CHUNK},
+        queues.FACTS_TASK: {"queue": queues.FACTS},
         "filinglens_ingest.reembed.reembed": {"queue": queues.REEMBED},
     },
     # Publisher confirms: RabbitMQ nacks a publish to a full queue instead of dropping it.

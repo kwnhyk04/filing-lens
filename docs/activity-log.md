@@ -15,6 +15,28 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-15: Step 4b: parse, chunk, XBRL facts and seed_real
+
+- Changes:
+  - New Celery tasks after fetch, all idempotent with the fetch task's retry, pause and dead-letter rules and their own dead-letter queues:
+    - parse: inline XBRL HTML to text, item sections found by heading, the table of contents skipped by item order;
+    - chunk: at most 384 bge-small tokens with 64 overlapping, using the model's vendored tokenizer through `tokenizers` (new dependency);
+    - facts: whole companyfacts per company, plus each filing's fiscal year and period and their source.
+  - Migration 0008 (dev now at 0008): `filings.fiscal_source` and `missing_items`, `sections.text`, `financial_facts.filed_on`, and the facts key with `cik` replacing the old one.
+  - `SecClient` gained `companyfacts()`, `company_tickers()` and a per-kind request count in Redis.
+  - The SEC cache is now a bind mount of the repo's `.cache/sec`, shared with host runs (`SEC_CACHE_DIR`).
+  - `scripts/seed_real.py` (`make seed-real`).
+  - User decisions: missing items stored and listed, with only a filing that has no required item failing; whole companyfacts; the `get_financial_fact` latest-filed rule recorded in memory.md; a company with only a 10-K/A stops the seed; XOM replaced by COP in the golden set after SEC moved the XOM ticker to a new holding company.
+- Files: packages/sec_client, packages/core (queues.py), packages/db (models.py, migrations 0004 and 0008), services/ingest (pipeline.py, parsing.py, chunking.py, companyfacts.py, worker.py, tokenizer JSON, pyproject.toml, tests and fixtures), services/api/tests/test_app.py, scripts/seed_real.py, evals/golden-companies.csv, infra/docker-compose.yml, Makefile, .env.example, .gitignore, uv.lock, README.md, docs/*
+- Validation:
+  - Survey before the seed: the parser found every required item in the latest 10-K of each golden-set company (all 30, XOM included), in at most 2.1 s per document.
+  - `make test` 85 passed. `make test-int` 21 passed, including `alembic check`, the swap from 0008, facts loaded twice (28 rows both times, fiscal year from companyfacts, fallback for a filing it lacks), and an unparseable filing failing only its own item with a rerun that downloads no document.
+  - First `make seed-real` run: 30 jobs succeeded, 30 filings parsed, no required item missing. Chunks per 10-K: min 158, median 314, max 938; 11,263 in all. 856,438 facts. 91 SEC requests, 30 of them documents. 32 s.
+  - Second run: 0 SEC requests, 0 documents downloaded, no rows added (6 s).
+  - "supply chain risk" on Apple's chunks matched 5 chunks, all in Item 1A.
+  - EXPLAIN of the latest-filed facts lookup used `uq_financial_facts_cik`.
+- Outstanding: the old `filinglens_sec-cache` Docker volume is unused (not removed). Content in a separate financial section lands under the last item (known limit in memory.md).
+
 ### 2026-10-15: SEC limiter fails closed; a 403 after a cool-off fails the job
 
 - Changes (user request):
