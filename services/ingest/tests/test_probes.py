@@ -15,10 +15,11 @@ def free_port() -> int:
 def test_probes_report_liveness_and_each_unreachable_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dead, health = free_port(), free_port()  # nothing listens on `dead`
-    monkeypatch.setenv("DATABASE_URL", f"postgresql+asyncpg://app:app@127.0.0.1:{dead}/app")
-    monkeypatch.setenv("REDIS_URL", f"redis://127.0.0.1:{dead}/0")
-    monkeypatch.setenv("BROKER_URL", f"amqp://app:app@127.0.0.1:{dead}//")
+    health = free_port()
+    # Nothing answers on 0.0.0.0:1, and at once: a closed 127.0.0.1 port takes 2 s on Windows.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://app:app@0.0.0.0:1/app")
+    monkeypatch.setenv("REDIS_URL", "redis://0.0.0.0:1/0")
+    monkeypatch.setenv("BROKER_URL", "amqp://app:app@0.0.0.0:1//")
     monkeypatch.setenv("HEALTH_PORT", str(health))
     monkeypatch.setenv("SEC_USER_AGENT", "FilingLens tests tests@filinglens.test")
     worker = importlib.import_module("filinglens_ingest.worker")

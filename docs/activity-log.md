@@ -15,6 +15,23 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-15: Step 5: tests (markers, network guard, property tests, load tests)
+
+- Changes:
+  - Setup: dev dependencies pytest-asyncio 1.4.0, respx 0.23.1 and hypothesis 6.155.7 (pinned below 6.156, whose Rust extension Application Control blocks). Markers `unit` (the root conftest adds it to every test without another marker), `integration` and `e2e`; `make test` runs `-m unit`. Integration tests keep Testcontainers (user decision).
+  - `network_guard.py`: a lookup of any host but this machine raises at once, in pytest and in the worker and client processes that tests start.
+  - Unit suite from 33.8 s to about 8 s, test-side only: dead dependencies at 0.0.0.0:1 (a closed 127.0.0.1 port takes 2 s to refuse on Windows), the production JSON log format in tests (rich tracebacks took 3.8 s for one 500), one uvicorn per contract-test module.
+  - Pure functions for step 6: `filinglens_retrieval.reciprocal_rank_fusion` (k = 60, exact sums, ties by id) and `filinglens_llm.validate`: `citation_error` (quote and chunk normalized the same way, exact on words and digits; user decision), `parse_amount` (scale words, K/M/B/bn/T, accounting negatives, table scales; user request) and `amounts_match` (0.5%).
+  - Tests: a chunker property test (hypothesis), RRF, citations, amounts, SecClient timeouts and headers (respx), the guard; integration tests for keyset pages over 100k chunks under concurrent inserts and for the embedding swap under API reads.
+  - Todo: the search-cursor 409 and reranker-timeout tests, the Hugging Face offline note and the amount finder for answer text went into step 6; new items for CIK changes (after step 6) and financial-section headings (before step 9). AGENTS.md now says chunks are keyed by sha256(accession + section + offset).
+- Files: AGENTS.md, Makefile, README.md, pyproject.toml, uv.lock, conftest.py, network_guard.py, packages/retrieval (src, tests), packages/llm (validate.py, tests), packages/sec_client/tests, services/api/tests (conftest.py, test_under_load.py), services/ingest/tests (run_worker.py, test_chunking.py, test_pipeline.py, test_probes.py), docs/*
+- Validation:
+  - `ruff check`, `ruff format --check` and pyright clean.
+  - Three runs each: `make test` 127 passed in 7.86, 8.17 and 8.44 s; `make test-int` 23 passed in 105.21, 104.42 and 105.58 s (pytest's times; wall adds about 2 s). Before: 85 unit tests in 33.8 s, 21 integration tests in 82.7 s.
+  - After the abbreviations: `make test` 139 passed in 8.42 s (9.9 s wall).
+  - The keyset test runs at page size 100 with all 100k chunks in 24 s. With `>=` in place of `>` in `list_chunks` it fails (103,641 chunks returned, 102,605 distinct).
+- Outstanding: step 6 builds the amount finder for answer text, search with the 409 cursor check, and the reranker timeout test.
+
 ### 2026-10-15: Step 4b: parse, chunk, XBRL facts and seed_real
 
 - Changes:

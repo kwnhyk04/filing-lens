@@ -4,7 +4,7 @@ import asyncio
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -331,14 +331,19 @@ class FakeBackend:
         return events()
 
 
-@pytest.fixture
-def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
-    # Nothing listens on port 1, so every dependency check fails.
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://app:app@127.0.0.1:1/app")
-    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1/0")
-    monkeypatch.setenv("BROKER_URL", "amqp://app:app@127.0.0.1:1//")
+def _set_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Nothing answers on 0.0.0.0:1, so every dependency check fails, and at once: a closed
+    # 127.0.0.1 port takes 2 s to refuse a connection on Windows.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://app:app@0.0.0.0:1/app")
+    monkeypatch.setenv("REDIS_URL", "redis://0.0.0.0:1/0")
+    monkeypatch.setenv("BROKER_URL", "amqp://app:app@0.0.0.0:1//")
     monkeypatch.setenv("API_KEY", API_KEY)
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
+
+
+@pytest.fixture
+def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    _set_env(monkeypatch)
     return monkeypatch
 
 
@@ -398,15 +403,41 @@ def fake() -> FakeBackend:
     return FakeBackend()
 
 
+@pytest.fixture(scope="module")
+def _served() -> Iterator[tuple[str, dict[str, Backend]]]:
+    """The app served once per test module, without the Redis-backed limits; each test plugs in
+    its own backend. Starting and stopping uvicorn for every test took 0.3 s each.
+
+    The fixtures that run the app themselves (client, live, postgres_user, serve) share the one
+    app object, so a module must not use them after a test that used this one.
+    """
+    current: dict[str, Backend] = {}
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        _set_env(monkeypatch)
+        app.dependency_overrides[get_backend] = lambda: current["backend"]
+        app.dependency_overrides.update(UNLIMITED)
+        try:
+            with _serve() as url:
+                yield url, current
+        finally:
+            app.dependency_overrides.clear()
+
+
 @pytest.fixture
-def server_url(env: pytest.MonkeyPatch, fake: FakeBackend) -> Iterator[str]:
-    """The app over the in-memory backend, served over HTTP, without the Redis-backed limits."""
-    backend: Backend = fake  # pyright checks that the fake matches the protocol
-    app.dependency_overrides[get_backend] = lambda: backend
+def server_url(_served: tuple[str, dict[str, Backend]], fake: FakeBackend) -> str:
+    """The app over this test's in-memory backend, served over HTTP."""
+    url, current = _served
+    current["backend"] = fake  # pyright checks that the fake matches the protocol
+    return url
+
+
+@pytest.fixture
+def serve(env: pytest.MonkeyPatch) -> Iterator[Callable[[], AbstractContextManager[str]]]:
+    """Serves the app with its real backend, without the Redis-backed limits, over HTTP on
+    127.0.0.1. Set DATABASE_URL through `env` first."""
     app.dependency_overrides.update(UNLIMITED)
     try:
-        with _serve() as url:
-            yield url
+        yield _serve
     finally:
         app.dependency_overrides.clear()
 

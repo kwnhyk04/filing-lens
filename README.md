@@ -18,7 +18,7 @@ Needs uv, Docker, GNU make, and Node 20.9+ (for `web/` and the TypeScript client
 | Target | What it does |
 | --- | --- |
 | `make dev` / `make down` | Start the stack and wait until it is healthy / stop it (volumes are kept) |
-| `make test` / `make test-int` | Unit tests / integration tests in throwaway containers (needs Docker) |
+| `make test` / `make test-int` | Unit tests (no Docker, no network; about 10 s) / integration tests in throwaway Postgres, RabbitMQ and Redis containers (needs Docker; about 2 minutes). Tests never reach SEC or a model provider: `network_guard.py` refuses every host but this machine |
 | `make lint` / `make typecheck` | ruff / pyright (strict for `packages/*`) |
 | `make migrate` / `make seed` | Apply Alembic migrations up to `REV` (default head; dev uses `REV=0008`) / upsert seed data |
 | `make seed-real` | Live SEC, needs `make dev`: check the golden-set CIKs and tickers against SEC, then ingest each company's latest 10-K and its XBRL facts through the worker; prints filings per status, chunks per filing, facts per company and the SEC requests made |

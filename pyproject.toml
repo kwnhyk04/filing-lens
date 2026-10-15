@@ -56,9 +56,16 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib", "--strict-markers"]
-pythonpath = ["scripts"]  # tests seed with scripts/seed_fake.py
+# The root holds network_guard.py; tests seed with scripts/seed_fake.py.
+pythonpath = [".", "scripts"]
 testpaths = ["packages", "services", "evals"]
-markers = ["integration: needs Docker; starts throwaway containers with Testcontainers"]
+markers = [
+    "unit: no Docker and no network; conftest.py adds it to every test without another marker",
+    "integration: needs Docker; starts throwaway containers with Testcontainers",
+    "e2e: drives the running stack or the UI end to end (none yet; Playwright in step 9)",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.alembic]
 script_location = "%(here)s/packages/db/src/filinglens_db/migrations"
@@ -69,11 +76,15 @@ dev = [
     "filing-lens-api-client",
     "filing-lens-graphql-client",
     "httpx2>=2.13.1",
+    # 6.156 and later ship a Rust extension that this PC's Application Control blocks.
+    "hypothesis>=6.155.7,<6.156",
     "openapi-python-client>=0.29.1",
     "pre-commit>=4.7.0",
     "psycopg[binary]>=3.3.6",
     "pyright[nodejs]>=1.1.414",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
     "ruff>=0.17.0",
     "strawberry-graphql[cli]>=0.334.4",
     "testcontainers>=4.15.0",

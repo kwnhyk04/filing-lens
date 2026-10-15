@@ -99,6 +99,15 @@ From step 4b (parse, chunk, facts):
 - 2026-10-15: Dev now runs at revision 0008 (`make migrate REV=0008`); 0004 revises it, so the swap stays last.
 - 2026-10-15: SEC now lists XOM under ExxonMobil Holdings Corp (CIK 2115436), which has no 10-K of its own yet; Exxon Mobil Corp (CIK 34088) filed the latest one. The golden set replaced ExxonMobil with ConocoPhillips (COP, CIK 1163165) (user decision). Reason: the ticker check stays strict and needs no exceptions.
 
+From step 5 (tests):
+
+- 2026-10-15: Integration tests keep Testcontainers rather than the compose services (user decision). Reason: throwaway databases, isolated from the dev data.
+- 2026-10-15: Tests stay off the network through `network_guard.py`, which wraps `socket.getaddrinfo`: any host but localhost, loopback or 0.0.0.0 raises `NetworkBlockedError` (a `RuntimeError`, so no client retries it). The root conftest installs it in the pytest process, and `run_worker.py` and the rate test's client processes install it too. Reason: AGENTS.md forbids live SEC and provider calls in tests, and a list of blocked hosts would go stale; a single choke point also covers Hugging Face downloads.
+- 2026-10-15: Every test without the `integration` or `e2e` marker gets `unit` from the root conftest, and `make test` runs `-m unit`. Reason: no marker to forget on new unit tests.
+- 2026-10-15: `citation_error` compares the quote and the chunk text after the same normalization (NFKC, curly quotes to straight ones, whitespace runs collapsed) and stays exact on words, digits and letter case (user decision). Reason: models reflow whitespace and quote marks, but a changed word or number is a wrong citation.
+- 2026-10-15: `parse_amount` reads one amount: the scale words and the abbreviations K, M, B or bn, and T, in either case, with or without a space (user decision). Pulling amounts out of answer text ("about $4.2B") is step 6's finder, which hands each to `parse_amount`. Reason: models write $4.2B as often as $4.2 billion; extraction belongs with the answer pipeline.
+- 2026-10-15: `reciprocal_rank_fusion` sums exact fractions and sorts by (score descending, id). Reason: mathematically equal scores become equal floats whatever the order of the lists, and the order matches the search cursor's (score, chunk_id).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -141,6 +150,11 @@ None yet.
 - 2026-10-15: Tables are flattened row by row into the filing text (cells joined by " | ", empty cells dropped), so chunks lose table layout. A known limit until a table-aware chunker exists (user request to note it).
 - 2026-10-15: Some 10-Ks keep MD&A or the financial statements in a separate financial section (XOM, CVX, JPM, PLD and NVDA in the survey of the golden set), and their Items 7, 7A or 8 only point there. That content still gets chunked, under the last item (15 or 16; JPM's Item 15 holds 1.0M characters), so filtering by Item 7 misses it. PFE and VZ were expected to incorporate items from exhibit 13 but do not in their latest 10-Ks.
 - 2026-10-15: companyfacts' `fy` and `fp` describe the filing that reported a value, not the value's period: Apple's fiscal 2023 revenue appears in its fiscal 2025 10-K with fy 2025.
+- 2026-10-15: On Windows a connection to a closed 127.0.0.1 port is refused only after about 2 s (measured 2.0 s), so readiness tests with dead dependencies took 6 s each. Tests now point dead dependencies at `0.0.0.0:1`, which fails at once on Windows (invalid address) and is refused at once on Linux.
+- 2026-10-15: Without `configure_logging`, structlog's default console renderer formats exceptions with rich, locals included: one logged 500 took 3.8 s. The root conftest's autouse fixture applies the production JSON format to every test.
+- 2026-10-15: Starting and stopping uvicorn per test cost about 0.3 s, so the contract tests share one server per module (`_served`), and each test plugs in its own fake backend. The fixtures that run the app themselves (`client`, `live`, `postgres_user`, `serve`) share the one app object, so a module must not use them after a test that used the shared server.
+- 2026-10-15: Windows Application Control blocks the Rust extension (`hypothesis/_native.*.pyd`) that hypothesis ships from 6.156.1 on ("An Application Control policy has blocked this file"), so the dev group pins `hypothesis>=6.155.7,<6.156`, the last pure-Python series.
+- 2026-10-15: Alembic's `env.py` runs its own event loop (`asyncio.run`), so async tests migrate in a sync fixture (`db` in `test_under_load.py`), never inside the test.
 
 ## Rejected Approaches
 

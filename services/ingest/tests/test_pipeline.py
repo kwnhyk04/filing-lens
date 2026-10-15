@@ -334,8 +334,10 @@ def sec_client(fake_sec: FakeSec, redis_url: str, cache: Path) -> SecClient:
 CLIENT = """
 import sys
 from pathlib import Path
+import network_guard
 from redis import Redis
 from filinglens_sec_client import SecClient
+network_guard.install()
 url, redis_url, cache, agent, worker, requests = sys.argv[1:]
 sec = SecClient(user_agent=agent, www_url=url, data_url=url, cache_dir=Path(cache),
                 redis=Redis.from_url(redis_url))
@@ -350,8 +352,8 @@ def test_twenty_workers_never_exceed_eight_sec_requests_a_second(
 ) -> None:
     fake_sec.default = lambda: (200, b"<html>filing</html>")
     command = [sys.executable, "-c", CLIENT, fake_sec.url, redis_url, str(tmp_path), USER_AGENT]
-    processes = [
-        subprocess.Popen([*command, str(worker), str(REQUESTS)])  # noqa: S603 - our own code
+    processes = [  # from the repo root, where python -c finds network_guard
+        subprocess.Popen([*command, str(worker), str(REQUESTS)], cwd=PYPROJECT.parent)  # noqa: S603
         for worker in range(WORKERS)
     ]
     for process in processes:

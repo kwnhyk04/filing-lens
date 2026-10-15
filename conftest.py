@@ -1,4 +1,8 @@
-"""Integration fixtures: throwaway Postgres and Redis on 127.0.0.1, using the compose images."""
+"""Repo-wide test setup: no network, JSON logs, the unit marker, and the integration fixtures.
+
+The integration fixtures start throwaway Postgres, RabbitMQ and Redis containers on 127.0.0.1 with
+the compose images (Testcontainers).
+"""
 
 import asyncio
 import re
@@ -7,10 +11,39 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from hypothesis import settings as hypothesis_settings
+from hypothesis.database import DirectoryBasedExampleDatabase
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-COMPOSE_FILE = Path(__file__).parent / "infra" / "docker-compose.yml"
+import network_guard
+from filinglens_telemetry import configure_logging
+
+network_guard.install()  # before any test module creates a client
+ROOT = Path(__file__).parent
+COMPOSE_FILE = ROOT / "infra" / "docker-compose.yml"
+# Failing examples replay first on the next run; the database stays in the repo's .cache (H:).
+hypothesis_settings.register_profile(
+    "filinglens",
+    database=DirectoryBasedExampleDatabase(ROOT / ".cache" / "hypothesis"),
+    deadline=None,  # timing is not a property here, and Windows timing is noisy
+)
+hypothesis_settings.load_profile("filinglens")
+
+
+@pytest.hookimpl(tryfirst=True)  # before -m selects tests by marker
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """A test without the integration or e2e marker is a unit test (`make test` runs -m unit)."""
+    for item in items:
+        if not item.get_closest_marker("integration") and not item.get_closest_marker("e2e"):
+            item.add_marker(pytest.mark.unit)
+
+
+@pytest.fixture(autouse=True)
+def _json_logs() -> None:
+    """The production log format. structlog's default renderer prints tracebacks with rich, locals
+    included, which took 3.8 s for one logged 500."""
+    configure_logging("tests")
 
 
 def compose_image(name: str) -> str:

@@ -38,7 +38,7 @@ Targets (design goals, not yet measured):
 
 ## Technical Stack
 
-Python 3.12+, uv workspace, ruff, pyright, FastAPI, Strawberry, SQLAlchemy 2 (async), Alembic, Celery, RabbitMQ, Redis, Postgres + pgvector, httpx, structlog, pytest, Testcontainers, OpenTelemetry, Docker, GitHub Actions. Thin TypeScript UI.
+Python 3.12+, uv workspace, ruff, pyright, FastAPI, Strawberry, SQLAlchemy 2 (async), Alembic, Celery, RabbitMQ, Redis, Postgres + pgvector, httpx, structlog, pytest (with pytest-asyncio, respx and hypothesis), Testcontainers, OpenTelemetry, Docker, GitHub Actions. Thin TypeScript UI.
 
 LLM providers (switchable by env vars): Gemini Flash (free tier) for answers, Groq for the router, Ollama for local runs. Embeddings: local sentence-transformers model by default; the swap series in `docs/migrations.md` moves chunks from BAAI/bge-small-en-v1.5 (384 dimensions, model A) to BAAI/bge-base-en-v1.5 (768, model B). Dev stays on model A at revision 0008, the last before the swap, until the live swap after step 6. Deployment: UI on Vercel, backend on the PC via Tailscale Funnel.
 
@@ -77,8 +77,8 @@ Built:
 - `packages/telemetry`: structlog JSON logging with redaction.
 - `packages/sec_client`: `SecClient`, with the shared rate limit, the cool-off, the disk cache, companyfacts and the company ticker list, and a count of the requests it sends.
 - `packages/db`: the async engine, the models (with a small pgvector `Vector` type and `chunk_id()`), migrations 0001-0008 and the seed.
-- `packages/retrieval`: the vector search query `nearest_chunks`.
-- `packages/llm`: an `embed` stub and the daily AI budget (`budget.py`).
+- `packages/retrieval`: the vector search query `nearest_chunks` and `reciprocal_rank_fusion` (k = 60).
+- `packages/llm`: an `embed` stub, the daily AI budget (`budget.py`) and answer post-validation (`validate.py`: `citation_error`, `parse_amount`, `amounts_match`), pure functions that step 6 calls.
 - `services/ingest/src/filinglens_ingest`: the Celery worker with probes (`worker.py`), kombu queues (`topology.py`), the tasks `discover`, `fetch`, `parse`, `chunk` and `facts` (`pipeline.py`), HTML to text and item sections (`parsing.py`), token-aware chunks with the vendored bge-small tokenizer (`chunking.py`, `tokenizer-bge-small-en-v1.5.json`), companyfacts rows and fiscal periods (`companyfacts.py`), the dead-letter replay (`replay.py`) and the `reembed` task (`reembed.py`).
 - The fake data seed (`scripts/seed_fake.py`), the real one (`scripts/seed_real.py`), the 30 golden-set companies (`evals/golden-companies.csv`), and the compose stack with prod override and Dockerfile (`infra/`).
 
@@ -86,7 +86,9 @@ API (`services/api/src/filinglens_api/`): `main.py` (app, probes, request ids, c
 
 Contracts and clients: `contracts/openapi.json` and `contracts/schema.graphql` (generated, committed); `clients/python` (openapi-python-client), `clients/python-graphql` (ariadne-codegen), `clients/ts` (openapi-typescript types, openapi-fetch client, graphql-codegen documents, hand-written `index.ts`); shared GraphQL operations in `clients/operations.graphql`.
 
-Planned: hybrid retrieval, citation validator, eval harness.
+Tests: the root `conftest.py` (network guard, markers, JSON logs, hypothesis profile, Testcontainers fixtures) and `network_guard.py`; each package and service keeps its tests in its own `tests/`.
+
+Planned: hybrid search with rerank, and the eval harness.
 
 ## Implemented Functionality
 
@@ -131,16 +133,21 @@ Planned: hybrid retrieval, citation validator, eval harness.
 - Contracts: `make codegen` exports both contracts and regenerates all four clients, then type-checks the TS client. `make contracts-check` runs codegen and fails if git sees unstaged or untracked changes under `contracts/` or `clients/`. `make contracts-breaking` runs oasdiff (Docker) against `BASE` (default `main`) and fails on breaking changes.
 - Web: placeholder Next.js page with `/healthz` and `/readyz`.
 - Secrets: gitleaks pre-commit hook, allowlist `.dockerignore`, images run as uid 10001.
+- Tests:
+  - `make test` runs the unit tests (marker `unit`: no Docker, no network; about 10 s) and `make test-int` the integration tests (`integration`: Testcontainers with the compose images of Postgres with pgvector, RabbitMQ and Redis, on 127.0.0.1; about 1 min 50 s). The root `conftest.py` marks every test without `integration` or `e2e` as `unit`; `e2e` is registered for step 9's Playwright tests. `async def` tests run under pytest-asyncio (auto mode).
+  - No network: `network_guard.py` wraps `socket.getaddrinfo`, so looking up any host but localhost, loopback or 0.0.0.0 raises `NetworkBlockedError` at once. The root conftest installs it in the pytest process, and `run_worker.py` and the rate test's client processes install it too. Tests use recorded fixtures and respx instead.
+  - Hypothesis keeps its example database in the repo's `.cache/hypothesis` (gitignored, on H:).
+  - Beyond the earlier suites: chunker properties on generated texts (hypothesis), RRF, citation validation, amounts, SecClient timeouts and headers (unit); keyset pages over 100k chunks while chunks are inserted, and the embedding swap 0004-0006 while the API reads REST and GraphQL in a loop, with zero failed reads (integration).
 
 ## Current Development Status
 
-Steps 1 (scaffolding), 2 (contracts), 3 (data) and 4 (workers: SEC client, discover, fetch, dead letters, backpressure, API limits) done on 2026-10-14; step 4b (parse, chunk, facts and `scripts/seed_real.py`) on 2026-10-15. The dev database holds the 30 golden-set companies' latest 10-Ks, parsed and chunked, and their XBRL facts. Next: step 5 (tests). Dev runs at revision 0008 (model A) through steps 5-6; the live embedding swap, with recall@10 before and after, follows step 6 (user decision).
+Steps 1 (scaffolding), 2 (contracts), 3 (data) and 4 (workers: SEC client, discover, fetch, dead letters, backpressure, API limits) done on 2026-10-14; step 4b (parse, chunk, facts and `scripts/seed_real.py`) and step 5 (tests) on 2026-10-15. The dev database holds the 30 golden-set companies' latest 10-Ks, parsed and chunked, and their XBRL facts. Next: step 6 (AI pipeline). Dev runs at revision 0008 (model A) through steps 5-6; the live embedding swap, with recall@10 before and after, follows step 6 (user decision).
 
 ## Known Limitations
 
 All targets are design goals and have not been measured.
 
-The pipeline stops at `parsed`: chunks have no vectors until step 6's embedder, so only full-text search works on them. Tables are flattened row by row into the text. Some 10-Ks (XOM, CVX, JPM, PLD and NVDA in the survey) keep MD&A or the statements in a separate financial section, and their Items 7, 7A or 8 only point to it: that content is chunked under the last item (15 or 16). The fiscal year and period fallback (period of report) is approximate for 52-53 week years; it was not needed for the 30 golden-set filings. Company-level failures (discovery, facts) show in the job status and `dead_letters`, not in the API's failure list, which holds filings only. `filinglens_llm.embed` raises `not_implemented` until step 6, so the `reembed` task can run only in tests (with a fake embedder) until then. Nothing reads `RETRIEVAL_EMBEDDING_COLUMN` outside tests until `LiveBackend.search` lands in step 6; flipping it needs an API restart. `make seed-fake` locks `chunks` while it loads, so it is not for a database that serves traffic. The web `/readyz` equals `/healthz` until the backend-for-frontend lands.
+The pipeline stops at `parsed`: chunks have no vectors until step 6's embedder, so only full-text search works on them. Tables are flattened row by row into the text. Some 10-Ks (XOM, CVX, JPM, PLD and NVDA in the survey) keep MD&A or the statements in a separate financial section, and their Items 7, 7A or 8 only point to it: that content is chunked under the last item (15 or 16). The fiscal year and period fallback (period of report) is approximate for 52-53 week years; it was not needed for the 30 golden-set filings. Company-level failures (discovery, facts) show in the job status and `dead_letters`, not in the API's failure list, which holds filings only. `filinglens_llm.embed` raises `not_implemented` until step 6, so the `reembed` task can run only in tests (with a fake embedder) until then. Nothing reads `RETRIEVAL_EMBEDDING_COLUMN` outside tests until `LiveBackend.search` lands in step 6; flipping it needs an API restart. `make seed-fake` locks `chunks` while it loads, so it is not for a database that serves traffic. The web `/readyz` equals `/healthz` until the backend-for-frontend lands. `citation_error` is exact on letter case, so a quote that recapitalizes a word fails. `parse_amount` reads a single amount, not amounts inside prose (step 6 adds the finder), with the scale words thousand, million, billion and trillion or the abbreviations K, M, B or bn, and T; others, such as MM, are refused. The test network guard stops name lookups; a client that connects to a literal IP address would pass it (none does).
 
 Search and answers (step 6) still return 501; load shedding for in-flight LLM calls also comes in step 6. 500 is not listed in the spec. CI does not exist yet, so `contracts-check` and `contracts-breaking` run only through make until step 7.
 

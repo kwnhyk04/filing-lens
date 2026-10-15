@@ -8,7 +8,7 @@ Instructions for any AI coding agent working in this project. Read this file fir
 - Every SEC request goes through `packages/sec_client` and the shared Redis rate limiter (8 req/s). Send a User-Agent with contact details.
 - Never hit live SEC in tests. Use recorded fixtures.
 - Numbers in answers must cite a fact id or chunk id. Numeric questions use XBRL facts first.
-- Every task is idempotent (filings keyed by accession number, chunks by content hash).
+- Every task is idempotent (filings keyed by accession number, chunks by sha256(accession + section + offset)).
 - Every external call has a timeout.
 - All list endpoints use keyset (cursor) pagination.
 - Schema changes follow expand, migrate, contract. Document them in `docs/migrations.md`.

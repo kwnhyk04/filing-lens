@@ -20,10 +20,10 @@ dev: ## build and start the stack; returns once every service is healthy
 down: ## stop the stack and keep its volumes
 	$(COMPOSE) down
 
-test:
-	$(PY) pytest -m "not integration"
+test: ## unit tests: no Docker, no network
+	$(PY) pytest -m unit
 
-test-int: ## needs Docker: Testcontainers starts throwaway Postgres and Redis
+test-int: ## needs Docker: Testcontainers starts throwaway Postgres, RabbitMQ and Redis
 	$(PY) pytest -m integration
 
 lint:
