@@ -86,28 +86,20 @@ def test_graphql_accepts_either_key(
     assert response.json() == {"data": {"__typename": "Query"}}
 
 
-@pytest.mark.parametrize(
-    ("method", "path", "body"),
-    [
-        ("GET", "/v1/search?q=revenue", None),
-        ("POST", "/v1/answers", {"question": "What was revenue?"}),
-        ("POST", "/v1/answers/stream", {"question": "What was revenue?"}),
-    ],
-)
-def test_routes_whose_backend_comes_later_answer_501(
-    client: TestClient, admin_key: str, method: str, path: str, body: object
-) -> None:
-    headers = {"X-API-Key": admin_key, "Idempotency-Key": "job-1"}
-    response = client.request(method, path, json=body, headers=headers)
-    assert response.status_code == 501
+@pytest.mark.parametrize("path", ["/v1/answers", "/v1/answers/stream"])
+def test_answers_are_off_by_default(client: TestClient, admin_key: str, path: str) -> None:
+    # AI_ENABLED defaults to false, so the backend has no answer pipeline and calls no model.
+    question = {"question": "What was revenue?"}
+    response = client.post(path, json=question, headers={"X-API-Key": admin_key})
+    assert response.status_code == 503
     assert response.headers["content-type"] == "application/problem+json"
-    assert response.json()["code"] == "not_implemented"
+    assert response.json()["code"] == "ai_unavailable"
 
 
 def test_graphql_errors_carry_the_taxonomy_code(client: TestClient, api_key: str) -> None:
     query = {"query": '{ answer(question: "What was revenue?") { answer } }'}
     response = client.post("/graphql", json=query, headers={"X-API-Key": api_key})
-    assert response.json()["errors"][0]["extensions"] == {"code": "not_implemented"}
+    assert response.json()["errors"][0]["extensions"] == {"code": "ai_unavailable"}
 
 
 def test_cursor_round_trips_and_rejects_anything_else() -> None:

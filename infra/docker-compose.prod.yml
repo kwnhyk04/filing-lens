@@ -21,11 +21,16 @@ services:
 
   api:
     restart: unless-stopped
-    deploy: { resources: { limits: { memory: 512M } } }
+    # torch, the query embedder and the reranker run in process.
+    deploy: { resources: { limits: { memory: 1536M } } }
 
   ingest:
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 1G } } }
+
+  embed:
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 1536M } } }
 
   otel-collector:
     restart: unless-stopped

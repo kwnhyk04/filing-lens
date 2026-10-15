@@ -297,10 +297,18 @@ class FakeBackend:
         items, next_cursor = _page(matching, _item_key, ItemKey, limit, cursor)
         return FactPage(items=items, next_cursor=next_cursor)
 
-    async def search(self, q: str, limit: int, cursor: str | None) -> SearchPage:
+    async def search(
+        self,
+        q: str,
+        limit: int,
+        cursor: str | None,
+        *,
+        cik: int | None = None,
+        fiscal_year: int | None = None,
+    ) -> SearchPage:
         self._admit()
         items, next_cursor = _page(
-            HITS,
+            [h for h in HITS if cik in (None, h.filing.cik)],
             lambda h: SearchKey(score=h.score, chunk_id=h.chunk_id, index_version="fake-v1"),
             SearchKey,
             limit,

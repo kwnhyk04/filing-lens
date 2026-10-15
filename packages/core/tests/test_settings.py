@@ -68,3 +68,15 @@ def test_ingest_needs_a_sec_user_agent_with_a_real_contact(
         return
     with pytest.raises(SystemExit, match=r"^Invalid configuration: SEC_USER_AGENT: "):
         load_settings(IngestSettings)
+
+
+def test_ai_is_off_by_default_and_on_needs_every_roles_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    set_env(monkeypatch)
+    assert not load_settings(ApiSettings).ai_enabled
+    set_env(monkeypatch, AI_ENABLED="true", GEMINI_API_KEY="", GROQ_API_KEY="g", NVIDIA_API_KEY="n")
+    with pytest.raises(SystemExit, match="LLM_PRIMARY needs GEMINI_API_KEY while AI_ENABLED=true"):
+        load_settings(ApiSettings)
+    set_env(
+        monkeypatch, AI_ENABLED="true", GEMINI_API_KEY="k", GROQ_API_KEY="g", NVIDIA_API_KEY="n"
+    )
+    assert load_settings(ApiSettings).llm_fallback == "nvidia:openai/gpt-oss-20b"

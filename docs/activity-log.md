@@ -15,6 +15,44 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-16: Before the 6a commit: Windows-only torch pin, gpt-oss-120b probe, first-token miss recorded
+
+- Changes:
+  - `packages/llm/pyproject.toml`: torch `>=2.12.0,<2.13` for `sys_platform == 'win32'` only, `>=2.12.0` elsewhere (user request). `uv lock --upgrade-package torch` changed only torch: Linux from 2.12.1+cpu to 2.14.1+cpu; Windows stays at 2.12.1, and uv resolved macOS to 2.12.1 too.
+  - NVIDIA probe of openai/gpt-oss-120b (user request; the same answer call as the two-model test, gpt-oss-20b run again beside it): 410 Gone, end of life 2026-09-03, absent from the key's model list. gpt-oss-20b stays `LLM_FALLBACK`; its second run passed the format and the router schema, with 2 of 6 quotes passing `citation_error` (memory.md).
+  - Docs: the first-token miss with its cause in context.md (Known Limitations) and as a 6b item in todo.md; a pitfall for retired NVIDIA models (a 410 ends in 502). Stale 6a lines fixed: context.md components, usage recording and status; README's 501 note and its dead-letter queues (`embed.dlq`).
+- Files: packages/llm/pyproject.toml, uv.lock, README.md, docs/context.md, docs/memory.md, docs/todo.md, docs/activity-log.md
+- Validation:
+  - `make test`: 211 passed in 17.67 s.
+  - `make dev` rebuilt the images; all six services healthy. The api and embed containers run torch 2.14.1+cpu (sentence-transformers 6.1.0). A search through the API ("supply chain risk", Apple): cold 6.03 s (model load), warm 0.19 s (embed 14 ms, SQL 10 ms, load 4 ms, rerank 161 ms), not degraded, top 3 hits from Item 1A.
+  - `make test-int` not rerun: it runs on the host, where torch stays at 2.12.1.
+- Outstanding: step 6b. A retired `LLM_FALLBACK` would end answers whose primary fails in 502 rather than 503 (memory.md).
+
+### 2026-10-15: Step 6a: providers, local models, embed stage, hybrid search, answers
+
+- Changes:
+  - User decisions: Gemini `gemini-3.5-flash-lite` answers, Groq `openai/gpt-oss-20b` routes, NVIDIA NIM is the fallback (model chosen by a two-model test, pending); NVIDIA 402 is permanent (503); a failed router call routes with the fallback. Reranker: TinyBERT-L-2 over the fused top 50, whole chunks, after MiniLM-L-6 over 100 missed the target (p95 3,235 ms on this CPU); `RERANK_MODEL`, `RERANK_CANDIDATES`, `RERANK_MAX_TOKENS` are settings for 6b to tune.
+  - `filinglens_llm`: `local` (pinned embedders and rerankers, bge query prefix, `make models`), `providers` (OpenAI-compatible client, Gemini adapter on google-genai with the key only in `x-goog-api-key`), `router` (strict JSON schema, metric table), `answer` (reply format with source-id markers renumbered 1, 2..., stream filter), `validate` (amount finder, per-sentence check), `budget.record_fallback`.
+  - `filinglens_retrieval`: scoped vector and full-text candidates, RRF, rerank with a timeout (degraded), `facts.get_financial_fact` with the latest-filed rule.
+  - Ingest: `embed` task and queue (`embed.dlq`), statuses parsed, embedded, indexed (facts indexes filings embedded before their fiscal year was known); job items succeed at embed; a separate `embed` compose service (`-Q embed,reembed -c 1`). `ingest` now consumes the other queues only.
+  - API: `LiveBackend.search` (keyset over reranked hits, 409 on another index, a degraded cursor keeps the fused order), `answering.Answerer` (router, facts, retrieval, streamed draft, validation, one regeneration, refusals, fallback, in-flight cap), `AI_ENABLED` default false, contract additions (`Answer.refused`, `warnings`, search filters, 409).
+  - Dependencies: sentence-transformers 6.1, torch 2.12.1 (pinned below 2.13: Smart App Control blocks `torch_python.dll` in 2.13 and 2.14; the CPU wheel index for Linux images), google-genai 2.31. Images about 2.1 GB.
+  - `.env` line 46 (`SEC_USER_AGENT`) quoted; `uv run` and compose read the same 35-character value.
+- Files: packages/core (settings, errors, queues, tests), packages/llm (local, providers, router, answer, validate, budget, tests), packages/retrieval (search, facts, tests), services/api (answering, backend, main, routes, schemas, graph, problems, tests, fixtures), services/ingest (pipeline, worker, tests), scripts (seed_real, record_llm_fixtures, smoke_answers), infra (compose, prod override), conftest.py, Makefile, .env.example, pyproject files, uv.lock, contracts/, clients/, docs/todo.md
+- Validation so far:
+  - Keys: `GEMINI_API_KEY` (AQ.) and `GROQ_API_KEY` listed models with 200 (2026-10-15 07:35 UTC); Groq headers: 1,000 requests/day, 8,000 tokens/min.
+  - Embedding: `make seed-real` carried the 30 parsed filings through embed (61 SEC JSON requests, 0 documents): 11,263 chunks, 13.0 chunks/s in the embed container (8 torch threads). The first run failed every filing at the final status update (a CASE of untyped parameters for the enum column); fixed, `embed.dlq` replayed, all 30 indexed, 30 jobs succeeded.
+  - Search in the API container (warm): embed 15-25 ms, SQL 5-110 ms, load 3-5 ms, rerank 128-182 ms; on-topic top scores 0.7-9.4, off-topic -10.6 and -10.9.
+  - Recorded answers: numeric (fact cited, first token 1.9 s), textual (chunks quoted), out of scope and time trap refused.
+  - `make contracts-breaking`: no breaking changes. A first `make test-int` had 2 failures (`test_limits.py` assumed AI on by default); fixed.
+  - Three runs in a row: `make test` 211 passed in 18.1, 17.0 and 21.2 s; `make test-int` 28 passed in 171.2, 178.6 and 161.9 s. Afterwards two small changes (the smoke script's printing; facts shown in fixed point instead of 4.1616100E+11 in the prompt and the citation quote), then `make test` 211 passed again.
+  - NVIDIA two-model test (user rule; numbers in memory.md): deepseek-v4.1-flash failed the format and the router schema (first token at 50.6 s); gpt-oss-20b passed both, with 2 of 5 quotes passing `citation_error`. gpt-oss-20b kept.
+  - Live smoke run (`make smoke`, AI on, models loaded first; final run after the fixed-point change):
+    - Numeric, "What was Apple's total revenue in fiscal 2025?": route numeric (revenue, 2025, AAPL); fact 37437, 416,161,000,000 USD, cited [1]; 963 in / 126 out tokens; route 675 ms, facts 46 ms, generate 1,405 ms, total 2,127 ms; first token 1,978 ms.
+    - Textual, "What supply chain risks does Apple describe in its latest annual report?": route textual (AAPL); no warnings, so every quote passed `citation_error` (the first run printed its 6 citations with their quotes); 5,263 in / 586 out; route 531 ms, retrieve 269 ms (embed 38, SQL 17, load 13, rerank 171), generate 4,961 ms, total 5,767 ms; first token 3,831 ms (2,172 ms on the first run).
+    - Unanswerable, "What was Apple's revenue in fiscal 2027?": refused, "Apple Inc. (AAPL) has filed no 10-K for fiscal 2027; its latest is fiscal 2025."; router only, 621 in / 62 out; total 727 ms.
+- Outstanding: step 6b (golden set, judge, eval harness; reranker and refusal-threshold choices on the dev split). The textual first token (2.2-3.8 s) misses the p95 2.0 s target: the router (about 0.55 s) and Gemini's first token dominate.
+
 ### 2026-10-15: Step 5: tests (markers, network guard, property tests, load tests)
 
 - Changes:

@@ -5,7 +5,8 @@ Pure functions without I/O; the answer pipeline (build step 6) and the evals cal
 
 import re
 import unicodedata
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
 
@@ -24,6 +25,23 @@ AMOUNT = re.compile(
     r"-?\(?(?P<number>\d[\d,]*(?:\.\d+)?)\)?"
     r"(?P<scale>(?:thousand|million|billion|trillion)s?|bn|[kmbt])?\)?"
 )
+SCALE_WORD = r"(?:thousand|million|billion|trillion)s?|bn"
+# Amounts in answer text: money ($4.2B, $416.2 billion, $(1,234)), numbers with a scale word,
+# percentages, and numbers with thousands separators. Years and small counts are not amounts.
+AMOUNT_IN_TEXT = re.compile(
+    rf"-?\(?\$\s?\(?\d[\d,]*(?:\.\d+)?\)?(?:\s?(?:{SCALE_WORD}|[kmbt])\b)?"
+    rf"|\b\d[\d,]*(?:\.\d+)?\s?(?:{SCALE_WORD})\b"
+    r"|(?P<percent>\b\d+(?:\.\d+)?)\s?(?:%|percent\b)"
+    r"|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b",
+    re.IGNORECASE,
+)
+NUMBER = re.compile(rf"\d[\d,]*(?:\.\d+)?(?:\s?(?:{SCALE_WORD})\b)?", re.IGNORECASE)
+# The model cites its source ids: [C2], [F1][C3] or [C2, C4].
+MARKER = re.compile(r"\[\s*([CF]\d+(?:\s*,\s*[CF]\d+)*)\s*\]")
+# A sentence ends at . ! or ? (markers before it) when whitespace and a capital, digit or $ follow.
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9$\"'(])")
+TABLE_SCALES = (1, 10**3, 10**6, 10**9)  # a quoted table row may be in thousands or millions
+PERCENT_SCALES = (1, 100)  # 16.2% against a fact of 0.162
 
 
 class Cited(Protocol):
@@ -89,3 +107,123 @@ def parse_amount(text: str, scale: str | None = None) -> Decimal:
 def amounts_match(actual: Decimal, expected: Decimal, tolerance: Decimal = TOLERANCE) -> bool:
     """Whether `actual` is within `tolerance` (0.5%) of `expected`; the signs must agree."""
     return abs(actual - expected) <= tolerance * abs(expected)
+
+
+def find_amounts(text: str) -> list[tuple[Decimal, bool]]:
+    """Each amount in answer text ("about $4.2B", "4,213 million", "12.5%") with whether it is a
+    percentage; parse_amount reads each one."""
+    found: list[tuple[Decimal, bool]] = []
+    for match in AMOUNT_IN_TEXT.finditer(text):
+        if match["percent"]:
+            found.append((Decimal(match["percent"]), True))
+            continue
+        try:
+            found.append((parse_amount(match[0]), False))
+        except ValueError:
+            continue
+    return found
+
+
+def numbers_in(text: str) -> list[Decimal]:
+    """Every number in a quote, a scale word applied, as evidence for the answer's amounts."""
+    numbers: list[Decimal] = []
+    for match in NUMBER.finditer(text):
+        try:
+            numbers.append(parse_amount(match[0]))
+        except ValueError:
+            continue
+    return numbers
+
+
+def supported(amount: Decimal, percent: bool, evidence: Collection[Decimal]) -> bool:
+    """Whether an amount matches a number of its evidence within 0.5%, at some scale.
+
+    Signs are ignored: "a net loss of $1.2 billion" reports a NetIncomeLoss of -1.2e9.
+    """
+    scales = PERCENT_SCALES if percent else TABLE_SCALES
+    return any(
+        amounts_match(abs(amount), abs(number) * scale)
+        for number in evidence
+        if number
+        for scale in scales
+    )
+
+
+def split_sentences(text: str) -> list[str]:
+    return [sentence for sentence in SENTENCE_END.split(text.strip()) if sentence.strip()]
+
+
+class Source(Protocol):
+    """What the check reads from an answer's source: a chunk (text) or a fact (value)."""
+
+    @property
+    def chunk_id(self) -> str | None: ...
+
+    @property
+    def fact_id(self) -> str | None: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def value(self) -> Decimal | None: ...
+
+
+@dataclass
+class Quoted:
+    """A Cited: one marker's source ids and quote."""
+
+    chunk_id: str | None
+    fact_id: str | None
+    quote: str
+
+
+def cited(text: str) -> list[str]:
+    """The source ids a text cites, in order, each once."""
+    ids: list[str] = []
+    for marker in MARKER.finditer(text):
+        ids += [alias for alias in re.split(r"\s*,\s*", marker[1]) if alias not in ids]
+    return ids
+
+
+def check_sentence(
+    sentence: str, quotes: Mapping[str, Sequence[str]], sources: Mapping[str, Source]
+) -> str | None:
+    """Why a sentence of an answer fails, or None when it holds.
+
+    It must cite at least one source id, such as [C2]; a cited chunk needs a quote under Sources
+    that passes citation_error; and each amount in the sentence must match a cited fact's value
+    or a number in a passing quote. `quotes` maps source ids to the quotes given for them;
+    `sources` maps the ids the model was given (F1, C2) to the sources.
+    """
+    aliases = cited(sentence)
+    if not aliases:
+        return "it cites no source"
+    chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
+    fact_ids = {s.fact_id for s in sources.values() if s.fact_id is not None}
+    evidence: list[Decimal] = []
+    for alias in aliases:
+        source = sources.get(alias)
+        if source is None:
+            return f"[{alias}] is not one of the sources"
+        if source.value is not None:  # a fact: its value is the evidence
+            evidence.append(source.value)
+            continue
+        given = quotes.get(alias, [])
+        good = [
+            q
+            for q in given
+            if citation_error(Quoted(source.chunk_id, None, q), chunks, fact_ids) is None
+        ]
+        if not good:
+            return (
+                f"[{alias}] has no quote under Sources"
+                if not given
+                else f"[{alias}] the quote is not in chunk {source.chunk_id}"
+            )
+        evidence += [number for quote in good for number in numbers_in(quote)]
+    for amount, percent in find_amounts(MARKER.sub("", sentence)):
+        if not supported(amount, percent, evidence):
+            shown = f"{amount.normalize():,f}{'%' if percent else ''}"
+            return f"the amount {shown} is not in the sources it cites"
+    return None

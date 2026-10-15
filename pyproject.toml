@@ -30,6 +30,14 @@ filinglens-telemetry = { workspace = true }
 # Generated clients (`make codegen`), installed for the contract tests.
 filing-lens-api-client = { path = "clients/python", editable = true }
 filing-lens-graphql-client = { path = "clients/python-graphql", editable = true }
+# Linux (the Docker images) takes the CPU-only build; PyPI's Linux wheel pulls in CUDA (GBs).
+# Windows wheels on PyPI are CPU-only already.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 line-length = 100

@@ -9,6 +9,8 @@ FETCH_TASK = "filinglens_ingest.pipeline.fetch"
 PARSE_TASK = "filinglens_ingest.pipeline.parse"
 CHUNK_TASK = "filinglens_ingest.pipeline.chunk"
 FACTS_TASK = "filinglens_ingest.pipeline.facts"
+EMBED_TASK = "filinglens_ingest.pipeline.embed"
+REEMBED_TASK = "filinglens_ingest.reembed.reembed"
 
 DISCOVER = "discover"
 FETCH = "fetch"
@@ -17,6 +19,7 @@ FETCH_RETRY = "fetch.retry"  # unbounded, so a full fetch queue cannot refuse a 
 PARSE = "parse"
 CHUNK = "chunk"
 FACTS = "facts"
+EMBED = "embed"  # with reembed, consumed by the embed worker alone: one model copy, every core
 REEMBED = "reembed"
 DEAD_LETTER_EXCHANGE = "filinglens.dlx"
 FETCH_MAX_LENGTH = 10_000
@@ -37,6 +40,14 @@ QUEUE_ARGUMENTS: dict[str, dict[str, str | int]] = {
     PARSE: _dead_letters_to("parse.dlq"),
     CHUNK: _dead_letters_to("chunk.dlq"),
     FACTS: _dead_letters_to("facts.dlq"),
+    EMBED: _dead_letters_to("embed.dlq"),
     REEMBED: {},
 }
-DEAD_LETTER_QUEUES = ("discover.dlq", "fetch.dlq", "parse.dlq", "chunk.dlq", "facts.dlq")
+DEAD_LETTER_QUEUES = (
+    "discover.dlq",
+    "fetch.dlq",
+    "parse.dlq",
+    "chunk.dlq",
+    "facts.dlq",
+    "embed.dlq",
+)

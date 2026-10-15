@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 import structlog
 from fastapi import Depends, FastAPI, Request, Response
 from kombu import Connection
@@ -15,6 +16,7 @@ from redis.asyncio import Redis
 from strawberry.fastapi import GraphQLRouter
 
 from filinglens_api import routes
+from filinglens_api.answering import Answerer, Models, PostgresEvidence
 from filinglens_api.backend import DiscoverQueue, LiveBackend
 from filinglens_api.graph import get_context, schema
 from filinglens_api.limits import BodyLimit, rate_limit
@@ -23,6 +25,7 @@ from filinglens_api.schemas import Health, Problem
 from filinglens_core.ratelimit import BUCKET_SCRIPT
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_db import make_engine, ping
+from filinglens_llm.providers import TIMEOUT, provider
 
 CHECK_TIMEOUT_S = 2
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")  # any other incoming id is replaced, not logged
@@ -48,13 +51,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     redis_url = str(settings.redis_url.get_secret_value())
     app.state.settings = settings
     app.state.engine = make_engine(settings)
-    discover = DiscoverQueue(str(settings.broker_url.get_secret_value()))
-    app.state.backend = LiveBackend(app.state.engine, discover)
     app.state.redis = Redis.from_url(
         redis_url, socket_timeout=CHECK_TIMEOUT_S, socket_connect_timeout=CHECK_TIMEOUT_S
     )
     app.state.token_bucket = app.state.redis.register_script(BUCKET_SCRIPT)  # the rate limits
+    http = httpx.AsyncClient(timeout=TIMEOUT)  # every model provider call
+    answerer = None
+    if settings.ai_enabled:  # settings checked that each role's key is set
+        models = Models(
+            router=provider(settings.llm_router, settings, http),
+            primary=provider(settings.llm_primary, settings, http),
+            fallback=provider(settings.llm_fallback, settings, http),
+        )
+        evidence = PostgresEvidence(app.state.engine, settings)
+        answerer = Answerer(
+            evidence, models, app.state.redis, max_inflight=settings.llm_max_inflight
+        )
+    discover = DiscoverQueue(str(settings.broker_url.get_secret_value()))
+    app.state.backend = LiveBackend(app.state.engine, discover, settings, answerer)
     yield
+    await http.aclose()
     await app.state.redis.aclose()
     await app.state.engine.dispose()
 

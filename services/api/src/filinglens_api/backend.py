@@ -16,6 +16,7 @@ from sqlalchemy import Row, Select, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from filinglens_api.answering import Answerer
 from filinglens_api.schemas import (
     Answer,
     AnswerCompleted,
@@ -32,20 +33,26 @@ from filinglens_api.schemas import (
     FilingFailure,
     FilingPage,
     FinancialFact,
+    FiscalPeriod,
     FormType,
     IngestJob,
     IngestJobRequest,
+    SearchHit,
     SearchPage,
     Section,
 )
 from filinglens_core import queues
 from filinglens_core.errors import (
+    AiUnavailableError,
+    ConflictError,
     IdempotencyKeyReusedError,
     InvalidInputError,
     NotFoundError,
     NotImplementedYetError,
     OverloadedError,
+    UpstreamError,
 )
+from filinglens_core.settings import ApiSettings
 from filinglens_db.models import Chunk as ChunkRow
 from filinglens_db.models import Company as CompanyRow
 from filinglens_db.models import Filing as FilingRow
@@ -55,6 +62,7 @@ from filinglens_db.models import IngestJob as JobRow
 from filinglens_db.models import IngestJobCompany as JobCompanyRow
 from filinglens_db.models import IngestJobItem as ItemRow
 from filinglens_db.models import Section as SectionRow
+from filinglens_retrieval import Hit, Scope, search
 
 SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 UNUSABLE_CURSOR = "Unusable cursor; start again without one"
@@ -81,11 +89,15 @@ class ItemKey(BaseModel):
 
 
 class SearchKey(BaseModel):
-    """Hits rank by (score desc, chunk_id); index_version pins the page to one embedding index."""
+    """Hits rank by (score desc, chunk_id); index_version pins the page to one embedding index.
+
+    degraded marks a page in fused order (reranker timed out): the next pages keep that order.
+    """
 
     score: float
     chunk_id: str
     index_version: str
+    degraded: bool = False
 
 
 def encode_cursor(key: BaseModel) -> str:
@@ -164,7 +176,17 @@ class Backend(Protocol):
         self, accession_number: str, limit: int, cursor: str | None, *, concept: str | None = None
     ) -> FactPage: ...
 
-    async def search(self, q: str, limit: int, cursor: str | None) -> SearchPage: ...
+    async def search(
+        self,
+        q: str,
+        limit: int,
+        cursor: str | None,
+        *,
+        cik: int | None = None,
+        fiscal_year: int | None = None,
+    ) -> SearchPage:
+        """ConflictError (409) when the cursor comes from another embedding index."""
+        ...
 
     async def answer(self, request: AnswerRequest) -> Answer: ...
 
@@ -201,11 +223,20 @@ class DiscoverQueue:
 
 
 class LiveBackend:
-    """Production backend: Postgres, plus RabbitMQ for ingest jobs; search and answers come next."""
+    """Production backend: Postgres, RabbitMQ for ingest jobs, local models for search, and the
+    answer pipeline. Scripts that only queue jobs pass neither settings nor an answerer."""
 
-    def __init__(self, engine: AsyncEngine, discover: DiscoverQueue) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        discover: DiscoverQueue,
+        settings: ApiSettings | None = None,
+        answerer: Answerer | None = None,
+    ) -> None:
         self._engine = engine
         self._discover = discover
+        self._settings = settings
+        self._answerer = answerer
 
     async def _rows[*Ts](self, query: Select[*Ts]) -> Sequence[Row[*Ts]]:
         async with self._engine.connect() as connection:
@@ -422,13 +453,85 @@ class LiveBackend:
         items, next_cursor = _page(facts, limit, lambda f: ItemKey(id=f.id))
         return FactPage(items=items, next_cursor=next_cursor)
 
-    async def search(self, q: str, limit: int, cursor: str | None) -> SearchPage:
-        raise NotImplementedYetError("Search is not available yet.")
+    async def search(
+        self,
+        q: str,
+        limit: int,
+        cursor: str | None,
+        *,
+        cik: int | None = None,
+        fiscal_year: int | None = None,
+    ) -> SearchPage:
+        """Pages of the reranked hits (filinglens_retrieval.search), recomputed for each page."""
+        if self._settings is None:
+            raise NotImplementedYetError("This backend has no search settings.")
+        settings = self._settings
+        index = settings.retrieval_embedding_column
+        after = decode_cursor(cursor, SearchKey) if cursor is not None else None
+        if after is not None and after.index_version != index:
+            raise ConflictError(
+                "The search index changed since this cursor was made; search again without one."
+            )
+        fused_order = after is not None and after.degraded
+        ranking = await search(
+            self._engine,
+            q,
+            embedding=index,
+            scope=Scope(
+                ciks=[cik] if cik is not None else None,
+                fiscal_years=[fiscal_year] if fiscal_year is not None else None,
+            ),
+            rerank_model=settings.rerank_model,
+            candidates=settings.rerank_candidates,
+            max_tokens=settings.rerank_max_tokens,
+            timeout_s=settings.rerank_timeout_ms / 1000,
+            rerank_hits=not fused_order,
+        )
+        if after is not None and not after.degraded and ranking.degraded:
+            # Fused scores cannot continue a reranked page; the cursor stays good for a retry.
+            raise OverloadedError("The reranker is busy; retry this page shortly.", retry_after_s=1)
+        hits = ranking.hits
+        if after is not None:
+            hits = [h for h in hits if (-h.score, h.chunk_id) > (-after.score, after.chunk_id)]
+        items, next_cursor = _page(
+            [_search_hit(hit) for hit in hits[: limit + 1]],
+            limit,
+            lambda hit: SearchKey(
+                score=hit.score,
+                chunk_id=hit.chunk_id,
+                index_version=index,
+                degraded=ranking.degraded,
+            ),
+        )
+        return SearchPage(items=items, next_cursor=next_cursor, degraded=ranking.degraded)
 
     async def answer(self, request: AnswerRequest) -> Answer:
-        raise NotImplementedYetError("Answers are not available yet.")
+        async for event in await self.stream_answer(request):
+            if isinstance(event, AnswerCompleted):
+                return event.answer
+        raise UpstreamError("The answer ended without a result.")
 
     async def stream_answer(
         self, request: AnswerRequest
     ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
-        raise NotImplementedYetError("Answers are not available yet.")
+        if self._answerer is None:
+            raise AiUnavailableError("AI is switched off on this server (AI_ENABLED=false).")
+        self._answerer.admit()
+        return self._answerer.events(request)
+
+
+def _search_hit(hit: Hit) -> SearchHit:
+    folder = hit.accession_number.replace("-", "")
+    filing = Filing(
+        accession_number=hit.accession_number,
+        cik=hit.cik,
+        form_type=FormType(hit.form_type),
+        filed_on=hit.filed_on,
+        period_end=hit.period_end,
+        fiscal_year=hit.fiscal_year,
+        fiscal_period=FiscalPeriod(hit.fiscal_period),
+        url=f"{SEC_ARCHIVES}/{hit.cik}/{folder}/{hit.primary_document}",
+    )
+    return SearchHit(
+        chunk_id=hit.chunk_id, score=hit.score, text=hit.text, section=hit.item, filing=filing
+    )

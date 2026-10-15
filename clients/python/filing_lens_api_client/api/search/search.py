@@ -15,6 +15,8 @@ def _get_kwargs(
     q: str,
     limit: int | Unset = 10,
     cursor: None | str | Unset = UNSET,
+    cik: int | None | Unset = UNSET,
+    fiscal_year: int | None | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -29,6 +31,20 @@ def _get_kwargs(
     else:
         json_cursor = cursor
     params["cursor"] = json_cursor
+
+    json_cik: int | None | Unset
+    if isinstance(cik, Unset):
+        json_cik = UNSET
+    else:
+        json_cik = cik
+    params["cik"] = json_cik
+
+    json_fiscal_year: int | None | Unset
+    if isinstance(fiscal_year, Unset):
+        json_fiscal_year = UNSET
+    else:
+        json_fiscal_year = fiscal_year
+    params["fiscal_year"] = json_fiscal_year
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -56,6 +72,11 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         response_401 = Problem.from_dict(response.json())
 
         return response_401
+
+    if response.status_code == 409:
+        response_409 = Problem.from_dict(response.json())
+
+        return response_409
 
     if response.status_code == 422:
         response_422 = Problem.from_dict(response.json())
@@ -95,18 +116,23 @@ def sync_detailed(
     q: str,
     limit: int | Unset = 10,
     cursor: None | str | Unset = UNSET,
+    cik: int | None | Unset = UNSET,
+    fiscal_year: int | None | Unset = UNSET,
 ) -> Response[Problem | SearchPage]:
     """Search
 
-     Hybrid search over filing text. Either key.
+     Hybrid search over the text of indexed filings. Either key.
 
-    The cursor holds the last hit's score and chunk id and the index version, so later pages
-    come from the same index even while a new embedding model is rolled out.
+    Vector and full-text matches are fused and reranked. The cursor holds the last hit's score
+    and chunk id and the index version, so later pages come from the same index; once the index
+    changes (a new embedding model), a cursor gets 409 and the search starts again without one.
 
     Args:
         q (str): Search text.
         limit (int | Unset): Page size (at most 100). Default: 10.
         cursor (None | str | Unset): `next_cursor` from the previous page.
+        cik (int | None | Unset): One company.
+        fiscal_year (int | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -120,6 +146,8 @@ def sync_detailed(
         q=q,
         limit=limit,
         cursor=cursor,
+        cik=cik,
+        fiscal_year=fiscal_year,
     )
 
     response = client.get_httpx_client().request(
@@ -135,18 +163,23 @@ def sync(
     q: str,
     limit: int | Unset = 10,
     cursor: None | str | Unset = UNSET,
+    cik: int | None | Unset = UNSET,
+    fiscal_year: int | None | Unset = UNSET,
 ) -> Problem | SearchPage | None:
     """Search
 
-     Hybrid search over filing text. Either key.
+     Hybrid search over the text of indexed filings. Either key.
 
-    The cursor holds the last hit's score and chunk id and the index version, so later pages
-    come from the same index even while a new embedding model is rolled out.
+    Vector and full-text matches are fused and reranked. The cursor holds the last hit's score
+    and chunk id and the index version, so later pages come from the same index; once the index
+    changes (a new embedding model), a cursor gets 409 and the search starts again without one.
 
     Args:
         q (str): Search text.
         limit (int | Unset): Page size (at most 100). Default: 10.
         cursor (None | str | Unset): `next_cursor` from the previous page.
+        cik (int | None | Unset): One company.
+        fiscal_year (int | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,6 +194,8 @@ def sync(
         q=q,
         limit=limit,
         cursor=cursor,
+        cik=cik,
+        fiscal_year=fiscal_year,
     ).parsed
 
 
@@ -170,18 +205,23 @@ async def asyncio_detailed(
     q: str,
     limit: int | Unset = 10,
     cursor: None | str | Unset = UNSET,
+    cik: int | None | Unset = UNSET,
+    fiscal_year: int | None | Unset = UNSET,
 ) -> Response[Problem | SearchPage]:
     """Search
 
-     Hybrid search over filing text. Either key.
+     Hybrid search over the text of indexed filings. Either key.
 
-    The cursor holds the last hit's score and chunk id and the index version, so later pages
-    come from the same index even while a new embedding model is rolled out.
+    Vector and full-text matches are fused and reranked. The cursor holds the last hit's score
+    and chunk id and the index version, so later pages come from the same index; once the index
+    changes (a new embedding model), a cursor gets 409 and the search starts again without one.
 
     Args:
         q (str): Search text.
         limit (int | Unset): Page size (at most 100). Default: 10.
         cursor (None | str | Unset): `next_cursor` from the previous page.
+        cik (int | None | Unset): One company.
+        fiscal_year (int | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -195,6 +235,8 @@ async def asyncio_detailed(
         q=q,
         limit=limit,
         cursor=cursor,
+        cik=cik,
+        fiscal_year=fiscal_year,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -208,18 +250,23 @@ async def asyncio(
     q: str,
     limit: int | Unset = 10,
     cursor: None | str | Unset = UNSET,
+    cik: int | None | Unset = UNSET,
+    fiscal_year: int | None | Unset = UNSET,
 ) -> Problem | SearchPage | None:
     """Search
 
-     Hybrid search over filing text. Either key.
+     Hybrid search over the text of indexed filings. Either key.
 
-    The cursor holds the last hit's score and chunk id and the index version, so later pages
-    come from the same index even while a new embedding model is rolled out.
+    Vector and full-text matches are fused and reranked. The cursor holds the last hit's score
+    and chunk id and the index version, so later pages come from the same index; once the index
+    changes (a new embedding model), a cursor gets 409 and the search starts again without one.
 
     Args:
         q (str): Search text.
         limit (int | Unset): Page size (at most 100). Default: 10.
         cursor (None | str | Unset): `next_cursor` from the previous page.
+        cik (int | None | Unset): One company.
+        fiscal_year (int | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -235,5 +282,7 @@ async def asyncio(
             q=q,
             limit=limit,
             cursor=cursor,
+            cik=cik,
+            fiscal_year=fiscal_year,
         )
     ).parsed

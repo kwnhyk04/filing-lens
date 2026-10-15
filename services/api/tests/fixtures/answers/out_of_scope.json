@@ -1,0 +1,47 @@
+{
+ "question": "Will Nvidia's stock price go up next year?",
+ "recorded_on": "2026-10-15",
+ "models": {
+  "router": "groq:openai/gpt-oss-20b",
+  "primary": "gemini:gemini-3.5-flash-lite"
+ },
+ "exchanges": [
+  {
+   "host": "api.groq.com",
+   "path": "/openai/v1/chat/completions",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "{\"id\":\"chatcmpl-95e0151e-7a73-45e9-950a-b77ea0003c33\",\"object\":\"chat.completion\",\"created\":1792059485,\"model\":\"openai/gpt-oss-20b\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"route\\\":\\\"out_of_scope\\\",\\\"tickers\\\":[],\\\"fiscal_years\\\":[],\\\"fiscal_period\\\":null,\\\"metric\\\":null}\",\"reasoning\":\"Question: stock price forecast. Out of scope.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"queue_time\":0.392050632,\"prompt_tokens\":621,\"prompt_time\":0.073028444,\"completion_tokens\":50,\"completion_time\":0.054649154,\"total_tokens\":671,\"total_time\":0.127677598,\"completion_tokens_details\":{\"reasoning_tokens\":11}},\"usage_breakdown\":null,\"system_fingerprint\":\"fp_f102a3179c\",\"x_groq\":{\"id\":\"req_01m4zh3azbeq4tsqk4f9jcd4wt\",\"seed\":328125091},\"service_tier\":\"on_demand\"}\n"
+  }
+ ],
+ "evidence": [],
+ "answer": {
+  "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+  "citations": [],
+  "degraded": false,
+  "usage": {
+   "input_tokens": 621,
+   "output_tokens": 50,
+   "cost_usd": 0.0
+  },
+  "refused": true,
+  "warnings": []
+ },
+ "stats": {
+  "routing": {
+   "route": "out_of_scope",
+   "tickers": [],
+   "fiscal_years": [],
+   "fiscal_period": null,
+   "metric": null
+  },
+  "timings_ms": {
+   "route_ms": 756.7,
+   "total_ms": 756.7
+  },
+  "first_token_ms": null,
+  "input_tokens": 621,
+  "output_tokens": 50,
+  "fallbacks": []
+ }
+}

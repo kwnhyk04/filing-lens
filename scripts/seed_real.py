@@ -3,8 +3,9 @@
 Checks every CIK and ticker in evals/golden-companies.csv against SEC's company_tickers.json and
 stops on any mismatch, showing the rows; it never guesses a fix. Then it finds each company's
 latest original 10-K in its submissions and queues one ingest job per company through the API's
-own job code (LiveBackend): form 10-K, filed on or after that date. The ingest worker (make dev)
-runs discover, fetch, parse, chunk and facts. A company with only a 10-K/A stops the run before any
+own job code (LiveBackend): form 10-K, filed on or after that date. The ingest and embed workers
+(make dev) run discover, fetch, parse, chunk, embed and facts, leaving each filing indexed (parsed
+filings from an earlier run go on to embed). A company with only a 10-K/A stops the run before any
 job, as the contract's FormType has no 10-K/A. Each run uses new Idempotency-Keys, so a rerun goes
 through discover again and downloads only what the SEC cache lacks. Prints filings per status,
 chunks per filing, facts per company, the SEC requests of the run and its wall time.
@@ -126,7 +127,7 @@ async def wait(engine: AsyncEngine, jobs: list[UUID], timeout_s: float) -> None:
 
 
 async def report(engine: AsyncEngine, jobs: list[UUID], ciks: list[int]) -> bool:
-    """Print what the jobs left in the database; True when every filing is parsed."""
+    """Print what the jobs left in the database; True when every filing is indexed."""
     mine = select(IngestJobItem.filing_id).where(IngestJobItem.job_id.in_(jobs))
     async with engine.connect() as connection:
         rows = await connection.execute(
@@ -190,7 +191,7 @@ async def report(engine: AsyncEngine, jobs: list[UUID], ciks: list[int]) -> bool
         print(f"  {ticker} {accession}: {', '.join(missing or [])}")
     for ticker, accession, error in failures:
         print(f"failed: {ticker} {accession}: {error}")
-    return set(statuses) == {FilingStatus.PARSED} and sum(statuses.values()) == len(jobs)
+    return set(statuses) == {FilingStatus.INDEXED} and sum(statuses.values()) == len(jobs)
 
 
 async def ingest(settings: IngestSettings, since: dict[int, date], timeout_s: float) -> bool:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -22,12 +22,18 @@ class Answer:
         citations (list[Citation]):
         degraded (bool): True when retrieval skipped the reranker after a timeout.
         usage (Usage):
+        refused (bool): True when FilingLens declined: out of scope, a company it does not track, a fiscal year with no
+            10-K yet, or no evidence relevant enough. `answer` says why. Default: False.
+        warnings (list[str]): Validation notes, such as sentences removed because a citation or an amount did not check
+            out. A streamed answer with warnings replaces the draft its deltas carried.
     """
 
     answer: str
     citations: list[Citation]
     degraded: bool
     usage: Usage
+    warnings: list[str]
+    refused: bool = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +48,10 @@ class Answer:
 
         usage = self.usage.to_dict()
 
+        refused = self.refused
+
+        warnings = self.warnings
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -50,6 +60,8 @@ class Answer:
                 "citations": citations,
                 "degraded": degraded,
                 "usage": usage,
+                "refused": refused,
+                "warnings": warnings,
             }
         )
 
@@ -74,11 +86,17 @@ class Answer:
 
         usage = Usage.from_dict(d.pop("usage"))
 
+        refused = d.pop("refused")
+
+        warnings = cast(list[str], d.pop("warnings"))
+
         answer = cls(
             answer=answer,
             citations=citations,
             degraded=degraded,
             usage=usage,
+            refused=refused,
+            warnings=warnings,
         )
 
         answer.additional_properties = d

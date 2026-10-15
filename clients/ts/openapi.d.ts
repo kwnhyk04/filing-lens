@@ -95,10 +95,11 @@ export interface paths {
         };
         /**
          * Search
-         * @description Hybrid search over filing text. Either key.
+         * @description Hybrid search over the text of indexed filings. Either key.
          *
-         *     The cursor holds the last hit's score and chunk id and the index version, so later pages
-         *     come from the same index even while a new embedding model is rolled out.
+         *     Vector and full-text matches are fused and reranked. The cursor holds the last hit's score
+         *     and chunk id and the index version, so later pages come from the same index; once the index
+         *     changes (a new embedding model), a cursor gets 409 and the search starts again without one.
          */
         get: operations["search"];
         put?: never;
@@ -144,9 +145,11 @@ export interface paths {
          * Stream Answer
          * @description POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
          *
-         *     `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-         *     after the stream has started arrives as a `failed` event with a problem, and so does a stream
-         *     still running after 30 s.
+         *     `delta` events carry the answer's text as the model writes it, then one `completed` event
+         *     carries the whole answer after validation. The two agree unless validation rewrote the draft,
+         *     and then the completed answer has warnings and replaces the streamed text. An error after the
+         *     stream has started arrives as a `failed` event with a problem, and so does a stream still
+         *     running after 30 s.
          */
         post: operations["stream_answer"];
         delete?: never;
@@ -211,6 +214,17 @@ export interface components {
              */
             degraded: boolean;
             usage: components["schemas"]["Usage"];
+            /**
+             * Refused
+             * @description True when FilingLens declined: out of scope, a company it does not track, a fiscal year with no 10-K yet, or no evidence relevant enough. `answer` says why.
+             * @default false
+             */
+            refused: boolean;
+            /**
+             * Warnings
+             * @description Validation notes, such as sentences removed because a citation or an amount did not check out. A streamed answer with warnings replaces the draft its deltas carried.
+             */
+            warnings: string[];
         };
         /** AnswerCompleted */
         AnswerCompleted: {
@@ -909,6 +923,9 @@ export interface operations {
                 limit?: number;
                 /** @description `next_cursor` from the previous page. */
                 cursor?: string | null;
+                /** @description One company. */
+                cik?: number | null;
+                fiscal_year?: number | null;
             };
             header?: never;
             path?: never;
@@ -939,6 +956,15 @@ export interface operations {
                 headers: {
                     /** @description Always APIKey. */
                     "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The cursor came from a search index that has since changed (conflict). Search again without a cursor. */
+            409: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

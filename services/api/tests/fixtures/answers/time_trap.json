@@ -1,0 +1,81 @@
+{
+ "question": "What was Apple's revenue in fiscal 2027?",
+ "recorded_on": "2026-10-15",
+ "models": {
+  "router": "groq:openai/gpt-oss-20b",
+  "primary": "gemini:gemini-3.5-flash-lite"
+ },
+ "exchanges": [
+  {
+   "host": "api.groq.com",
+   "path": "/openai/v1/chat/completions",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "{\"id\":\"chatcmpl-9e220d29-d4ff-453a-ab8d-7ca8115f4292\",\"object\":\"chat.completion\",\"created\":1792059484,\"model\":\"openai/gpt-oss-20b\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"route\\\":\\\"numeric\\\",\\\"tickers\\\":[\\\"AAPL\\\"],\\\"fiscal_years\\\":[2027],\\\"fiscal_period\\\":\\\"FY\\\",\\\"metric\\\":\\\"revenue\\\"}\",\"reasoning\":\"Need to route numeric, ticker AAPL, fiscal_years [2027], fiscal_period FY, metric revenue.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"queue_time\":0.305230459,\"prompt_tokens\":621,\"prompt_time\":0.037595716,\"completion_tokens\":67,\"completion_time\":0.067877408,\"total_tokens\":688,\"total_time\":0.105473124,\"completion_tokens_details\":{\"reasoning_tokens\":24}},\"usage_breakdown\":null,\"system_fingerprint\":\"fp_9340e7d14d\",\"x_groq\":{\"id\":\"req_01m4zh3a95eyq8h0q9gcmbw60q\",\"seed\":416159422},\"service_tier\":\"on_demand\"}\n"
+  }
+ ],
+ "evidence": [
+  {
+   "method": "companies",
+   "args": {
+    "tickers": [
+     "AAPL"
+    ]
+   },
+   "result": {
+    "AAPL": 320193
+   }
+  },
+  {
+   "method": "names",
+   "args": {
+    "ciks": [
+     320193
+    ]
+   },
+   "result": {
+    "320193": "Apple Inc. (AAPL)"
+   }
+  },
+  {
+   "method": "latest_fiscal_year",
+   "args": {
+    "cik": 320193
+   },
+   "result": 2025
+  }
+ ],
+ "answer": {
+  "answer": "Apple Inc. (AAPL) has filed no 10-K for fiscal 2027; its latest is fiscal 2025.",
+  "citations": [],
+  "degraded": false,
+  "usage": {
+   "input_tokens": 621,
+   "output_tokens": 67,
+   "cost_usd": 0.0
+  },
+  "refused": true,
+  "warnings": []
+ },
+ "stats": {
+  "routing": {
+   "route": "numeric",
+   "tickers": [
+    "AAPL"
+   ],
+   "fiscal_years": [
+    2027
+   ],
+   "fiscal_period": "FY",
+   "metric": "revenue"
+  },
+  "timings_ms": {
+   "route_ms": 641.2,
+   "total_ms": 685.5
+  },
+  "first_token_ms": null,
+  "input_tokens": 621,
+  "output_tokens": 67,
+  "fallbacks": []
+ }
+}

@@ -186,6 +186,20 @@ class Answer(Schema):
     citations: list[Citation]
     degraded: bool = Field(description="True when retrieval skipped the reranker after a timeout.")
     usage: Usage
+    refused: bool = Field(
+        default=False,
+        description=(
+            "True when FilingLens declined: out of scope, a company it does not track, a fiscal"
+            " year with no 10-K yet, or no evidence relevant enough. `answer` says why."
+        ),
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Validation notes, such as sentences removed because a citation or an amount did not"
+            " check out. A streamed answer with warnings replaces the draft its deltas carried."
+        ),
+    )
 
 
 class AnswerDelta(Schema):

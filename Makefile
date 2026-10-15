@@ -12,7 +12,7 @@ REV ?= head
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval
+.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval models smoke record-fixtures
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -66,3 +66,12 @@ contracts-breaking: ## fail on breaking OpenAPI changes against BASE (default ma
 
 eval:
 	uv run python evals/harness.py
+
+models: ## once, outside tests: the pinned embedders and rerankers into HF_HOME (on H:)
+	uv run python -m filinglens_llm.local
+
+smoke: ## live: three questions through the answer pipeline (calls the models; needs the keys)
+	uv run --env-file .env python scripts/smoke_answers.py
+
+record-fixtures: ## live: re-record the model replies the answering tests replay
+	uv run --env-file .env python scripts/record_llm_fixtures.py

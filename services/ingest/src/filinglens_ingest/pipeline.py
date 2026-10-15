@@ -1,19 +1,23 @@
-"""Ingest pipeline: discover, fetch, parse and chunk each filing; facts once per company.
+"""Ingest pipeline: discover, fetch, parse, chunk and embed each filing; facts once per company.
 
 discover walks a company's EDGAR submissions and records the job's filings; fetch downloads each
 one into the SEC cache; parse splits it into item sections; chunk cuts those into chunks and marks
-the filing parsed. Once discovery has walked every page, facts loads the company's XBRL facts and
-sets its filings' fiscal year and period. Every task is idempotent: filings are keyed by accession
-number, sections by (filing, item), chunks by chunk_id(), facts by their fact key and job items by
-(job, filing), so a redelivered message redoes only what is missing. A task that fails for good
-writes a dead_letters row and is rejected into its dead-letter queue (<queue>.dlq). A job item
-succeeds once its filing is chunked, a job company once its facts are loaded; one bad filing fails
-only its item. A job finishes once every company and filing settled: succeeded; partially_failed
-(the prompt's completed_with_errors) when a filing succeeded beside a failure; failed otherwise.
+the filing parsed; embed fills RETRIEVAL_EMBEDDING_COLUMN and marks it embedded, or indexed once
+its fiscal year is known. Once discovery has walked every page, facts loads the company's XBRL
+facts, sets its filings' fiscal year and period, and indexes the embedded ones. A stage that finds
+its work done passes the filing on, so a new job carries a parsed filing on to embed. Every task is
+idempotent: filings are keyed by accession number, sections by (filing, item), chunks by
+chunk_id(), facts by their fact key and job items by (job, filing), so a redelivered message redoes
+only what is missing. A task that fails for good writes a dead_letters row and is rejected into its
+dead-letter queue (<queue>.dlq). A job item succeeds once its filing is embedded, a job company once
+its facts are loaded; one bad filing fails only its item. A job finishes once every company and
+filing settled: succeeded; partially_failed (the prompt's completed_with_errors) when a filing
+succeeded beside a failure; failed otherwise.
 """
 
 import asyncio
 import random
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import date
 from functools import cache, partial
@@ -27,13 +31,32 @@ from celery import Task, shared_task
 from celery.exceptions import Reject
 from kombu.exceptions import OperationalError
 from redis import Redis
-from sqlalchemy import Update, func, select, update
+from sqlalchemy import (
+    String,
+    TableClause,
+    Update,
+    and_,
+    bindparam,
+    case,
+    column,
+    func,
+    literal,
+    select,
+    table,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from filinglens_core import queues
 from filinglens_core.errors import FilingLensError, NotFoundError, TransientError, UpstreamError
-from filinglens_core.settings import IngestSettings, load_settings
+from filinglens_core.settings import (
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODELS,
+    EmbeddingColumn,
+    IngestSettings,
+    load_settings,
+)
 from filinglens_db import make_engine
 from filinglens_db.models import (
     Chunk,
@@ -49,16 +72,21 @@ from filinglens_db.models import (
     ItemStatus,
     JobStatus,
     Section,
+    Vector,
     chunk_id,
 )
 from filinglens_ingest import chunking, companyfacts, parsing
+from filinglens_llm import embed as embed_texts
 from filinglens_sec_client import ACCESSION, FILE_NAME, LimiterUnavailableError, SecClient
 
 MAX_RETRIES = 6
 QUEUE_FULL_BACKOFF_MAX_S = 60
 LIMITER_PAUSE_S = 30  # without Redis no SEC request is allowed, so tasks check back this often
 NEEDS_FETCH = (FilingStatus.DISCOVERED, FilingStatus.FAILED)  # anything else is at or past fetched
-DONE = (FilingStatus.PARSED, FilingStatus.EMBEDDED, FilingStatus.INDEXED)  # chunks stored
+DONE = (FilingStatus.EMBEDDED, FilingStatus.INDEXED)  # vectors stored: a new job skips the filing
+CHUNKED = (FilingStatus.PARSED, *DONE)  # sections and chunks stored
+EMBED_BATCH = 64  # chunks per model call and per transaction
+EMBED_PER_RUN = 512  # then embed queues itself again, well inside the 300 s task time limit
 OPEN = (ItemStatus.PENDING, ItemStatus.RUNNING)
 ROWS_PER_INSERT = 5_000
 COLUMNS = ("accessionNumber", "filingDate", "reportDate", "form", "primaryDocument")
@@ -143,12 +171,28 @@ def parse(self: Task, filing_id: int, job_id: str | None = None) -> None:
 
 @shared_task(**TASK_OPTIONS)
 def chunk(self: Task, filing_id: int, job_id: str | None = None) -> None:
-    """Cut a filing's sections into chunks, then mark it parsed and its job item succeeded."""
+    """Cut a filing's sections into chunks and mark it parsed, then queue embed."""
     job = UUID(job_id) if job_id else None
+
+    def work() -> None:
+        if _run(partial(_chunk, filing_id=filing_id, job_id=job)):
+            _queue(EMBED, filing_id, job_id)
+
     settle = partial(_fail_filing, filing_id=filing_id, job_id=job, stage=FilingStatus.FETCHED)
-    _attempt(
-        self, lambda: _run(partial(_chunk, filing_id=filing_id, job_id=job)), settle, queues.CHUNK
-    )
+    _attempt(self, work, settle, queues.CHUNK)
+
+
+@shared_task(**TASK_OPTIONS)
+def embed(self: Task, filing_id: int, job_id: str | None = None) -> None:
+    """Embed the filing's chunks that lack a vector, EMBED_PER_RUN at a time, then settle it."""
+    job = UUID(job_id) if job_id else None
+
+    def work() -> None:
+        if _run(partial(_embed, filing_id=filing_id, job_id=job)):
+            _queue(EMBED, filing_id, job_id)  # chunks are left: the next run picks them up
+
+    settle = partial(_fail_filing, filing_id=filing_id, job_id=job, stage=FilingStatus.PARSED)
+    _attempt(self, work, settle, queues.EMBED)
 
 
 @shared_task(**TASK_OPTIONS)
@@ -160,7 +204,9 @@ def facts(self: Task, job_id: str, cik: int) -> None:
 
 
 # Celery's decorators are untyped.
-FETCH, PARSE, CHUNK, FACTS = (cast(Task, task) for task in (fetch, parse, chunk, facts))
+FETCH, PARSE, CHUNK, EMBED, FACTS = (
+    cast(Task, task) for task in (fetch, parse, chunk, embed, facts)
+)
 
 
 @shared_task(**TASK_OPTIONS)
@@ -428,9 +474,8 @@ async def _parse(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
     if filing is None:
         log.warning("parse skipped: no such filing", filing_id=filing_id)
         return False
-    if filing.status in DONE:  # a redelivery after chunk
-        await _succeed(engine, job_id, filing_id)
-        return False
+    if filing.status in CHUNKED:  # a redelivery or an earlier job: chunk passes it on to embed
+        return True
     if job_id is not None:  # a replayed item is in progress again
         await _reopen(engine, job_id, filing_id)
     document = await asyncio.to_thread(  # the cached copy, unless the cache lost it
@@ -466,7 +511,8 @@ async def _parse(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
     return True
 
 
-async def _chunk(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> None:
+async def _chunk(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> bool:
+    """Store the filing's chunks and mark it parsed; returns whether embed should follow."""
     async with engine.connect() as connection:
         query = select(Filing.accession_number, Filing.status).where(Filing.id == filing_id)
         filing = (await connection.execute(query)).one_or_none()
@@ -476,10 +522,9 @@ async def _chunk(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
         sections = (await connection.execute(query)).all()
     if filing is None:
         log.warning("chunk skipped: no such filing", filing_id=filing_id)
-        return
-    if filing.status in DONE:  # a redelivery
-        await _succeed(engine, job_id, filing_id)
-        return
+        return False
+    if filing.status in CHUNKED:  # a redelivery or an earlier job
+        return True
     if not any(section.text for section in sections):
         raise FilingLensError(f"Filing {filing.accession_number} has no section text to chunk.")
     rows = [
@@ -499,12 +544,96 @@ async def _chunk(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
             await connection.execute(insert(Chunk).on_conflict_do_nothing(), list(batch))
         await connection.execute(
             update(Filing)
-            .where(Filing.id == filing_id, Filing.status.not_in(DONE))
+            .where(Filing.id == filing_id, Filing.status.not_in(CHUNKED))
             .values(status=FilingStatus.PARSED)
+        )
+    return True
+
+
+def _vectors(name: EmbeddingColumn) -> TableClause:
+    """chunks with the embedding column `name` and its model column, at any revision."""
+    return table(
+        "chunks",
+        column("id", String),
+        column("section_id"),
+        column("text", String),
+        column(name, Vector(EMBEDDING_DIMENSIONS[name])),
+        column(f"{name}_model", String),
+    )
+
+
+async def _embed(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> bool:
+    """Embed up to EMBED_PER_RUN of the filing's chunks without a vector; True when more are left.
+
+    Once none is left, the filing is indexed if its fiscal year is known (facts sets it), else
+    embedded, and its job item succeeds.
+    """
+    name = _settings().retrieval_embedding_column
+    model, chunks = EMBEDDING_MODELS[name], _vectors(name)
+    query = (
+        select(chunks.c.id, chunks.c.text)
+        .join(Section, Section.id == chunks.c.section_id)
+        .where(Section.filing_id == filing_id, chunks.c[name].is_(None))
+        .order_by(chunks.c.id)
+        .limit(EMBED_PER_RUN + 1)
+    )
+    any_chunk = (
+        select(chunks.c.id)
+        .join(Section, Section.id == chunks.c.section_id)
+        .where(Section.filing_id == filing_id)
+        .limit(1)
+    )
+    async with engine.connect() as connection:
+        status = await connection.scalar(select(Filing.status).where(Filing.id == filing_id))
+        stored = await connection.scalar(any_chunk)
+        rows = (await connection.execute(query)).all()
+    if status is None:
+        log.warning("embed skipped: no such filing", filing_id=filing_id)
+        return False
+    if stored is None:
+        raise FilingLensError(f"Filing {filing_id} has no chunks to embed.")
+    if job_id is not None:  # a replayed item is in progress again
+        await _reopen(engine, job_id, filing_id)
+    statement = (
+        update(chunks)
+        .where(chunks.c.id == bindparam("chunk_id"))
+        .values({name: bindparam("vector"), f"{name}_model": model})
+    )
+    started = time.perf_counter()
+    for batch in batched(rows[:EMBED_PER_RUN], EMBED_BATCH):
+        vectors = await asyncio.to_thread(embed_texts, [row.text for row in batch], model)
+        params = [
+            {"chunk_id": row.id, "vector": vector}
+            for row, vector in zip(batch, vectors, strict=True)
+        ]
+        async with engine.begin() as connection:
+            await connection.execute(statement, params)
+    if rows:
+        log.info(
+            "chunks embedded",
+            filing_id=filing_id,
+            chunks=len(rows[:EMBED_PER_RUN]),
+            seconds=round(time.perf_counter() - started, 2),
+            column=name,
+        )
+    if len(rows) > EMBED_PER_RUN:
+        return True
+    known = and_(Filing.fiscal_year.is_not(None), Filing.fiscal_period.is_not(None))
+    status = Filing.status.type  # typed literals: a bare CASE of parameters is text to Postgres
+    searchable = case(
+        (known, literal(FilingStatus.INDEXED, status)),
+        else_=literal(FilingStatus.EMBEDDED, status),
+    )
+    async with engine.begin() as connection:
+        await connection.execute(
+            update(Filing)
+            .where(Filing.id == filing_id, Filing.status.not_in(DONE))
+            .values(status=searchable)
         )
         if job_id is not None:
             change = _item(job_id, [filing_id]).values(status=ItemStatus.SUCCEEDED, error=None)
             await _settle(connection, job_id, change)
+    return False
 
 
 async def _facts(engine: AsyncEngine, *, job_id: UUID, cik: int) -> None:
@@ -538,6 +667,13 @@ async def _facts(engine: AsyncEngine, *, job_id: UUID, cik: int) -> None:
                 .where(Filing.id == filing.id)
                 .values(fiscal_year=year, fiscal_period=period, fiscal_source=source)
             )
+        # Filings embedded before their fiscal period was known become searchable now.
+        await connection.execute(
+            update(Filing)
+            .where(Filing.cik == cik, Filing.status == FilingStatus.EMBEDDED)
+            .where(Filing.fiscal_year.is_not(None), Filing.fiscal_period.is_not(None))
+            .values(status=FilingStatus.INDEXED)
+        )
         change = _company(job_id, cik).values(status=ItemStatus.SUCCEEDED, error=None)
         await _settle(connection, job_id, change)
 
@@ -550,14 +686,6 @@ async def _reopen(engine: AsyncEngine, job_id: UUID, filing_id: int) -> None:
             .where(IngestJobItem.status.in_((ItemStatus.PENDING, ItemStatus.FAILED)))
             .values(status=ItemStatus.RUNNING)
         )
-
-
-async def _succeed(engine: AsyncEngine, job_id: UUID | None, filing_id: int) -> None:
-    """Settle the item of a filing that is chunked already."""
-    if job_id is not None:
-        async with engine.begin() as connection:
-            change = _item(job_id, [filing_id]).values(status=ItemStatus.SUCCEEDED, error=None)
-            await _settle(connection, job_id, change)
 
 
 async def _count_attempt(engine: AsyncEngine, job_id: UUID | None, filing_id: int) -> None:

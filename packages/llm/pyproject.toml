@@ -5,7 +5,14 @@ description = "LLM provider client, router, answer generation and citation valid
 requires-python = ">=3.12"
 dependencies = [
     "filinglens-core",
+    "google-genai>=2.31.0",
+    "httpx>=0.28.1",
     "redis>=8.1.0",
+    "sentence-transformers>=6.1.0",
+    # 2.13 and later ship a torch_python.dll that this PC's Smart App Control blocks (2026-10-15);
+    # Linux (the images, CI) takes the current torch.
+    "torch>=2.12.0,<2.13; sys_platform == 'win32'",
+    "torch>=2.12.0; sys_platform != 'win32'",
 ]
 
 [build-system]

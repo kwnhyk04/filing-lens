@@ -48,7 +48,8 @@ app.conf.update(
         queues.PARSE_TASK: {"queue": queues.PARSE},
         queues.CHUNK_TASK: {"queue": queues.CHUNK},
         queues.FACTS_TASK: {"queue": queues.FACTS},
-        "filinglens_ingest.reembed.reembed": {"queue": queues.REEMBED},
+        queues.EMBED_TASK: {"queue": queues.EMBED},
+        queues.REEMBED_TASK: {"queue": queues.REEMBED},
     },
     # Publisher confirms: RabbitMQ nacks a publish to a full queue instead of dropping it.
     broker_transport_options={"confirm_publish": True},

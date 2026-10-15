@@ -101,6 +101,12 @@ class Answer:
         description="True when retrieval skipped the reranker after a timeout."
     )
     usage: Usage
+    refused: bool = strawberry.field(
+        description="True when FilingLens declined to answer; `answer` says why."
+    )
+    warnings: list[str] = strawberry.field(
+        description="Validation notes, such as sentences removed because a check failed."
+    )
 
     @classmethod
     def of(cls, answer: schemas.Answer) -> "Answer":
@@ -109,6 +115,8 @@ class Answer:
             citations=[Citation(**citation.model_dump()) for citation in answer.citations],
             degraded=answer.degraded,
             usage=Usage(**answer.usage.model_dump()),
+            refused=answer.refused,
+            warnings=answer.warnings,
         )
 
 

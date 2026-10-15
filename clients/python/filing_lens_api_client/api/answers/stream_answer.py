@@ -88,9 +88,11 @@ def sync_detailed(
 
      POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
-    `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem, and so does a stream
-    still running after 30 s.
+    `delta` events carry the answer's text as the model writes it, then one `completed` event
+    carries the whole answer after validation. The two agree unless validation rewrote the draft,
+    and then the completed answer has warnings and replaces the streamed text. An error after the
+    stream has started arrives as a `failed` event with a problem, and so does a stream still
+    running after 30 s.
 
     Args:
         body (AnswerRequest):
@@ -123,9 +125,11 @@ def sync(
 
      POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
-    `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem, and so does a stream
-    still running after 30 s.
+    `delta` events carry the answer's text as the model writes it, then one `completed` event
+    carries the whole answer after validation. The two agree unless validation rewrote the draft,
+    and then the completed answer has warnings and replaces the streamed text. An error after the
+    stream has started arrives as a `failed` event with a problem, and so does a stream still
+    running after 30 s.
 
     Args:
         body (AnswerRequest):
@@ -153,9 +157,11 @@ async def asyncio_detailed(
 
      POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
-    `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem, and so does a stream
-    still running after 30 s.
+    `delta` events carry the answer's text as the model writes it, then one `completed` event
+    carries the whole answer after validation. The two agree unless validation rewrote the draft,
+    and then the completed answer has warnings and replaces the streamed text. An error after the
+    stream has started arrives as a `failed` event with a problem, and so does a stream still
+    running after 30 s.
 
     Args:
         body (AnswerRequest):
@@ -186,9 +192,11 @@ async def asyncio(
 
      POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
-    `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem, and so does a stream
-    still running after 30 s.
+    `delta` events carry the answer's text as the model writes it, then one `completed` event
+    carries the whole answer after validation. The two agree unless validation rewrote the draft,
+    and then the completed answer has warnings and replaces the streamed text. An error after the
+    stream has started arrives as a `failed` event with a problem, and so does a stream still
+    running after 30 s.
 
     Args:
         body (AnswerRequest):

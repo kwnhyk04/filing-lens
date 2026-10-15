@@ -26,6 +26,15 @@ async def record(redis: Redis, tokens: int) -> None:
         await pipe.execute()
 
 
+async def record_fallback(redis: Redis) -> None:
+    """Count one model call that went to LLM_FALLBACK, in today's hash (field `fallbacks`)."""
+    key = usage_key(datetime.now(UTC).date())
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.hincrby(key, "fallbacks", 1)
+        pipe.expire(key, KEEP)
+        await pipe.execute()
+
+
 async def check(redis: Redis, *, enabled: bool, daily_tokens: int) -> None:
     """Raise AiUnavailableError (503) when AI is off or today's tokens reached the budget.
 

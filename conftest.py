@@ -5,6 +5,7 @@ the compose images (Testcontainers).
 """
 
 import asyncio
+import os
 import re
 import uuid
 from collections.abc import Iterator
@@ -20,6 +21,9 @@ import network_guard
 from filinglens_telemetry import configure_logging
 
 network_guard.install()  # before any test module creates a client
+# Local models load from the Hugging Face cache (HF_HOME, filled by `make models`), never from the
+# network. Set before any test imports huggingface_hub; the processes tests start inherit it.
+os.environ["HF_HUB_OFFLINE"] = "1"
 ROOT = Path(__file__).parent
 COMPOSE_FILE = ROOT / "infra" / "docker-compose.yml"
 # Failing examples replay first on the next run; the database stays in the repo's .cache (H:).

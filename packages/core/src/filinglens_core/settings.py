@@ -4,7 +4,7 @@ Each process loads only the class it needs, so the worker never sees the API key
 """
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     AmqpDsn,
@@ -17,6 +17,7 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +28,22 @@ EMBEDDING_MODELS: dict[EmbeddingColumn, str] = {
     "embedding_v2": "BAAI/bge-base-en-v1.5",
 }
 EMBEDDING_DIMENSIONS: dict[EmbeddingColumn, int] = {"embedding": 384, "embedding_v2": 768}
+# Cross-encoders search can rerank with; filinglens_llm.local pins their revisions.
+RerankModel = Literal[
+    "cross-encoder/ms-marco-TinyBERT-L-2-v2",
+    "cross-encoder/ms-marco-MiniLM-L-2-v2",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+]
+# LLM roles name a provider and its model id, such as groq:openai/gpt-oss-20b; every provider but
+# Ollama needs its key.
+PROVIDER_KEYS = {
+    "gemini": "gemini_api_key",
+    "groq": "groq_api_key",
+    "openrouter": "openrouter_api_key",
+    "nvidia": "nvidia_api_key",
+    "ollama": None,
+}
+ModelRole = Annotated[str, Field(pattern=r"^(gemini|groq|openrouter|nvidia|ollama):\S+$")]
 
 
 class DatabaseSettings(BaseSettings):
@@ -48,9 +65,36 @@ class ApiSettings(DatabaseSettings):
     api_port: int = Field(default=4100, ge=1, le=65535)
     # Embedding column that search reads on every query; docs/migrations.md says when to flip it.
     retrieval_embedding_column: EmbeddingColumn = "embedding_v2"
-    # AI_ENABLED=false turns off every model call; the budget counts LLM tokens per UTC day.
-    ai_enabled: bool = True
+    # Search reranks the fused top RERANK_CANDIDATES, each cut to RERANK_MAX_TOKENS; past the
+    # timeout it keeps the fused order (degraded). Defaults: user decision, docs/memory.md.
+    rerank_model: RerankModel = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+    rerank_candidates: int = Field(default=50, ge=1, le=100)
+    rerank_max_tokens: int = Field(default=512, ge=32, le=512)
+    rerank_timeout_ms: int = Field(default=500, ge=1)
+    # AI_ENABLED=true turns on model calls (off by default); the budget counts LLM tokens per UTC
+    # day. Answers past LLM_MAX_INFLIGHT in progress get 503.
+    ai_enabled: bool = False
     daily_ai_token_budget: int = Field(default=1_000_000, ge=0)
+    llm_max_inflight: int = Field(default=4, ge=1)
+    llm_primary: ModelRole = "gemini:gemini-3.5-flash-lite"
+    llm_router: ModelRole = "groq:openai/gpt-oss-20b"
+    llm_fallback: ModelRole = "nvidia:openai/gpt-oss-20b"  # provisional until the key lists models
+    gemini_api_key: SecretStr | None = None
+    groq_api_key: SecretStr | None = None
+    openrouter_api_key: SecretStr | None = None
+    nvidia_api_key: SecretStr | None = None
+    ollama_url: HttpUrl = HttpUrl("http://127.0.0.1:11434/v1")
+
+    @model_validator(mode="after")
+    def _keys_for_roles(self) -> Self:
+        """With AI on, every role's provider needs its key; the error names the variable."""
+        if self.ai_enabled:
+            for role in ("llm_primary", "llm_router", "llm_fallback"):
+                key = PROVIDER_KEYS[getattr(self, role).partition(":")[0]]
+                secret: SecretStr | None = getattr(self, key) if key else None
+                if key is not None and (secret is None or not secret.get_secret_value()):
+                    raise ValueError(f"{role.upper()} needs {key.upper()} while AI_ENABLED=true")
+        return self
 
     @field_validator("admin_api_key")
     @classmethod
@@ -73,6 +117,8 @@ class IngestSettings(DatabaseSettings):
     sec_www_url: HttpUrl = HttpUrl("https://www.sec.gov")  # filing documents (Archives)
     sec_data_url: HttpUrl = HttpUrl("https://data.sec.gov")  # submissions JSON
     sec_cache_dir: Path = Path("/var/cache/filinglens/sec")  # raw SEC responses, gzipped
+    # The column the embed stage fills; the same flag search reads (docs/migrations.md).
+    retrieval_embedding_column: EmbeddingColumn = "embedding_v2"
 
     @field_validator("sec_user_agent")
     @classmethod

@@ -5,7 +5,13 @@ from decimal import Decimal
 
 import pytest
 
-from filinglens_llm.validate import amounts_match, citation_error, parse_amount
+from filinglens_llm.validate import (
+    amounts_match,
+    check_sentence,
+    citation_error,
+    find_amounts,
+    parse_amount,
+)
 
 CHUNK = (
     "Net sales rose 6% to $416.2 billion.\n"
@@ -134,3 +140,76 @@ def test_amounts_match_within_half_a_percent_and_the_sign_counts() -> None:
     assert not amounts_match(Decimal(1006), Decimal(1000))
     assert amounts_match(Decimal(0), Decimal(0))
     assert not amounts_match(Decimal(1), Decimal(0))
+
+
+@pytest.mark.parametrize(
+    ("text", "amounts"),
+    [
+        ("Revenue was about $4.2B in fiscal 2025.", [(Decimal(4_200_000_000), False)]),
+        (
+            "It earned $416.2 billion, up 6.4%.",
+            [(Decimal(416_200_000_000), False), (Decimal("6.4"), True)],
+        ),
+        ("Backlog reached 4,213 million.", [(Decimal(4_213_000_000), False)]),
+        (
+            "A net loss of $(1,234) and 12 percent margins.",
+            [(Decimal(-1234), False), (Decimal(12), True)],
+        ),
+        ("The 10-K for fiscal 2025 covers Item 7A and 3 segments.", []),  # no amount at all
+        (
+            "Diluted EPS was $6.08 on 15,004,697 thousand shares.",
+            [(Decimal("6.08"), False), (Decimal(15_004_697_000), False)],
+        ),
+    ],
+)
+def test_the_finder_pulls_every_amount_out_of_answer_text_but_no_years_or_items(
+    text: str, amounts: list[tuple[Decimal, bool]]
+) -> None:
+    assert find_amounts(text) == amounts
+
+
+@dataclass
+class Src:
+    text: str
+    chunk_id: str | None = None
+    fact_id: str | None = None
+    value: Decimal | None = None
+
+
+SOURCES = {
+    "C1": Src(CHUNK, chunk_id="c-1"),
+    "F1": Src("416,161,000,000 USD", fact_id="f-1", value=Decimal(416_161_000_000)),
+}
+QUOTES = {"F1": ["416,161,000,000 USD"], "C1": ["Net sales rose 6% to $416.2 billion."]}
+
+
+@pytest.mark.parametrize(
+    ("sentence", "problem"),
+    [
+        ("Net sales were $416.2 billion [F1].", None),  # 0.01% from the fact
+        ("Net sales were $416 billion, up 6% [C1].", None),  # both in the quote
+        ("Both say $416.2 billion [F1, C1].", None),
+        ("Net sales were $461.2 billion [F1].", "the amount 461,200,000,000 is not in the sources"),
+        ("Net sales grew 60% [C1].", "the amount 60% is not in the sources"),
+        ("Net sales were $416.2 billion.", "it cites no source"),
+        ("Net sales were $416.2 billion [C9].", "[C9] is not one of the sources"),
+        ("Net sales were $416.2 billion [C1][C2].", "[C2] is not one of the sources"),
+    ],
+)
+def test_a_sentence_holds_only_when_its_citations_and_amounts_check_out(
+    sentence: str, problem: str | None
+) -> None:
+    found = check_sentence(sentence, QUOTES, SOURCES)
+    assert found == problem or (
+        problem is not None and found is not None and found.startswith(problem)
+    )
+
+
+def test_a_changed_quote_fails_the_sentence_even_with_a_right_amount() -> None:
+    quotes = {"C1": ["Net sales rose 7% to $416.2 billion."]}
+    assert check_sentence("Net sales were $416.2 billion [C1].", quotes, SOURCES) == (
+        "[C1] the quote is not in chunk c-1"
+    )
+    assert check_sentence("Net sales were $416.2 billion [C1].", {}, SOURCES) == (
+        "[C1] has no quote under Sources"
+    )

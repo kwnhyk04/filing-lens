@@ -5,6 +5,12 @@ type Answer {
   """True when retrieval skipped the reranker after a timeout."""
   degraded: Boolean!
   usage: Usage!
+
+  """True when FilingLens declined to answer; `answer` says why."""
+  refused: Boolean!
+
+  """Validation notes, such as sentences removed because a check failed."""
+  warnings: [String!]!
 }
 
 type Chunk {

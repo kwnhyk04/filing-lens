@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 import filinglens_sec_client
 from filinglens_core import queues
 from filinglens_core.errors import NotFoundError, RateLimitedError, UpstreamError
+from filinglens_core.settings import EMBEDDING_MODELS
 from filinglens_db.models import (
     Chunk,
     Company,
@@ -76,7 +77,7 @@ FIXTURES = Path(__file__).with_name("fixtures")
 TEN_K = (FIXTURES / "aapl-10k-2025.htm").read_bytes()  # a real 10-K, trimmed
 FINISHED = (JobStatus.SUCCEEDED, JobStatus.PARTIALLY_FAILED, JobStatus.FAILED)
 # A worker that takes a filing from fetch to chunk.
-TO_CHUNK = f"{queues.FETCH},{queues.FETCH_RETRY},{queues.PARSE},{queues.CHUNK}"
+TO_EMBED = f"{queues.FETCH},{queues.FETCH_RETRY},{queues.PARSE},{queues.CHUNK},{queues.EMBED}"
 
 type Route = Callable[[], tuple[int, bytes]]
 
@@ -420,7 +421,7 @@ def test_a_filing_failing_every_attempt_lands_in_fetch_dlq_and_dead_letters_then
     job_id = run(db, lambda engine: add_job(engine, discovered=True))
     filing_id = run(db, lambda engine: add_filing(engine, job_id))
     fake_sec.routes[DOCUMENT] = lambda: (503, b"busy")
-    worker = start_worker("dlq", TO_CHUNK)
+    worker = start_worker("dlq", TO_EMBED)
     wait_for(lambda: queue_state(broker, queues.FETCH)[1] == 1, 60, worker)
 
     producer.send_task(
@@ -447,7 +448,7 @@ def test_a_filing_failing_every_attempt_lands_in_fetch_dlq_and_dead_letters_then
     wait_for(lambda: run(db, snapshot)["jobs"] == [JobStatus.SUCCEEDED], 60, worker)
     state = run(db, snapshot)
     assert state["items"] == [(ItemStatus.SUCCEEDED, 8)]
-    assert state["filings"] == [FilingStatus.PARSED]
+    assert state["filings"] == [FilingStatus.EMBEDDED]  # no facts, so no fiscal year: not indexed
     assert len(state["letters"]) == 1  # kept as history
     assert queue_state(broker, "fetch.dlq")[0] == 0
 
@@ -543,7 +544,7 @@ def test_a_killed_worker_has_its_message_redelivered_without_duplicate_rows(
         return 200, TEN_K
 
     fake_sec.routes[DOCUMENT] = first_hangs
-    consume = TO_CHUNK
+    consume = TO_EMBED
     first = start_worker("a", consume)
     wait_for(lambda: queue_state(broker, queues.FETCH)[1] == 1, 60, first)
     producer.send_task(
@@ -570,7 +571,7 @@ def test_a_killed_worker_has_its_message_redelivered_without_duplicate_rows(
     assert run(db, counts) == (1, 1, 1, 0)  # no duplicate rows, nothing dead-lettered
     state = run(db, snapshot)
     assert state["items"] == [(ItemStatus.SUCCEEDED, 1)]  # worker A's try never finished
-    assert state["filings"] == [FilingStatus.PARSED]
+    assert state["filings"] == [FilingStatus.EMBEDDED]
     assert fake_sec.hits(DOCUMENT) == 2
     cached = tmp_path / "sec" / f"{DOCUMENT.lstrip('/')}.gz"
     assert cached.exists()
@@ -607,7 +608,7 @@ def test_without_redis_fetch_pauses_without_contacting_sec_and_resumes_later(
 
     paused.process.kill()  # Redis is back: the next worker reaches it
     paused.process.wait()
-    healthy = start_worker("redis", TO_CHUNK)
+    healthy = start_worker("redis", TO_EMBED)
     wait_for(lambda: run(db, snapshot)["jobs"] == [JobStatus.SUCCEEDED], 60, healthy)
     assert run(db, snapshot)["items"] == [(ItemStatus.SUCCEEDED, 1)]
     assert fake_sec.hits(DOCUMENT) == 1
@@ -662,6 +663,13 @@ async def job_status(engine: AsyncEngine, job_id: UUID) -> JobStatus:
 def finished(db: str, job_id: UUID) -> Callable[[], bool]:
     """A wait_for check: the job reached a final status."""
     return lambda: run(db, lambda engine: job_status(engine, job_id)) in FINISHED
+
+
+async def embedded_by(engine: AsyncEngine) -> dict[str | None, int]:
+    """Chunks per model in their embedding column (head: embedding_v2), unembedded under None."""
+    query = select(Chunk.embedding_v2_model, func.count()).group_by(Chunk.embedding_v2_model)
+    async with engine.connect() as connection:
+        return {model: n for model, n in await connection.execute(query)}
 
 
 async def count(engine: AsyncEngine, table: type[Any]) -> int:
@@ -783,7 +791,7 @@ def test_an_unparseable_filing_fails_alone_and_a_rerun_downloads_no_document(
     }
     for path, body in documents.items():
         fake_sec.routes[path] = lambda body=body: (200, body)
-    worker = start_worker("all", f"{queues.DISCOVER},{TO_CHUNK},{queues.FACTS}")
+    worker = start_worker("all", f"{queues.DISCOVER},{TO_EMBED},{queues.FACTS}")
 
     def ingest() -> UUID:
         job_id = run(db, lambda engine: add_job(engine, discovered=False))
@@ -802,11 +810,12 @@ def test_an_unparseable_filing_fails_alone_and_a_rerun_downloads_no_document(
     assert items[bad][0] == ItemStatus.FAILED
     assert str(items[bad][1]).startswith("ParseError: No required item found")
     state = run(db, filings)
-    assert state[good] == (FilingStatus.PARSED, 2025, "FY", FiscalSource.PERIOD_OF_REPORT)
+    assert state[good] == (FilingStatus.INDEXED, 2025, "FY", FiscalSource.PERIOD_OF_REPORT)
     assert state[bad][0] == FilingStatus.FAILED
     assert run(db, partial(count, table=Section)) == 23  # the 10-K's items
     chunks = run(db, partial(count, table=Chunk))
     assert chunks > 0
+    assert run(db, embedded_by) == {EMBEDDING_MODELS["embedding_v2"]: chunks}  # head's column
     assert queue_state(broker, "parse.dlq")[0] == 1
 
     second = ingest()  # the parsed filing is skipped; the bad one fails again from the cache

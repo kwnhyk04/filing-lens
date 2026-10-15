@@ -167,19 +167,22 @@ async def list_filings(
     )
 
 
-@router.get("/search", tags=["search"], response_model=SearchPage, responses=problems(400))
+@router.get("/search", tags=["search"], response_model=SearchPage, responses=problems(400, 409))
 async def search(
     q: Annotated[str, Query(min_length=1, max_length=500, description="Search text.")],
     backend: BackendDep,
     limit: Annotated[int, Query(ge=1, le=100, description="Page size (at most 100).")] = 10,
     cursor: Cursor = None,
+    cik: Annotated[int | None, Query(ge=1, le=9_999_999_999, description="One company.")] = None,
+    fiscal_year: Annotated[int | None, Query(ge=1993, le=2100)] = None,
 ) -> SearchPage:
-    """Hybrid search over filing text. Either key.
+    """Hybrid search over the text of indexed filings. Either key.
 
-    The cursor holds the last hit's score and chunk id and the index version, so later pages
-    come from the same index even while a new embedding model is rolled out.
+    Vector and full-text matches are fused and reranked. The cursor holds the last hit's score
+    and chunk id and the index version, so later pages come from the same index; once the index
+    changes (a new embedding model), a cursor gets 409 and the search starts again without one.
     """
-    return await backend.search(q, limit, cursor)
+    return await backend.search(q, limit, cursor, cik=cik, fiscal_year=fiscal_year)
 
 
 @router.post(
@@ -222,9 +225,11 @@ async def stream_answer(
 ) -> AsyncIterator[AnswerEvent]:
     """POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
-    `delta` events carry answer text, then one `completed` event carries the whole answer. An error
-    after the stream has started arrives as a `failed` event with a problem, and so does a stream
-    still running after 30 s.
+    `delta` events carry the answer's text as the model writes it, then one `completed` event
+    carries the whole answer after validation. The two agree unless validation rewrote the draft,
+    and then the completed answer has warnings and replaces the streamed text. An error after the
+    stream has started arrives as a `failed` event with a problem, and so does a stream still
+    running after 30 s.
     """
     deadline = asyncio.get_running_loop().time() + ANSWER_TIMEOUT_S
     try:

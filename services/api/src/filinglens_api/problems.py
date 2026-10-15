@@ -108,6 +108,10 @@ PROBLEMS: dict[int, dict[str, Any]] = {
     ),
     403: problem_doc("The normal API key on an admin route (forbidden). Send ADMIN_API_KEY."),
     404: problem_doc("No such resource (not_found)."),
+    409: problem_doc(
+        "The cursor came from a search index that has since changed (conflict). Search again"
+        " without a cursor."
+    ),
     413: problem_doc("Request body larger than 64 KB (request_entity_too_large)."),
     422: problem_doc("Invalid request (validation_failed); `errors` lists each input."),
     429: problem_doc(

@@ -38,6 +38,10 @@ def _limited(fake: Any, redis_url: str) -> Iterator[TestClient]:
 @pytest.fixture
 def limited(env: pytest.MonkeyPatch, fake: Any, redis_url: str) -> Iterator[TestClient]:
     env.setenv("REDIS_URL", redis_url)
+    # AI is off by default, and on it needs a key per role; the fake backend calls no model.
+    for name in ("GEMINI_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
+        env.setenv(name, "placeholder")
+    env.setenv("AI_ENABLED", "true")
     with _limited(fake, redis_url) as client:
         yield client
 

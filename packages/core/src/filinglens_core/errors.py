@@ -37,6 +37,13 @@ class NotFoundError(FilingLensError):
     http_status = 404
 
 
+class ConflictError(FilingLensError):
+    """The request depends on state that changed, such as a search cursor from a replaced index."""
+
+    code = "conflict"
+    http_status = 409
+
+
 class IdempotencyKeyReusedError(FilingLensError):
     """An Idempotency-Key came back with a different request body."""
 

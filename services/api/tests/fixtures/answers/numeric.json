@@ -1,0 +1,121 @@
+{
+ "question": "What was Apple's total revenue in fiscal 2025?",
+ "recorded_on": "2026-10-15",
+ "models": {
+  "router": "groq:openai/gpt-oss-20b",
+  "primary": "gemini:gemini-3.5-flash-lite"
+ },
+ "exchanges": [
+  {
+   "host": "api.groq.com",
+   "path": "/openai/v1/chat/completions",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "{\"id\":\"chatcmpl-d53dccbb-26ed-47bf-a4fc-3cd8ee2cea96\",\"object\":\"chat.completion\",\"created\":1792059436,\"model\":\"openai/gpt-oss-20b\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"route\\\":\\\"numeric\\\",\\\"tickers\\\":[\\\"AAPL\\\"],\\\"fiscal_years\\\":[2025],\\\"fiscal_period\\\":\\\"FY\\\",\\\"metric\\\":\\\"revenue\\\"}\",\"reasoning\":\"We need to route numeric. tickers AAPL. fiscal_years [2025]. fiscal_period FY. metric revenue.\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"queue_time\":0.331737673,\"prompt_tokens\":572,\"prompt_time\":0.037889045,\"completion_tokens\":69,\"completion_time\":0.06972216,\"total_tokens\":641,\"total_time\":0.107611205,\"completion_tokens_details\":{\"reasoning_tokens\":26}},\"usage_breakdown\":null,\"system_fingerprint\":\"fp_976a85d17a\",\"x_groq\":{\"id\":\"req_01m4zh1v1neam8zcd3pw5kqhcd\",\"seed\":2136524377},\"service_tier\":\"on_demand\"}\n"
+  },
+  {
+   "host": "generativelanguage.googleapis.com",
+   "path": "/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent",
+   "status": 200,
+   "content_type": "text/event-stream",
+   "body": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Apple\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 339,\"candidatesTokenCount\": 1,\"totalTokenCount\": 340,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 339}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"LajQas6sBaSZ0-kP6--XkAc\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"'s total revenue in fiscal 2025 was $416.1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 339,\"candidatesTokenCount\": 19,\"totalTokenCount\": 358,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 339}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"LajQas6sBaSZ0-kP6--XkAc\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"61 billion [F1].\\n\\nSources:\\n[F1] \\\"4.1616100E+1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 339,\"candidatesTokenCount\": 47,\"totalTokenCount\": 386,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 339}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"LajQas6sBaSZ0-kP6--XkAc\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1 USD\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 339,\"candidatesTokenCount\": 50,\"totalTokenCount\": 389,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 339}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"LajQas6sBaSZ0-kP6--XkAc\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EmAKXgFpFH0TMpT3hvWVFXtJ2sxsQPcHVHmFz89l+ge5giTDaOH6cq3kBbEQbRAavp0f+iA1MNQUau9oioK8QHAmqlf0oGGZI4tGdKHvV2pS3mFPUqbZ+qfm6iNO4OpPg9c=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 339,\"candidatesTokenCount\": 50,\"totalTokenCount\": 389,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 339}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"LajQas6sBaSZ0-kP6--XkAc\"}\r\n\r\n"
+  }
+ ],
+ "evidence": [
+  {
+   "method": "companies",
+   "args": {
+    "tickers": [
+     "AAPL"
+    ]
+   },
+   "result": {
+    "AAPL": 320193
+   }
+  },
+  {
+   "method": "names",
+   "args": {
+    "ciks": [
+     320193
+    ]
+   },
+   "result": {
+    "320193": "Apple Inc. (AAPL)"
+   }
+  },
+  {
+   "method": "latest_fiscal_year",
+   "args": {
+    "cik": 320193
+   },
+   "result": 2025
+  },
+  {
+   "method": "fact",
+   "args": {
+    "cik": 320193,
+    "unit": "USD",
+    "fiscal_year": 2025,
+    "period": "FY"
+   },
+   "result": {
+    "id": 37437,
+    "cik": 320193,
+    "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+    "label": "Revenue from Contract with Customer, Excluding Assessed Tax",
+    "value": "4.1616100E+11",
+    "unit": "USD",
+    "period_start": "2024-09-29",
+    "period_end": "2025-09-27",
+    "fiscal_year": 2025,
+    "fiscal_period": "FY",
+    "form": "10-K",
+    "accession_number": "0000320193-25-000079",
+    "filed_on": "2025-10-31"
+   }
+  }
+ ],
+ "answer": {
+  "answer": "Apple's total revenue in fiscal 2025 was $416.161 billion [1].",
+  "citations": [
+   {
+    "chunk_id": null,
+    "fact_id": "37437",
+    "quote": "4.1616100E+11 USD",
+    "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+   }
+  ],
+  "degraded": false,
+  "usage": {
+   "input_tokens": 911,
+   "output_tokens": 119,
+   "cost_usd": 0.0
+  },
+  "refused": false,
+  "warnings": []
+ },
+ "stats": {
+  "routing": {
+   "route": "numeric",
+   "tickers": [
+    "AAPL"
+   ],
+   "fiscal_years": [
+    2025
+   ],
+   "fiscal_period": "FY",
+   "metric": "revenue"
+  },
+  "timings_ms": {
+   "route_ms": 664.2,
+   "facts_ms": 56.4,
+   "generate_ms": 1207.2,
+   "total_ms": 1927.9
+  },
+  "first_token_ms": 1925.9,
+  "input_tokens": 911,
+  "output_tokens": 119,
+  "fallbacks": []
+ }
+}

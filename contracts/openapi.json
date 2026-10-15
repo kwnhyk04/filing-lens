@@ -700,7 +700,7 @@
           "search"
         ],
         "summary": "Search",
-        "description": "Hybrid search over filing text. Either key.\n\nThe cursor holds the last hit's score and chunk id and the index version, so later pages\ncome from the same index even while a new embedding model is rolled out.",
+        "description": "Hybrid search over the text of indexed filings. Either key.\n\nVector and full-text matches are fused and reranked. The cursor holds the last hit's score\nand chunk id and the index version, so later pages come from the same index; once the index\nchanges (a new embedding model), a cursor gets 409 and the search starts again without one.",
         "operationId": "search",
         "security": [
           {
@@ -756,6 +756,44 @@
               "title": "Cursor"
             },
             "description": "`next_cursor` from the previous page."
+          },
+          {
+            "name": "cik",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9999999999,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "One company.",
+              "title": "Cik"
+            },
+            "description": "One company."
+          },
+          {
+            "name": "fiscal_year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2100,
+                  "minimum": 1993
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fiscal Year"
+            }
           }
         ],
         "responses": {
@@ -847,6 +885,16 @@
           },
           "400": {
             "description": "Unusable cursor (invalid_input). Start again without one.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cursor came from a search index that has since changed (conflict). Search again without a cursor.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1000,7 +1048,7 @@
           "answers"
         ],
         "summary": "Stream Answer",
-        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry answer text, then one `completed` event carries the whole answer. An error\nafter the stream has started arrives as a `failed` event with a problem, and so does a stream\nstill running after 30 s.",
+        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry the answer's text as the model writes it, then one `completed` event\ncarries the whole answer after validation. The two agree unless validation rewrote the draft,\nand then the completed answer has warnings and replaces the streamed text. An error after the\nstream has started arrives as a `failed` event with a problem, and so does a stream still\nrunning after 30 s.",
         "operationId": "stream_answer",
         "requestBody": {
           "content": {
@@ -1248,6 +1296,20 @@
           },
           "usage": {
             "$ref": "#/components/schemas/Usage"
+          },
+          "refused": {
+            "type": "boolean",
+            "title": "Refused",
+            "description": "True when FilingLens declined: out of scope, a company it does not track, a fiscal year with no 10-K yet, or no evidence relevant enough. `answer` says why.",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Validation notes, such as sentences removed because a citation or an amount did not check out. A streamed answer with warnings replaces the draft its deltas carried."
           }
         },
         "type": "object",
@@ -1255,7 +1317,9 @@
           "answer",
           "citations",
           "degraded",
-          "usage"
+          "usage",
+          "refused",
+          "warnings"
         ],
         "title": "Answer"
       },
