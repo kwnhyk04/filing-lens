@@ -11,6 +11,7 @@ from filinglens_llm.validate import (
     citation_error,
     find_amounts,
     parse_amount,
+    split_sentences,
 )
 
 CHUNK = (
@@ -213,3 +214,52 @@ def test_a_changed_quote_fails_the_sentence_even_with_a_right_amount() -> None:
     assert check_sentence("Net sales were $416.2 billion [C1].", {}, SOURCES) == (
         "[C1] has no quote under Sources"
     )
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # x16 (dev, 2026-10-16): a cut after "U.S." left "Government, either as..." on its own.
+        "In 2025, 72% of Lockheed Martin's $75.0 billion in sales were from the U.S. Government,"
+        " either as a prime contractor or as a subcontractor [C3].",
+        "Lockheed Martin Corp. (LMT) sells mostly to the U.S. Department of War [C3].",
+        "Apple Inc. Services revenue is not split out by country [C1].",
+        "Union Pacific Railroad Co. (UPRR) is its main subsidiary [C1].",
+        "Lease terms are in Note No. 7 of the statements [C2].",
+        "Some segments, e.g. Greater China, grew [C1].",
+        "Its largest segment, i.e. Americas, grew [C1].",
+    ],
+)
+def test_an_abbreviation_inside_a_sentence_does_not_end_it(sentence: str) -> None:
+    assert split_sentences(sentence) == [sentence]
+
+
+@pytest.mark.parametrize(
+    ("text", "sentences"),
+    [
+        (
+            "Most sales were in the U.S. The rest came from Europe [C1].",
+            ["Most sales were in the U.S.", "The rest came from Europe [C1]."],
+        ),
+        (
+            "The registrant is Apple Inc. It designs the iPhone [C1].",
+            ["The registrant is Apple Inc.", "It designs the iPhone [C1]."],
+        ),
+        (
+            "It sells phones, tablets, etc. However, services grew faster [C1].",
+            ["It sells phones, tablets, etc.", "However, services grew faster [C1]."],
+        ),
+        (
+            "Sales were highest in the U.S. [C1]. Europe came second [C2].",
+            ["Sales were highest in the U.S. [C1].", "Europe came second [C2]."],
+        ),
+        (
+            "Net sales rose [F1]. 72% came from the U.S. Government [C3].",
+            ["Net sales rose [F1].", "72% came from the U.S. Government [C3]."],
+        ),
+    ],
+)
+def test_a_sentence_that_ends_with_an_abbreviation_still_splits(
+    text: str, sentences: list[str]
+) -> None:
+    assert split_sentences(text) == sentences

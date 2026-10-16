@@ -1,0 +1,225 @@
+{
+ "n": 29,
+ "unscored": 1,
+ "agreement": 0.9310344827586207,
+ "kappa": 0.8397790055248618,
+ "kappa_ci": [
+  0.5915492957746479,
+  1.0
+ ],
+ "natural": {
+  "n": 21,
+  "labeler_no": 0,
+  "judge_no": 2,
+  "agreement": 0.9047619047619048,
+  "kappa": 0.0,
+  "kappa_ci": [
+   0.0,
+   1.0
+  ]
+ },
+ "per_stratum": {
+  "passing": {
+   "n": 16,
+   "agreement": 0.875
+  },
+  "failing": {
+   "n": 5,
+   "agreement": 1.0
+  },
+  "constructed": {
+   "n": 8,
+   "agreement": 1.0
+  }
+ },
+ "confusion": {
+  "labeler no, judge no": 8,
+  "labeler yes, judge no": 2,
+  "labeler yes, judge yes": 19
+ },
+ "items": [
+  {
+   "id": "s01",
+   "stratum": "failing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s02",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s03",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s04",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s05",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s06",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s07",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "partly"
+  },
+  {
+   "id": "s08",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s09",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s10",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s11",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s12",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s13",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s14",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s15",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s16",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s17",
+   "stratum": "failing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s18",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s19",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "partly"
+  },
+  {
+   "id": "s20",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s21",
+   "stratum": "failing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s22",
+   "stratum": "failing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s23",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s24",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s25",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s26",
+   "stratum": "passing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s27",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s28",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s29",
+   "stratum": "failing",
+   "label": true,
+   "verdict": "yes"
+  },
+  {
+   "id": "s30",
+   "stratum": "constructed",
+   "label": false,
+   "verdict": null
+  }
+ ],
+ "sample": "21 natural sentences and 9 constructed negatives, shuffled; constructed negatives may be easier to catch than natural errors",
+ "labeler": "claude",
+ "judge": "groq:openai/gpt-oss-120b"
+}

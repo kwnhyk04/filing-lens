@@ -2,3 +2,6 @@
 # `make contracts-check` gives the same answer on every platform and core.autocrlf setting.
 contracts/** text eol=lf
 clients/** text eol=lf
+# The golden set's manifest holds sha256 hashes of these files; LF keeps them equal everywhere.
+evals/golden/** text eol=lf
+evals/calibration/** text eol=lf

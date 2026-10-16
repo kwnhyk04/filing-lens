@@ -2,16 +2,20 @@
 
 The router (LLM_ROUTER) picks the path and names the companies and periods. Numeric questions read
 XBRL facts first (get_financial_fact) and search filing text only when no fact exists; textual and
-comparison questions search. The primary model (LLM_PRIMARY) writes the answer with [n] markers
-and quotes, and every sentence must pass validation (filinglens_llm.answer.check); a failure gets
-one regeneration, then the failing sentences are dropped with a warning. A router or primary call
+comparison questions search. That search starts while the router runs, on the companies and years
+the question names (router.guess), and is kept only when the router's plan asks for the same
+scope, so it changes when an answer arrives, never what it says. The primary model (LLM_PRIMARY)
+writes the answer with [n] markers and quotes, and every sentence must pass validation
+(filinglens_llm.answer.check); a failure gets one regeneration, then the failing sentences are
+dropped with a warning. A router or primary call
 that fails falls back once to LLM_FALLBACK, unless allow_fallback is off (evals), and each fallback
 is logged and counted. Out-of-scope questions, unknown companies, fiscal years with no 10-K yet
 and questions without relevant evidence get a refusal instead of a model answer.
 """
 
+import asyncio
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Protocol
@@ -38,7 +42,7 @@ from filinglens_core.errors import (
     UpstreamError,
 )
 from filinglens_core.settings import ApiSettings
-from filinglens_db.models import Company
+from filinglens_db.models import Company, Filing, FilingStatus
 from filinglens_llm import answer as drafting
 from filinglens_llm import budget, router
 from filinglens_llm.providers import Completion, Provider
@@ -58,6 +62,10 @@ class Evidence(Protocol):
 
     async def companies(self, tickers: Sequence[str]) -> dict[str, int]:
         """CIK by ticker, for the tickers FilingLens tracks."""
+        ...
+
+    async def tracked(self) -> dict[str, str]:
+        """Name by ticker for each company with an indexed filing: the router's choices."""
         ...
 
     async def names(self, ciks: Sequence[int]) -> dict[int, str]:
@@ -91,6 +99,9 @@ class _Run:
     output_tokens: int = 0
     fallbacks: list[str] = field(default_factory=list)
     first_token_ms: float | None = None
+    top_score: float | None = None  # the best hit's rerank score, when the answer searched
+    early_search: bool | None = None  # whether that search was the one started with the router
+    sources: dict[str, str] = field(default_factory=dict)  # alias -> chunk id or fact id
 
     def lap(self, stage: str) -> None:
         now = time.perf_counter()
@@ -111,6 +122,7 @@ class Answerer:
         max_inflight: int,
         allow_fallback: bool = True,
         today: Callable[[], date] = date.today,
+        min_relevance: float = RELEVANCE_MIN,
     ) -> None:
         self._evidence = evidence
         self._models = models
@@ -118,6 +130,7 @@ class Answerer:
         self._max_inflight = max_inflight
         self._allow_fallback = allow_fallback
         self._today = today
+        self._min_relevance = min_relevance
         self._inflight = 0
 
     def admit(self) -> None:
@@ -137,14 +150,18 @@ class Answerer:
         run = _Run()
         outcome: Answer | None = None
         routing: router.Routing | None = None
+        early: _Early | None = None
         try:
-            routing = await self._route(request.question, run)
+            companies = await self._evidence.tracked()
+            early = self._search_early(request, companies)
+            routing = await self._route(request.question, companies, run)
             run.lap("route_ms")
             plan = await self._plan(request, routing)
             if isinstance(plan, str):
                 outcome = self._refusal(plan, run)
             else:
-                async for event in self._answer(request.question, routing, plan, run):
+                kept = early.task if early.agrees(request, routing, plan) else None
+                async for event in self._answer(request.question, routing, plan, run, kept):
                     if isinstance(event, AnswerCompleted):
                         outcome = event.answer
                     else:
@@ -155,6 +172,8 @@ class Answerer:
                 yield AnswerDelta(text=outcome.answer)
             yield AnswerCompleted(answer=outcome)
         finally:
+            if early is not None:
+                early.task.cancel()  # a search the plan did not use; no-op once it was awaited
             self._inflight -= 1
             run.timings_ms["total_ms"] = run.since_start_ms()
             log.info(
@@ -177,26 +196,62 @@ class Answerer:
                     input_tokens=run.input_tokens,
                     output_tokens=run.output_tokens,
                     fallbacks=run.fallbacks,
+                    top_score=run.top_score,
+                    early_search=run.early_search,
+                    sources=run.sources,
                 )
 
-    async def _route(self, question: str, run: _Run) -> router.Routing:
-        async def ask(provider: Provider) -> router.Routing:
+    def _search_early(self, request: AnswerRequest, companies: Mapping[str, str]) -> "_Early":
+        """Start the search the plan will most likely ask for, so it runs while the router does."""
+        tickers, years = router.guess(request.question, companies)
+        tickers = [] if request.company_ids else tickers  # the request's companies win, as in _plan
+        years = sorted(request.fiscal_years or years)
+        task = asyncio.create_task(self._early_search(request, tickers, years))
+        task.add_done_callback(_seen)
+        return _Early(tickers, years, task)
+
+    async def _early_search(
+        self, request: AnswerRequest, tickers: list[str], years: list[int]
+    ) -> Ranking:
+        ciks = list(request.company_ids) if request.company_ids else None
+        if tickers:
+            found = await self._evidence.companies(tickers)
+            ciks = [found[ticker] for ticker in tickers]
+        return await self._evidence.search(request.question, Scope(ciks, years or None))
+
+    async def _route(
+        self, question: str, companies: Mapping[str, str], run: _Run
+    ) -> router.Routing:
+        system = router.system_prompt(self._today(), companies)
+        schema = router.schema(companies)
+
+        async def ask(provider: Provider, prompt: str) -> router.Routing:
             completion = await provider.complete(
-                router.system_prompt(self._today()),
-                question,
-                max_tokens=router.MAX_TOKENS,
-                schema=router.SCHEMA,
+                system, prompt, max_tokens=router.MAX_TOKENS, schema=schema
             )
             await self._spent(completion, run)
             return router.parse(completion.text, provider.name)
 
-        return await self._with_fallback("router", self._models.router, ask, run)
+        async def route(provider: Provider) -> router.Routing:
+            routing = router.resolve(await ask(provider, question), companies)
+            if problems := router.problems(routing, companies):  # once; _plan refuses the rest
+                log.info("router reply broke the rules, asking again", problems=problems)
+                retry = router.retry_prompt(question, problems)
+                routing = router.resolve(await ask(provider, retry), companies)
+            return routing
+
+        return await self._with_fallback("router", self._models.router, route, run)
 
     async def _plan(self, request: AnswerRequest, routing: router.Routing) -> "_Plan | str":
         """The companies and years to read, or a refusal."""
         if routing.route == "out_of_scope":
             return OUT_OF_SCOPE
         ciks: list[int] | None = list(request.company_ids) if request.company_ids else None
+        # An untracked company is refused when the question needs its figures or names nothing
+        # tracked; a textual question about a tracked company may mention others (an acquisition).
+        others = routing.other_companies
+        if ciks is None and others and (not routing.tickers or routing.route != "textual"):
+            return f"FilingLens has no filings for {', '.join(others)}."
         if ciks is None and routing.tickers:
             found = await self._evidence.companies(routing.tickers)
             missing = [ticker for ticker in routing.tickers if ticker not in found]
@@ -217,7 +272,12 @@ class Answerer:
         return _Plan(ciks, years, names, latest, routing.fiscal_period or "FY")
 
     async def _answer(
-        self, question: str, routing: router.Routing, plan: "_Plan", run: _Run
+        self,
+        question: str,
+        routing: router.Routing,
+        plan: "_Plan",
+        run: _Run,
+        early: Awaitable[Ranking] | None = None,
     ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
         sources: list[drafting.Source] = []
         if routing.metric and routing.route in ("numeric", "comparison") and plan.ciks:
@@ -230,15 +290,21 @@ class Answerer:
             run.lap("facts_ms")
         degraded = False
         if routing.route != "numeric" or not sources:
-            ranking = await self._evidence.search(question, Scope(plan.ciks, plan.years))
+            run.early_search = early is not None
+            if early is not None:  # the same question and scope: the same ranking, sooner
+                ranking = await early
+            else:
+                ranking = await self._evidence.search(question, Scope(plan.ciks, plan.years))
             run.lap("retrieve_ms")
             run.timings_ms.update({f"retrieve_{k}": v for k, v in ranking.timings_ms.items()})
             degraded = ranking.degraded
             hits = ranking.hits[:MAX_CHUNKS]
-            relevant = degraded or (bool(hits) and hits[0].score >= RELEVANCE_MIN)
+            run.top_score = hits[0].score if hits else None
+            relevant = degraded or (bool(hits) and hits[0].score >= self._min_relevance)
             if relevant:
                 names = plan.names or await self._evidence.names(sorted({h.cik for h in hits}))
                 sources += [_chunk_source(n, hit, names) for n, hit in enumerate(hits, 1)]
+        run.sources = {s.alias: s.chunk_id or s.fact_id or "" for s in sources}
         if not sources:
             yield AnswerCompleted(answer=self._refusal(NO_EVIDENCE, run, degraded=degraded))
             return
@@ -375,6 +441,26 @@ class Answerer:
 
 
 @dataclass(frozen=True)
+class _Early:
+    """The search started with the router, on the tickers and fiscal years the question names."""
+
+    tickers: list[str]  # [] when the request names its companies
+    years: list[int]
+    task: "asyncio.Task[Ranking]"
+
+    def agrees(self, request: AnswerRequest, routing: router.Routing, plan: "_Plan") -> bool:
+        """Whether the plan searches the same companies and fiscal years."""
+        companies = bool(request.company_ids) or self.tickers == routing.tickers
+        return companies and self.years == sorted(plan.years or [])
+
+
+def _seen(task: "asyncio.Task[Ranking]") -> None:
+    """Retrieve an unused early search's error, so asyncio does not log it as never retrieved."""
+    if not task.cancelled():
+        task.exception()
+
+
+@dataclass(frozen=True)
 class _Plan:
     ciks: list[int] | None  # None: every company
     years: list[int] | None  # None: any fiscal year
@@ -452,6 +538,16 @@ class PostgresEvidence:
         )
         async with self._engine.connect() as connection:
             return {ticker: cik for ticker, cik in await connection.execute(query)}
+
+    async def tracked(self) -> dict[str, str]:
+        indexed = (
+            select(Filing.id)
+            .where(Filing.cik == Company.cik, Filing.status == FilingStatus.INDEXED)
+            .exists()
+        )
+        query = select(func.upper(Company.ticker), Company.name).where(indexed)
+        async with self._engine.connect() as connection:
+            return {ticker: name for ticker, name in await connection.execute(query)}
 
     async def names(self, ciks: Sequence[int]) -> dict[int, str]:
         query = select(Company.cik, Company.name, Company.ticker).where(Company.cik.in_(ciks))

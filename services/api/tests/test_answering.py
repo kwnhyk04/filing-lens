@@ -35,6 +35,9 @@ RATE_LIMITED = httpx.Response(
     429, json={"error": {"code": 429, "message": "Quota exceeded", "status": "RESOURCE_EXHAUSTED"}}
 )
 NO_CREDITS = httpx.Response(402, json={"detail": "Payment required: no credits left"})
+RETIRED = httpx.Response(410, json={"detail": "The model has reached its end of life"})
+TRACKED = {"AAPL": "Apple Inc.", "NVDA": "NVIDIA Corporation"}
+GROQ = "api.groq.com"
 
 
 def fixture(name: str) -> dict[str, Any]:
@@ -46,14 +49,22 @@ class RecordedEvidence:
 
     def __init__(self, calls: list[dict[str, Any]]) -> None:
         self._results: defaultdict[str, list[Any]] = defaultdict(list)
+        self.scopes: list[Scope] = []  # each search's scope, in order
         for call in calls:
             self._results[call["method"]].append(call["result"])
 
     def _next(self, method: str) -> Any:
-        return self._results[method].pop(0)
+        """The next recorded result; the last one answers again, since the search that starts
+        with the router asks for companies and chunks before the plan does."""
+        results = self._results[method]
+        return results.pop(0) if len(results) > 1 else results[0]
 
     async def companies(self, tickers: Sequence[str]) -> dict[str, int]:
         return {ticker: int(cik) for ticker, cik in self._next("companies").items()}
+
+    async def tracked(self) -> dict[str, str]:
+        """The recorded list, or for fixtures recorded before the router saw one, its tickers."""
+        return self._next("tracked") if self._results["tracked"] else TRACKED
 
     async def names(self, ciks: Sequence[int]) -> dict[int, str]:
         return {int(cik): name for cik, name in self._next("names").items()}
@@ -75,6 +86,7 @@ class RecordedEvidence:
         return Fact(**values)
 
     async def search(self, question: str, scope: Scope) -> Ranking:
+        self.scopes.append(scope)
         found = self._next("search")
         hits = [
             Hit(**hit | {k: date.fromisoformat(hit[k]) for k in ("filed_on", "period_end")})
@@ -124,18 +136,26 @@ def chat_stream(text: str) -> httpx.Response:
     return httpx.Response(200, text=body, headers=SSE)
 
 
-def answerer(recorded: dict[str, Any], http: httpx.AsyncClient, max_inflight: int) -> Answerer:
+def answerer(
+    recorded: dict[str, Any],
+    http: httpx.AsyncClient,
+    max_inflight: int,
+    evidence: RecordedEvidence | None = None,
+    **options: Any,
+) -> Answerer:
     groq = OpenAICompatible("groq", BASE_URLS["groq"], "openai/gpt-oss-20b", "k", http)
     nvidia = OpenAICompatible("nvidia", BASE_URLS["nvidia"], "openai/gpt-oss-20b", "k", http)
     models = Models(
         router=groq, primary=Gemini("gemini-3.5-flash-lite", KEY, http), fallback=nvidia
     )
     redis = Redis.from_url("redis://0.0.0.0:1/0")  # down: usage is logged, not counted
-    evidence = RecordedEvidence(recorded["evidence"])
-    return Answerer(evidence, models, redis, max_inflight=max_inflight)
+    evidence = evidence or RecordedEvidence(recorded["evidence"])
+    return Answerer(evidence, models, redis, max_inflight=max_inflight, **options)
 
 
-async def run(name: str) -> tuple[Answer, str, dict[str, Any]]:
+async def run(
+    name: str, evidence: RecordedEvidence | None = None, **options: Any
+) -> tuple[Answer, str, dict[str, Any]]:
     """Answer the fixture's question; returns the answer, the joined deltas and the stats."""
     recorded = fixture(name)
     async with httpx.AsyncClient() as http:
@@ -143,7 +163,8 @@ async def run(name: str) -> tuple[Answer, str, dict[str, Any]]:
         deltas: list[str] = []
         answer = None
         request = AnswerRequest(question=recorded["question"])
-        async for event in answerer(recorded, http, 2).events(request, stats):
+        pipeline = answerer(recorded, http, 2, evidence, **options)
+        async for event in pipeline.events(request, stats):
             if isinstance(event, AnswerDelta):
                 deltas.append(event.text)
             elif isinstance(event, AnswerCompleted):
@@ -170,11 +191,47 @@ async def test_a_numeric_question_is_answered_from_the_xbrl_fact(mocked: respx.M
 
 async def test_a_textual_answer_quotes_the_chunks_it_cites(mocked: respx.MockRouter) -> None:
     replay(mocked, fixture("textual")["exchanges"])
-    answer, streamed, _ = await run("textual")
+    answer, streamed, stats = await run("textual")
     search = next(c for c in fixture("textual")["evidence"] if c["method"] == "search")
-    chunks = {hit["chunk_id"]: hit["text"] for hit in search["result"]["hits"]}
+    hits = search["result"]["hits"]
+    chunks = {hit["chunk_id"]: hit["text"] for hit in hits}
     assert not answer.refused and answer.citations and answer.answer == streamed
     assert all(c.chunk_id and citation_error(c, chunks, ()) is None for c in answer.citations)
+    assert stats["top_score"] == hits[0]["score"]  # the evals read the sources the model got
+    assert stats["sources"] == {f"C{n}": hit["chunk_id"] for n, hit in enumerate(hits[:12], 1)}
+
+
+async def test_the_search_started_with_the_router_is_kept_when_the_router_agrees(
+    mocked: respx.MockRouter,
+) -> None:
+    replay(mocked, fixture("textual")["exchanges"])
+    evidence = RecordedEvidence(fixture("textual")["evidence"])
+    answer, _, stats = await run("textual", evidence)  # "Apple ... its latest annual report"
+    assert not answer.refused and stats["early_search"] is True
+    assert evidence.scopes == [Scope([320193], None)]  # one search, the early one
+
+
+async def test_a_router_that_disagrees_gets_its_own_search(mocked: respx.MockRouter) -> None:
+    recorded = fixture("textual")
+    content = json.loads(
+        json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
+    )
+    mocked.post(host=GROQ).mock(return_value=router_reply(**content | {"fiscal_years": [2024]}))
+    replay(mocked, recorded["exchanges"][1:])
+    evidence = RecordedEvidence(recorded["evidence"])
+    answer, _, stats = await run("textual", evidence)
+    assert not answer.refused and stats["early_search"] is False
+    assert evidence.scopes == [Scope([320193], None), Scope([320193], [2024])]
+
+
+async def test_a_best_hit_under_min_relevance_is_refused_without_an_answer_call(
+    mocked: respx.MockRouter,
+) -> None:
+    replay(mocked, fixture("textual")["exchanges"][:1])  # the router's reply
+    gemini = mocked.post(host=GEMINI)
+    answer, _, stats = await run("textual", min_relevance=0.0)  # the best hit scored -0.76
+    assert answer.refused and "nothing relevant enough" in answer.answer
+    assert not gemini.called and stats["sources"] == {} and stats["top_score"] < 0
 
 
 @pytest.mark.parametrize(
@@ -226,16 +283,19 @@ async def test_a_rate_limited_primary_falls_back_and_the_fallback_is_recorded(
     ]
 
 
-async def test_a_fallback_without_credits_fails_the_answer_with_503(
-    mocked: respx.MockRouter,
+@pytest.mark.parametrize(
+    ("reply", "says"), [(NO_CREDITS, "no credits left"), (RETIRED, "retired this model")]
+)
+async def test_a_fallback_without_credits_or_retired_fails_the_answer_with_503(
+    mocked: respx.MockRouter, reply: httpx.Response, says: str
 ) -> None:
     replay(mocked, fixture("numeric")["exchanges"][:1])
     mocked.post(host=GEMINI, path=STREAM).mock(return_value=RATE_LIMITED)
     nvidia = mocked.post(host="integrate.api.nvidia.com", path=NVIDIA_CHAT)
-    nvidia.mock(return_value=NO_CREDITS)
-    with pytest.raises(AiUnavailableError, match="no credits left") as raised:
+    nvidia.mock(return_value=reply)
+    with pytest.raises(AiUnavailableError, match=says) as raised:
         await run("numeric")
-    assert raised.value.http_status == 503 and nvidia.call_count == 1  # 402 is not retried
+    assert raised.value.http_status == 503 and nvidia.call_count == 1  # 402/410: no retry
 
 
 async def test_a_failed_router_call_routes_with_the_fallback(mocked: respx.MockRouter) -> None:
@@ -247,6 +307,72 @@ async def test_a_failed_router_call_routes_with_the_fallback(mocked: respx.MockR
     replay(mocked, recorded["exchanges"][1:])
     answer, _, stats = await run("numeric")
     assert not answer.refused and stats["fallbacks"][0].startswith("router: groq:")
+
+
+def router_reply(**routing: Any) -> httpx.Response:
+    """A Groq chat completion holding the numeric fixture's routing, changed by `routing`."""
+    body = json.loads(fixture("numeric")["exchanges"][0]["body"])
+    content = json.loads(body["choices"][0]["message"]["content"]) | routing
+    body["choices"][0]["message"]["content"] = json.dumps(content)
+    return httpx.Response(200, json=body)
+
+
+async def test_an_untracked_ticker_gets_one_retry_with_the_reason(mocked: respx.MockRouter) -> None:
+    recorded = fixture("numeric")
+    groq = mocked.post(host=GROQ)
+    groq.mock(side_effect=[router_reply(tickers=["APPL"]), router_reply()])
+    replay(mocked, recorded["exchanges"][1:])
+    answer, _, stats = await run("numeric")
+    assert groq.call_count == 2 and not answer.refused
+    assert stats["routing"]["tickers"] == ["AAPL"]
+    request = json.loads(groq.calls[1].request.content)
+    assert "APPL are not on the list" in request["messages"][1]["content"]
+    tickers = request["response_format"]["json_schema"]["schema"]["properties"]["tickers"]
+    assert tickers["items"]["enum"] == sorted(TRACKED)
+
+
+async def test_a_ticker_still_untracked_after_the_retry_is_refused(
+    mocked: respx.MockRouter,
+) -> None:
+    groq = mocked.post(host=GROQ).mock(return_value=router_reply(tickers=["APPL"]))
+    gemini = mocked.post(host=GEMINI)
+    answer, _, _ = await run("numeric")
+    assert groq.call_count == 2 and not gemini.called
+    assert answer.refused and answer.answer == "FilingLens has no filings for APPL."
+
+
+async def test_a_company_named_as_untracked_is_refused_without_a_retry(
+    mocked: respx.MockRouter,
+) -> None:
+    groq = mocked.post(host=GROQ).mock(
+        return_value=router_reply(tickers=[], other_companies=["Netflix"])
+    )
+    answer, _, _ = await run("numeric")
+    assert groq.call_count == 1
+    assert answer.refused and answer.answer == "FilingLens has no filings for Netflix."
+
+
+async def test_a_textual_question_may_mention_an_untracked_company(
+    mocked: respx.MockRouter,
+) -> None:
+    recorded = fixture("textual")
+    content = json.loads(
+        json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
+    )
+    mocked.post(host=GROQ).mock(return_value=router_reply(**content, other_companies=["Foxconn"]))
+    replay(mocked, recorded["exchanges"][1:])
+    answer, _, _ = await run("textual")
+    assert not answer.refused  # Apple's filing answers; Foxconn is only mentioned
+
+
+async def test_a_comparison_without_its_metric_gets_one_retry(mocked: respx.MockRouter) -> None:
+    groq = mocked.post(host=GROQ)
+    groq.mock(side_effect=[router_reply(route="comparison", metric=None), router_reply()])
+    replay(mocked, fixture("numeric")["exchanges"][1:])
+    answer, _, stats = await run("numeric")
+    assert groq.call_count == 2 and not answer.refused
+    assert "a comparison needs its metric" in groq.calls[1].request.content.decode()
+    assert stats["routing"]["metric"] == "revenue"
 
 
 async def test_gemini_sends_its_key_only_in_the_header(

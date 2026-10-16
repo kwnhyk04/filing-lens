@@ -9,10 +9,13 @@ ARIADNE = uv run --isolated --no-project --exclude-newer 2026-10-01T00:00:00Z --
 OASDIFF = docker run --rm --mount "type=bind,source=$(CURDIR),target=/repo,readonly" -w /repo tufin/oasdiff:v1.32.1@sha256:3b14fe0112e5d1bf862f91ab234a4bcd161a3f399e98f8b0b665ce70857694ac
 BASE ?= main
 REV ?= head
+SUITE ?= all
+SPLIT ?= dev
+SUBSET ?= full
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval models smoke record-fixtures
+.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -64,8 +67,17 @@ contracts-check: codegen ## fail if a fresh codegen changes contracts/ or client
 contracts-breaking: ## fail on breaking OpenAPI changes against BASE (default main); needs Docker
 	$(OASDIFF) breaking $(BASE):contracts/openapi.json contracts/openapi.json --fail-on ERR
 
-eval:
-	uv run python evals/harness.py
+eval: ## golden-set evals: SUITE=retrieval|answer|all SPLIT=dev|test SUBSET=ci|full, flags in ARGS
+	uv run --env-file .env python -m evals.harness --suite $(SUITE) --split $(SPLIT) --subset $(SUBSET) $(ARGS)
+
+audit: ## interactive: blind audit of Claude's passage labels, then review of disagreements (resumable)
+	uv run python -m evals.label audit
+
+label: ## interactive: label the golden set's candidate passages (resumable)
+	uv run python -m evals.label label
+
+calibrate: ## judge calibration: label on screen, or ARGS=export / ARGS=import for an outside labeler
+	uv run --env-file .env python -m evals.calibrate $(ARGS)
 
 models: ## once, outside tests: the pinned embedders and rerankers into HF_HOME (on H:)
 	uv run python -m filinglens_llm.local

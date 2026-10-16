@@ -122,6 +122,125 @@ From step 6a (providers, local models, search, answers):
 - 2026-10-15: Filing statuses: chunk sets parsed and queues embed; embed fills `RETRIEVAL_EMBEDDING_COLUMN` (and `<column>_model`), sets indexed when the fiscal year is known, else embedded, and the job item succeeds there; facts indexes embedded filings. A separate `embed` service (`-Q embed,reembed -c 1`) holds the only model copy. Reason: the API lists and searches indexed filings only, and 16 prefork processes would each load torch.
 - 2026-10-15: Local models load from `HF_HOME=H:\.cache\huggingface` (machine-wide), pinned by commit in `filinglens_llm.local`; `make models` fetches them, containers mount the cache read-only with `HF_HUB_OFFLINE=1`, and the root conftest sets `HF_HUB_OFFLINE=1`. The Hugging Face cache keeps weights as symlinks into a shared blob store; the read-only bind mount reads them in Linux containers.
 
+From step 6b (golden set, judge, evals):
+
+- 2026-10-16: `LLM_JUDGE=groq:openai/gpt-oss-120b` (user decision), used only by evals for citation precision and faithfulness. Different family from the answer model (Gemini). Limits on Groq (rate-limits page, read 2026-10-15): 30 requests/min, 1,000/day, 8K tokens/min, 200K tokens/day. Production status, with no deprecation listed (Groq deprecations page, read 2026-10-16); $0.15 / $0.60 per 1M tokens paid. Its 200K tokens/day are shared with fallback decision 4's gpt-oss-120b run, so the two run on different days. Reason: fast, holds the JSON schema; qwen3.8-27b is a Groq preview (its predecessor was shut down 2026-09-14), and nemotron on NVIDIA was unprobed.
+- 2026-10-16: Eval floors in `evals/thresholds.json` follow the rule of FreightAudit and Triage Copilot (user decision). Accuracy: min(lower 95% bound, target). False refusal, where lower is better: a ceiling of max(upper bound, target). Efficiency (latency, tokens, cost) that meets its target: min(upper x 1.5, target), so a 50% regression fails. Efficiency that already misses its target: upper x 1.5 with no cap, so a known miss doesn't fail every run while the report still marks the target failed. Example: time to first token p95 measured 3.0 s, upper bound 3.5 s, against a 2.0 s target gives a floor of 5.25 s. Cost as billed: floor 0. Floors are written only on request and only tighten; loosening one needs a written reason here.
+  - Since 2026-10-16 (user decision): `python -m evals.harness --set-floors REPORT` applies the rule to a saved report's measured values, and a run only checks floors. So every floor, TTFT and full-answer latency included, comes from the run's own live numbers. A rerun from the cache has no live latency and could not set those.
+- 2026-10-16: Passage gold for golden set v1 is AI-labeled, spot-checked by a non-expert (user decision, made after labeling the 19 passages of x01 by hand).
+  - Claude labeled every pooled passage with the same guideline (`evals/golden/v1/ai_labels.jsonl`, each with a one-line reason).
+  - The user labels a blind sample of 60 more with `make audit`: fixed seed, at least 20 Claude-gold, spread over the other 29 questions. The sample is frozen in `audit.jsonl`.
+  - The user then makes the final call on every passage where their blind label and Claude's differ (the 19 included), after seeing Claude's reason.
+  - Final label: the user's where given, otherwise Claude's.
+  - The manifest records agreement and Cohen's kappa (bootstrap CI) between the user's blind labels and Claude's, before review.
+  - Neither label file is edited by hand.
+  - Reason: labeling 540 passages by hand takes about 1.5 hours; the audit measures how far the AI labels can be trusted, and a human settles every disagreement.
+  - Result, from the manifest:
+    - Blind agreement on 79 passages was 49.4%, Cohen's kappa 0.10 (95% CI -0.07 to 0.26). Claude said gold on 27, the user on 55.
+    - Of the 40 disagreements, 34 had the user saying gold where Claude did not (11 of them on absent questions), and 6 the reverse.
+    - By sitting: x01's 19 passages agreed 79% (kappa 0.22); the 60-passage sample agreed 40% (kappa -0.02), with the user saying gold on 53.
+    - Pace: a median of 3 s per passage in the sample (passages run a median of 262 words). The review took 47 s for 40 decisions.
+    - The review settled 37 of the 40 on Claude's label. The 3 settled on the user's label (x01 e9a636de, x02 89cfdd9a, x05 de1c06bf) are gold in the final key.
+    - Golden v1 was frozen on 2026-10-16.
+  - Wording (user instructions, 2026-10-16):
+    - The docs say "AI-labeled, spot-checked by a non-expert", never "human-audited", a careful audit or human-verified.
+    - They describe the human check plainly, as a fast spot-check by a non-expert that cannot validate the labels on its own.
+    - They give the blind kappa with its CI and the review result, and say that the review showed Claude's reason, so it was not independent.
+    - The eval card keeps the sitting numbers: time per passage, 53 of 60 marked gold, and 47 s for the review.
+  - Corrections (user decision, 2026-10-16):
+    - Prompt: Claude quoted the passage text of the three review calls that had gone the user's way. After reading it, the user set x01 `e9a636de` (Apple's services and segments, not manufacturing) and x05 `de1c06bf` (Tesla's tax-incentive note, which never says a Gigafactory builds vehicles) to not gold, and kept x02 `89cfdd9a` as gold.
+    - Records: `labels.jsonl` holds them as rows with `step: "correction"` and a `why`. `blind_labels` skips every row with a step, so the blind numbers did not move.
+    - Freeze: V1 was unfrozen and refrozen before any test run. The manifest now records review 37 of 40 to Claude, 2 corrections, and a final key that matches Claude on 39 of the 40 disagreements (152 gold passages).
+- 2026-10-16: x15 (Caterpillar's order backlog at the end of 2025) stays, with one chunk added to its pool (user decision).
+  - No pool source caught CAT's Item 1 "Order Backlog" paragraph ($51.2 billion at December 31, 2025): none of the three rerankers had it in its top 10, and the phrase source's top 5 went to "dealer inventory" chunks. So the AI labels gave x15 no gold.
+  - `ADDED` in `evals/golden.py` appends the chunks of the company that hold the phrase "order backlog". Claude labeled the one it found as gold, and the audit sample includes it.
+  - Reason: replacing x15 would drop a real retrieval miss from the eval.
+- 2026-10-16: The eval harness (`evals/harness.py`, `evals/calls.py`, `evals/judge.py`) follows the approved 6b plan.
+  - Cache key: the sha256 of the question id; the call's role, model, options (Gemini thinking), max tokens and schema; and the hashes of both prompts. Answer calls add the answer path: router and primary ids, the embedder and reranker with their pinned revisions, rerank candidates and max tokens, and the index version (a hash of the indexed chunk ids). Judge keys leave the path out. So a new primary re-asks the router, a new thinking setting re-asks only the primary, and a rerun with another refusal threshold reuses everything.
+  - A 429 never reaches the Answerer: it would become 503 there. The call layer raises it as `RateLimited`, which is not a `FilingLensError`; the question then waits outside its 30 s answer timeout and runs again from the cache. The third 429 in a row, or a Retry-After over 120 s, exits 2 (Gemini sends no Retry-After, so the wait is 60 s). A refused key or no credits (`AiUnavailableError`) also exits 2.
+  - Run files (`.cache/evals/runs/<config hash>.jsonl`) let a stopped run resume. Errored questions are retried on resume, and the file is deleted once the report is written, so the next run of the same command rebuilds from the cache.
+  - Latency counts only questions whose calls were all live. The judge's calls are recorded apart from the answer path's.
+  - The judge makes one call per answer that was not refused, with the full text of each cited source and the quote given. Citation precision is the share of (sentence, citation) pairs it marks as supporting; faithfulness is the share of sentences fully supported. Both show as not measured until `make calibrate` gives kappa 0.7 or more, recorded in `evals/calibration/v1/result.json`.
+  - Prices in `evals/providers.json` (read 2026-10-16), per 1M tokens:
+    - Gemini 3.5 Flash-Lite, paid Standard tier: $0.30 in, $2.50 out (ai.google.dev pricing page).
+    - Groq gpt-oss-20b: $0.075 / $0.30.
+    - Groq gpt-oss-120b: $0.15 / $0.60.
+    - NVIDIA: no per-token price, only trial credits, so a run with an NVIDIA primary has no paid-equivalent cost.
+- 2026-10-16: Decision 1, reranker (dev, 14 textual questions, 70 queries for latency; the plan's fixed rule): TinyBERT-L-2 over the fused top 50 with 512 tokens stays the default, so settings, `.env.example` and compose are unchanged.
+  - Single runs (reports in `evals/reports/runs/`):
+
+    | Configuration | recall@10 | MRR@10 | nDCG@10 | Rerank p95 |
+    | --- | --- | --- | --- | --- |
+    | TinyBERT-L-2, top 50 | 0.613 | 0.649 | 0.584 | 217 ms |
+    | MiniLM-L-2, top 24, 256 tokens | 0.601 | 0.720 | 0.601 | 194 ms |
+    | MiniLM-L-6, top 100 (ineligible, the ceiling) | 0.705 | 0.800 | 0.703 | 3,065 ms |
+
+  - Paired bootstrap, MiniLM-L-2 minus TinyBERT: MRR@10 +0.071 (95% CI -0.060 to +0.208), recall@10 -0.012 (-0.129 to +0.112). Both intervals hold 0, a tie, so the faster one wins.
+  - "Faster" was unclear from single runs: p95 favored MiniLM-L-2 by 23 ms, p50 favored TinyBERT. Three alternating passes (210 queries each) settled it:
+    - TinyBERT rerank: p50 134 ms (CI 134-135), p95 162 ms (156-167).
+    - MiniLM-L-2 rerank: p50 161 ms (161-162), p95 184 ms (173-190).
+  - The ceiling against TinyBERT: MRR +0.151 (-0.004 to +0.330), recall +0.092 (+0.007 to +0.185), at about 14 times the rerank time.
+  - judged@10 is 1.000 for all three, since the pools hold each configuration's top 10. It matters only for a new embedder or reranker.
+- 2026-10-16: Decision 2, refusal threshold (dev): no threshold meets the plan's rule, so `RELEVANCE_MIN` stays -3.0.
+  - The run: `make eval SUITE=answer SPLIT=dev ARGS="--min-relevance=-100"` (report `evals/reports/runs/20261016T055608Z-answer-dev-full`). 70 questions, no errors, 12 rate-limit waits and no quota stop.
+    - Router: 70 calls, 43.8K tokens in and 4.8K out.
+    - Gemini: 53 calls, 164K in, 5.7K out.
+    - Judge: 37 calls, 33K in, 7.9K out.
+  - Correct refusal is already 18 of 18 with the gate off. False refusal is 15 of 52 (0.288), none of it from the gate, so the rule (most correct refusal with false refusal at most 5%) has no feasible threshold.
+  - `--sweep`: correct refusal stays 1.000 at every threshold. False refusal stays 0.288 for any t up to 4.338 (x19, the lowest-scoring answered answerable question) and only rises above it.
+  - -3.0 lies in that no-cost range. It gates only u02 (-4.383), which the model refused anyway. Kept: it costs nothing on dev and catches very weak retrievals.
+  - The gate cannot separate absent from answerable questions: absent a02 scored 5.217, above five answered textual questions.
+  - The false refusals come from the router and the model, not the gate (see the router pitfall below). User decision pending on fixing the router before decisions 3-4.
+- 2026-10-16: Decision 3, time to first token (dev full): Gemini thinking stays minimal; the setting is not the lever.
+  - Design: minimal, default, minimal in one sitting (A-B-A, 09:00 to 09:25 UTC), because Gemini's latency drifts with the hour (Known Issues). Reports `20261016T090721Z` (3a, every call live, `--tag=d3`), `091644Z` (3b, default thinking, router replies from 3a) and `092456Z` (A2, minimal, `--primary-tag=r2`).
+  - 3a, end to end (46 live answers):
+    - TTFT p50 4.24 s (95% CI 3.94 to 5.47), p95 9.26 s (6.72 to 17.01).
+    - Stage p50: router 0.66 s, retrieval 0.30 s, facts 0.05 s.
+    - Gemini's own first token: p50 3.37 s.
+  - Gemini's own first token, paired per question:
+    - Default against A2: p50 −0.21 s (CI −0.86 to +0.63, n 38).
+    - The two minimal passes, 15 minutes apart: −0.46 s (−1.36 to +0.17).
+    - So drift is as large as any effect of the setting.
+  - Default thinking wrote no extra output tokens (p50 63 against 64), so this model's default looks like minimal. Minimal stays, which needs no change.
+  - Gemini 503s: 2, 12 and 7 errors in the three passes (evals run without the fallback).
+  - Even at Gemini's best (the 05:56 UTC run, first token p50 0.97 s), TTFT p50 was 1.8 s: router and retrieval take about 1 s before Gemini starts.
+- 2026-10-16: Decision 4, fallback, first two candidates (dev ci, each as the primary with a live router; reports `20261016T092724Z` for 4a and `093202Z` for 4b). 4c (Groq gpt-oss-120b) runs on 2026-10-17.
+  - 4a, NVIDIA gpt-oss-20b: draft citation pass rate 3 of 7 quotes (0.429), from 3 questions.
+    - Regenerations: 5 of 14 drafts.
+    - Its own first token: p50 1.18 s (max 2.65 s). End-to-end TTFT p50 2.0 s (14 live answers).
+    - False refusal 3 of 15: the router refused x11 and x15, and no sentence held up in x16.
+    - No errors.
+  - 4b, NVIDIA nemotron-3-super-120b-a12b: pass rate 1 of 1 quote, no regenerations.
+    - Its own first token: p50 11.26 s (max 23.07 s), output tokens p50 420 against 4a's 107 (its default reasoning; a reasoning-off setting was not tried).
+    - It hit the 30 s answer limit on x06, x11 and x16, 3 of the 4 textual questions.
+  - Not too close to call (user rule), so no dev-full runs. The pass rates share one question, so the rule's first step cannot separate them; latency does. Paired, nemotron's first token is +10.1 s slower at p50 (95% CI +3.5 to +14.0, n 13). 4a leads 4b.
+  - Fresh router calls add noise: x11 was answered in 3a, refused by the router in 4a, and timed out in 4b.
+- 2026-10-16: Decision 4 settled (user decision): NVIDIA gpt-oss-20b (4a) stays `LLM_FALLBACK`, so nothing changes.
+  - 4c (Groq gpt-oss-120b) was skipped unrun. A Groq-hosted fallback shares outages with the Groq router, which the fallback also serves, and it spends the gpt-oss-120b allowance shared with FreightAudit and the judge.
+  - 4d (NVIDIA-hosted gpt-oss-120b) was proposed as a further candidate and found retired, so it was not an option. One tiny request got 410 ("retired this model"), as on 2026-10-15. The first probe's output was lost to a broken output filter, so two tiny requests went out.
+  - The evidence is thin. 4a's draft citation pass rate rests on 7 quotes from 3 questions (3 passed); nemotron's on 1. Nemotron lost on latency, likely because of its default reasoning, which was not tested switched off.
+- 2026-10-16: Decision 3's fix (user decision): fix B, the search starts while the router runs. Fix A (hedging the answer call with the fallback) was rejected: the fallback's citations (3 of 7 quotes passed) would make hedged answers worse, and correctness beats latency.
+  - **How it works:**
+    - `router.guess` reads the tracked companies a question names (by ticker, or by the first word of the name) and its four-digit years.
+    - The Answerer starts that search as a task before the router call. It keeps it only when the plan's tickers and years match (`_Early.agrees`), so evidence and answers never change. Otherwise it cancels it and searches the plan's scope.
+    - An unused early search still costs CPU (embedding, full text and rerank run in threads), numeric questions included. Stats and eval records carry `early_search`.
+  - **Offline check on 3a:** the guess matched the router on 16 of 25 searching questions. All 9 misses were the router leaving tickers empty for a company the question names (x01 Apple, x03 Alphabet, x11 Visa...), which then searched unscoped.
+  - **Dev, live** (report `20261016T100134Z`, `--tag=fixb`, 77.5K gpt-oss-20b):
+    - The router agreed on 18 of 28 searching questions.
+    - On those, paired with 3a, time before Gemini starts went from p50 1,060 to 684 ms. The median change was −268 ms (95% CI −490 to −128, n 16), and the retrieval wait went from 308 to 0 ms.
+    - Where the router disagreed (10 questions), nothing changed.
+    - End to end, TTFT p50 3.72 s and p95 9.65 s, still bound by Gemini.
+- 2026-10-16: Router misses checked before the test run (user request, no quota): no deterministic fill, since questions where the router left out the one company they name are not clearly worse.
+  - Three dev runs, each with its own live router replies (`082033Z`, `090721Z`, `100134Z`), with 3, 9 and 5 textual router misses. A miss means the question names exactly one tracked company (`router.guess`) and the router gave no ticker.
+  - Retrieval recall@10 as run, misses against the rest: 0.683 against 0.539, 0.614 against 0.833, and 0.840 against 0.462, so better in two samples of three. Answered: 2 of 3 against 7 of 11, 6 of 9 against 4 of 4, and 5 of 5 against 3 of 7.
+  - Faithfulness (the judged run only): 9 of 9 sentences against 18 of 19.
+  - Paired per question, a search scoped to the named company changes recall@10 in 3 of 15 cases: x06 +0.60, x01 +0.25 (twice), x20 −0.10. The question names the company, so the unscoped search ranks its chunks anyway.
+  - The fill would have added the single named company to the plan when the router gave none (dev-tuned, then a dev rerun with `--tag`). It was not built.
+- 2026-10-16: Eval reports record the code they measured (user request): the commit, whether the tree has uncommitted changes, and a sha256 over the source files as they stand (`code_version`: tracked and untracked files under services, packages, evals, scripts and infra, plus pyproject.toml and uv.lock, `.gitignore` applied). Data and docs are left out (reports, calibration and golden files, Markdown), so a calibration import between two runs does not change the hash; golden v1 has its own manifest hash. `dirty` checks the same files only (`git status` on that pathspec), so a calibration result or a doc edit written after a commit does not mark a run as measuring uncommitted code. Files are hashed with LF line ends, so a checkout that rewrites line ends (core.autocrlf is on here) keeps the hash. They also record the sha256 of each system prompt and response schema (`prompt_hashes`). Both appear in the JSON, the markdown header and the `eval_runs` row.
+- 2026-10-16: Follow-up judge sample (user decision): natural sentences that fail the validator, from 4b first (nemotron, another family than the judge), topped up from 4a, never from 4c (the judge's own model). It is a second sample in `evals/calibration/v1-followup/`, and v1 stays frozen.
+  - Drawn: 6 sentences, not about 10. 4b had 2 failing sentences and 4a 5, of which the 2-per-question cap kept 4.
+  - Three of them state figures that look derived from cited ones (72% of $75.0 billion as $54.0 billion; an increase of $55.605 billion), so the labels may hold natural negatives this time.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -173,7 +292,60 @@ None yet.
 - 2026-10-15: `UPDATE ... SET status = CASE WHEN ... THEN :a ELSE :b END` sends the parameters as text, and Postgres refuses text for the `filing_status` enum; type the branches with `literal(value, Filing.status.type)`. This failed all 30 filings at the end of embed on the first run (vectors stored); replaying `embed.dlq` after the fix indexed them.
 - 2026-10-15: gpt-oss-20b routed "revenue in fiscal 2027" as out_of_scope until the prompt said only the topic decides out_of_scope, with that example; the time-trap check then refuses it by name.
 - 2026-10-15: `uv run --env-file` cannot parse an unquoted value with spaces (compose can); `.env` quotes `SEC_USER_AGENT`.
-- 2026-10-16: NVIDIA retires catalog models (gpt-oss-120b on 2026-09-03), and a retired id answers 410 with the end-of-life date in its body. `providers.failure` maps 410 to `UpstreamError`, so with a retired `LLM_FALLBACK`, an answer whose primary fails ends in 502 `upstream_error` (no retry), not the 503 of a 402.
+- 2026-10-16: NVIDIA retires catalog models (gpt-oss-120b on 2026-09-03), and a retired id answers 410 with the end-of-life date in its body. Fixed in 6b (user request): `providers.failure` now maps 410 like 402, to `AiUnavailableError` (permanent, no retry, 503 `ai_unavailable` once no fallback is left). Before, it was `UpstreamError`, and a retired `LLM_FALLBACK` ended an answer in 502.
+- 2026-10-16: A candidate pool (each reranker's top 10 plus the top 5 of vector, full-text, hint-phrase and item-section sources) can miss gold that sits in an unlikely spot. CAT's backlog paragraph sits among the patents text of Item 1, so x15 lost all its gold this way. A hint-phrase check found no other question with no pooled chunk for its most specific phrase. Broad phrases still leave chunks outside the pools (for example 5 of 13 "concentrates and syrups" chunks for x07), so some gold may be unpooled. The retrieval report's judged@10 shows how much of each top 10 carries a label.
+- 2026-10-16: One run's rerank p95 can rank two close configurations the wrong way round. TinyBERT's single-run p95 (217 ms) looked slower than MiniLM-L-2's (194 ms), yet pooled over three passes it was faster (162 against 184 ms). Compare close latencies over repeated, alternating passes.
+- 2026-10-16: `split_sentences` (validate.py) split after "U.S." when a capital followed. Validation then saw "…sales from the U.S." as a sentence without a citation and dropped it, leaving "Government, either as a prime contractor…" as an orphan fragment (x16's final answer). Fixed the same day (user request):
+  - A period after an abbreviation (`ABBREVIATION`: initials such as U.S., e.g. or N.A., and Inc., Corp., Co., No., etc.) ends a sentence only when a common sentence starter follows (`STARTER`: The, It, However...).
+  - Limit: an abbreviation that really ends a sentence before another capitalized word ("in the U.S. Revenue rose") stays joined to the next sentence.
+  - Reach: of the 62 cached drafts in the latest dev run, only x16 had a cut after an abbreviation. None of the calibration sample's 30 sentences or 14 judge prompts change, so its cached judge calls still hold.
+  - `evals/calibrate.py` still skips fragments after "U.S." and answers trimmed by validation when it draws; both date from before the fix, and v1's sample is frozen.
+- 2026-10-16: On a Core `AsyncConnection`, `connection.scalars(select(Model))` returns the first column (the ids), not ORM objects; read rows with `execute` instead. The harness's dry run with scripted models caught it before any quota was spent.
+- 2026-10-16: The router (gpt-oss-20b) causes 12 of the 15 dev false refusals. Route accuracy is 1.000, but router accuracy (route, tickers, years, metric) is 0.671.
+  - It guesses tickers from company names and gets 6 wrong, each refused as an untracked company: GOOG (GOOGL), HST (HD), CONP (COP), UHG (UNH), FMS (FCX), and NSC with UPU for a UNP question that names Norfolk Southern.
+  - It leaves `metric` null on comparison questions, so no facts are read, the search finds no figures and the model replies INSUFFICIENT: 6 refusals (c01, c03, c07, c08, c09, c10), and comparison match is 0.200.
+  - Smaller misses with no false refusal: no tickers for x08 and x11 (an unscoped search, still answered); absent a04, a06 and a07 routed out_of_scope; t07 without its fiscal year.
+  - Not fixed yet (user decision pending). Likely fixes: give the router the tracked companies' tickers and names, and require a metric for comparisons of reported figures.
+- 2026-10-16: Router v2 (user decision; details and numbers in `docs/prompt-log.md`, the new prompt log).
+  - **Tracked companies:** the router sees them, its tickers are an enum of them, and untracked ones go in `other_companies`. A reply is checked in code and asked again once; a ticker still unknown is refused.
+  - **Comparisons:** each needs a metric.
+  - **Code fixes:** names the model misfiles as other companies are matched to tracked ones. An untracked company is refused only when nothing tracked is named, or when its figures are needed.
+  - **Dev, gate off:**
+    - Numeric exact match 0.821 to 1.000, comparison match 0.200 to 1.000.
+    - False refusal 0.288 to 0.096, and correct refusal stays 1.000.
+  - **Sweep:** still no feasible threshold. False refusal stays 0.096 for any t up to 4.338, so `RELEVANCE_MIN` stays -3.0.
+- 2026-10-16: Judge calibration sample (user decision, option A): 30 sentences from the router-v2 dev run, frozen in `evals/calibration/v1/sample.jsonl` and shuffled. 21 are natural (16 that pass the validator, 5 that fail it), and 9 are constructed negatives (a one-passage citation pointed at another retrieved passage the answer never cited). The eval card says constructed negatives may be easier to catch.
+- 2026-10-16: The 429 rule in `evals/calls.py` now depends on Retry-After. A 429 without one (Gemini) stops the run on the 3rd in a row, one with a short Retry-After (Groq) on the 10th, and a Retry-After over 120 s stops it at once. Reason: large judge prompts under Groq's 8K tokens-a-minute limit drew three short waits in a row and stopped calibration runs that still had quota. Groq's 200K tokens-a-day limit is not in its headers. When it is nearly used up, a small request still passes while a large one gets a long Retry-After, which shows as exit 2.
+- 2026-10-16: Groq's daily limits refill continuously, not at a fixed hour. At 07:00 UTC, with 111 of 1,000 requests used, `x-ratelimit-reset-requests` read 2h39m50.4s, exactly 111 x 86.4 s. The tokens-a-day limit presumably refills the same way, about 139 tokens a minute for gpt-oss-120b's 200K. So a tiny request that passes says nothing about room for a 2-4K-token judge call; estimate the wait as the tokens a run still needs divided by 139, in minutes from the stop.
+- 2026-10-16: The calibration labels come from Claude in another chat, not a human (user decision).
+  - Export: `make calibrate ARGS=export` writes `sample_for_labeling.jsonl` (ids s01-s30; question, sentence, cited passages with quotes; no verdict, no stratum).
+  - Import: `make calibrate ARGS=import` reads `claude_labels.jsonl` (`{"id", "label": "y"|"n", "labeler", "why"}`, every id exactly once) and runs the judge. `result.json` records the labeler.
+  - Wording: the eval card and the README say plainly that the judge was calibrated against labels by Claude, a different and stronger model than the judge, not by a human.
+  - Before the export, constructed quotes became a seeded 12-word span instead of a passage's first 12 words, which a careful labeler could spot. The unlabeled sample was redrawn with the same 30 sentences.
+- 2026-10-16: Judge calibration result (numbers and both disagreements in `evals/eval-card.md`): kappa 0.84 (95% CI 0.59 to 1.00) on 29 of 30 sentences, so citation precision and faithfulness count under the plan's rule (point estimate 0.7 or more).
+  - Claude labeled all 21 natural sentences supported, the 5 that fail the validator included: their quotes failed, not their content. So every negative was constructed, natural-only kappa is 0 by construction, and how well the judge catches real unsupported sentences is untested.
+  - The judge was stricter than Claude twice, both "partly": a comparison's conclusion (c06, "Therefore, Caterpillar's ... was higher" from two cited facts) and a sentence merging two passages (x01). The judge gives no reasons; if it marks comparison conclusions "partly" in general, comparison answers will pull faithfulness down on the test run.
+  - A judge reply can name a source the sentence does not cite (s30: "judged sources [2], cited [1]"); `judge.parse` rejects it and the sentence goes unscored.
+  - Added to the eval card (user request, 2026-10-16):
+    - With s30 counted as a disagreement, kappa is 0.77 (95% CI 0.47 to 1.00), still 0.7 or more.
+    - On s19 the judge's "partly" is defensible ("sourcing from" against "manufacture").
+    - On s07 the judge's "partly" was first written up as strictness that may understate faithfulness. Revised the same day (user decision): under the written criterion the sources state both figures but not the comparison, so the judge's reading is the correct one and Claude's v1 label was lenient. v1's labels stay unchanged, because relabeling after seeing the judge would bias kappa.
+    - A follow-up check is planned: about 10 natural sentences that fail the validator, from decision 4's runs, labeled by Claude, then judged.
+- 2026-10-16: Judge calibration as planned (20 sentences that pass the validator, 10 that fail it) cannot be drawn from the dev run. Gemini's drafts almost always pass: 2 regenerations, a draft citation pass rate of 0.970, and 1 failing sentence in all. The judge also said yes on 59 of 62 passing sentences, so a 21-sentence sample would hold almost no negatives, and kappa would be unstable. The sample is not drawn; user decision pending on how to add negatives.
+- 2026-10-16: `make label` and `make audit` append to `labels.jsonl`, which golden v1's manifest hashes, so both now refuse once the set is frozen. A new label would make every eval run exit 3.
+- 2026-10-16: gitleaks' generic-api-key rule blocked the user's commit with about 1,600 findings: JSON fields named `key` that held hex cache digests (each call in the eval reports, and failing items in the calibration samples). No real secret was involved.
+  - Fixed at the source (user decision, the way FreightAudit fixed it): `Call.cache_id` replaces `Call.key`, and calibration sample items carry `cache_id`.
+  - The existing files were rewritten with the field name only, values unchanged and checked: 1,595 fields in 12 reports, 5 in calibration v1's `sample.jsonl` (its sha256 changed; todo.md) and 6 in the follow-up sample.
+  - The gitignored reply cache (`.cache/evals/calls.jsonl`) keeps its internal `key` field.
+  - Rule: never give a field that holds a high-entropy value (hash, digest, id) a name containing key, token, secret, auth or access. Fix findings at the source, never with `--no-verify` or an allowlist.
+- 2026-10-16: `make eval ARGS=--refresh` would have stored its new replies under the same cache keys, and `Cache` loaded the latest reply per key.
+  - Every later cache run would then have read the refreshed replies, so earlier reports would no longer reproduce from the cache.
+  - `make calibrate ARGS=import` would have rebuilt v1's failing drafts from different text (`new_verdicts` reads them by key) and called the judge live.
+  - Fixed before its first use (user approval): `--tag=NAME` replaces `--refresh` and joins the answer path (`answer_path`), so a live run gets its own keys, and the same NAME reuses them. `--primary-tag=NAME` gives only the primary new keys, so router replies come from the cache. `Cache` lost its `refresh` flag, so each key is written once.
+- 2026-10-16: Gemini 3.5 Flash-Lite's own time to first token (free tier) moves with the hour.
+  - On the same 46 dev questions, its p50 was 0.97 s at 05:56 UTC and 3.38 s at 09:00 UTC.
+  - Prompts of about 330 tokens slowed as much as 5,000-token ones, and the 09:00 run drew two 503s. The router (Groq) moved only from 0.60 to 0.66 s.
+  - So compare latency configurations within one sitting, in interleaved passes; decision 3 runs minimal, default, minimal.
 
 ## Rejected Approaches
 
@@ -185,7 +357,12 @@ None yet.
 
 ## Constraints
 
-None yet.
+- 2026-10-16: FreightAudit and FilingLens share one Groq account, so they share each model's daily tokens: about 200K for gpt-oss-120b, refilling continuously at about 8.3K an hour (user rule).
+  - About 25K a day of gpt-oss-120b stays reserved for FreightAudit's CI, so FilingLens spends at most 175K of it in any 24 hours.
+  - FreightAudit uses gpt-oss-120b and qwen3.8-27b, not gpt-oss-20b, and Groq's limits are per model, so FilingLens's router model (gpt-oss-20b) has its own 200K a day.
+  - Before an eval run that spends quota, show its Groq tokens per model and whether it needs the judge. Run the judge only where the decision depends on it, and spread runs over days when needed.
+  - Groq shows no daily token level (see Known Issues), so schedules come from refill arithmetic.
+- 2026-10-16: Gemini's daily quota resets at midnight Pacific, which is 15:00 Taipei (07:00 UTC) during daylight time (user). Runs that need a fresh Gemini allowance start after that; the test day starts at 15:07 Taipei.
 
 ## Unresolved Questions
 

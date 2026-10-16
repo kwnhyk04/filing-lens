@@ -1,0 +1,30 @@
+{"id": "s01", "label": "y", "labeler": "claude", "why": "Passage [2] states the combination would create America's first transcontinental railroad spanning over 50,000 miles across 43 states with access to 10 international interchanges and approximately 100 ports."}
+{"id": "s02", "label": "y", "labeler": "claude", "why": "Passage gives Assets of 121,939,000,000 USD at 2025-12-31, the fiscal 2025 year-end."}
+{"id": "s03", "label": "y", "labeler": "claude", "why": "Passages give 164,683,000,000 USD for 2025-02-03 to 2026-02-01 and 159,514,000,000 USD for 2024-01-29 to 2025-02-02, the two fiscal years compared."}
+{"id": "s04", "label": "y", "labeler": "claude", "why": "Passage gives Union Pacific operating cash flow of 9,290,000,000 USD for 2025-01-01 to 2025-12-31."}
+{"id": "s05", "label": "y", "labeler": "claude", "why": "Passage gives Verizon operating cash flow of 37,137,000,000 USD for calendar 2025."}
+{"id": "s06", "label": "y", "labeler": "claude", "why": "Passage gives payments to acquire property, plant and equipment of 91,447,000,000 USD for calendar 2025."}
+{"id": "s07", "label": "y", "labeler": "claude", "why": "Passages give Caterpillar 11,739,000,000 USD versus Union Pacific 9,290,000,000 USD for the same 2025 period, so Caterpillar's was higher."}
+{"id": "s08", "label": "y", "labeler": "claude", "why": "Passage gives Microsoft operating income of 128,528,000,000 USD for 2024-07-01 to 2025-06-30, fiscal 2025."}
+{"id": "s09", "label": "n", "labeler": "claude", "why": "Passage is an exhibit index of agreements and incentive plans; it says nothing about the acquisition's success depending on synergies, growth rates or returns."}
+{"id": "s10", "label": "n", "labeler": "claude", "why": "Passage covers marketable equity securities and unrealized gains; it gives no gross margin percentages for fiscal 2026 or 2025."}
+{"id": "s11", "label": "y", "labeler": "claude", "why": "Passage gives Coca-Cola operating income of 9,992,000,000 USD for calendar 2024."}
+{"id": "s12", "label": "y", "labeler": "claude", "why": "All three passages say the remaining activities are in Corporate."}
+{"id": "s13", "label": "y", "labeler": "claude", "why": "Passages [2] and [4] state the consumer business segment is CCB and the wholesale segments are CIB and AWM, with [2] defining those abbreviations."}
+{"id": "s14", "label": "n", "labeler": "claude", "why": "Passage is a risk factor about partner disputes and influence over ventures; it does not say Prologis holds significant ownership interests to align interests with partners."}
+{"id": "s15", "label": "n", "labeler": "claude", "why": "Passage is a production table and Alaska overview that ends at the Willow Project heading; nothing about proved undeveloped reserves or a development timeline beyond five years."}
+{"id": "s16", "label": "n", "labeler": "claude", "why": "Passage discusses REIT tax qualification; it does not mention the Strategic Capital segment or managing co-investment ventures."}
+{"id": "s17", "label": "y", "labeler": "claude", "why": "Passage states the $2,698 million accrual as of September 30, 2025 for proceedings including the MDL Individual Merchant Actions, with the substantial majority relating to those actions."}
+{"id": "s18", "label": "y", "labeler": "claude", "why": "Passage gives JPMorgan Chase assets of 4,002,814,000,000 USD at 2024-12-31, fiscal 2024 year-end."}
+{"id": "s19", "label": "y", "labeler": "claude", "why": "Passage [1] says hardware is made by partners primarily in China mainland, India, Japan, South Korea, Taiwan and Vietnam, and [2] adds sourcing from partners and facilities in the U.S."}
+{"id": "s20", "label": "y", "labeler": "claude", "why": "Passage states the company assumed debt with an aggregate outstanding principal value of $8.8 billion as part of the Hess transaction."}
+{"id": "s21", "label": "y", "labeler": "claude", "why": "Both passages state the three reportable segments: Walmart U.S., Walmart International and Sam's Club U.S."}
+{"id": "s22", "label": "y", "labeler": "claude", "why": "Both passages state the three reportable segments: Walmart U.S., Walmart International and Sam's Club U.S."}
+{"id": "s23", "label": "y", "labeler": "claude", "why": "Passage gives 416,161,000,000 USD for 2024-09-29 to 2025-09-27, Apple's fiscal 2025."}
+{"id": "s24", "label": "y", "labeler": "claude", "why": "Passages say that in the U.S. the company sells fountain syrups to authorized fountain wholesalers or bottling partners who sell and distribute them to fountain retailers; 'authorized fountain partners' is a faithful paraphrase."}
+{"id": "s25", "label": "n", "labeler": "claude", "why": "Passage is an exhibit index of employment and separation agreements; it gives no net sales figures or growth."}
+{"id": "s26", "label": "y", "labeler": "claude", "why": "Passage table shows total net sales of $416,161 million for 2025 and $391,035 million for 2024, in millions."}
+{"id": "s27", "label": "n", "labeler": "claude", "why": "Passage is a transmission and distribution table by subsidiary; it does not say the utilities serve six states or name the Southeast and Midwest."}
+{"id": "s28", "label": "n", "labeler": "claude", "why": "Passage describes the MDL history and the 2012 settlement; it says nothing about the board considering exchange offers for class B stock."}
+{"id": "s29", "label": "y", "labeler": "claude", "why": "Passage [2] text states the combination would create America's first transcontinental railroad over 50,000 miles across 43 states with access to about 100 ports and 10 international interchanges, though the quote given is a different sentence."}
+{"id": "s30", "label": "n", "labeler": "claude", "why": "Passage mentions Western North Slope activity inclusive of Willow but never says Willow is within the Bear Tooth Unit."}

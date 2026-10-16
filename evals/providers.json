@@ -1,0 +1,42 @@
+{
+ "gemini:gemini-3.5-flash-lite": {
+  "limits": {"requests_per_day": 500},
+  "limits_source": "secondary sources (scriptbyai; AI Studio figures of September 2026); Google publishes no table",
+  "limits_read_on": "2026-10-15",
+  "price_per_million": {"input": 0.30, "output": 2.50},
+  "price_source": "https://ai.google.dev/gemini-api/docs/pricing (Standard tier, paid; output includes thinking tokens; free tier listed; page updated 2026-10-15)",
+  "price_read_on": "2026-10-16"
+ },
+ "groq:openai/gpt-oss-20b": {
+  "limits": {"requests_per_minute": 30, "requests_per_day": 1000, "tokens_per_minute": 8000, "tokens_per_day": 200000},
+  "limits_source": "https://console.groq.com/docs/rate-limits; this key's response headers agree on requests per day and tokens per minute",
+  "limits_read_on": "2026-10-16",
+  "price_per_million": {"input": 0.075, "output": 0.30},
+  "price_source": "https://console.groq.com/docs/model/openai/gpt-oss-20b",
+  "price_read_on": "2026-10-16"
+ },
+ "groq:openai/gpt-oss-120b": {
+  "limits": {"requests_per_minute": 30, "requests_per_day": 1000, "tokens_per_minute": 8000, "tokens_per_day": 200000},
+  "limits_source": "https://console.groq.com/docs/rate-limits",
+  "limits_read_on": "2026-10-16",
+  "price_per_million": {"input": 0.15, "output": 0.60},
+  "price_source": "https://console.groq.com/docs/model/openai/gpt-oss-120b",
+  "price_read_on": "2026-10-16"
+ },
+ "nvidia:openai/gpt-oss-20b": {
+  "limits": {"requests_per_minute": 40},
+  "limits_source": "secondary sources; NVIDIA publishes no table",
+  "limits_read_on": "2026-10-15",
+  "price_per_million": null,
+  "price_source": "NVIDIA API Catalog trial credits, shared with Triage Copilot; no per-token price listed",
+  "price_read_on": "2026-10-15"
+ },
+ "nvidia:nvidia/nemotron-3-super-120b-a12b": {
+  "limits": {"requests_per_minute": 40},
+  "limits_source": "secondary sources; NVIDIA publishes no table",
+  "limits_read_on": "2026-10-15",
+  "price_per_million": null,
+  "price_source": "NVIDIA API Catalog trial credits, shared with Triage Copilot; no per-token price listed",
+  "price_read_on": "2026-10-15"
+ }
+}

@@ -40,6 +40,13 @@ NUMBER = re.compile(rf"\d[\d,]*(?:\.\d+)?(?:\s?(?:{SCALE_WORD})\b)?", re.IGNOREC
 MARKER = re.compile(r"\[\s*([CF]\d+(?:\s*,\s*[CF]\d+)*)\s*\]")
 # A sentence ends at . ! or ? (markers before it) when whitespace and a capital, digit or $ follow.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9$\"'(])")
+# A period that may only close an abbreviation: initials (U.S., e.g., N.A.) or Inc., Corp., Co.
+ABBREVIATION = re.compile(r"\b(?:(?:[A-Za-z]\.){2,}|(?:Inc|Corp|Co|No|etc)\.)$")
+# Words that start sentences but seldom follow an abbreviation inside one ("the U.S. The rest").
+STARTER = re.compile(
+    r"(?:A|An|And|As|At|But|By|For|From|He|However|In|It|Its|On|Our|She|That|The|Their|There"
+    r"|These|They|This|Those|To|We)\b"
+)
 TABLE_SCALES = (1, 10**3, 10**6, 10**9)  # a quoted table row may be in thousands or millions
 PERCENT_SCALES = (1, 100)  # 16.2% against a fact of 0.162
 
@@ -150,7 +157,15 @@ def supported(amount: Decimal, percent: bool, evidence: Collection[Decimal]) -> 
 
 
 def split_sentences(text: str) -> list[str]:
-    return [sentence for sentence in SENTENCE_END.split(text.strip()) if sentence.strip()]
+    """The sentences of answer text. After an abbreviation (U.S., Inc., e.g.) one ends only where
+    a sentence starter follows: "the U.S. Government" stays whole, "in the U.S. The rest" splits."""
+    sentences: list[str] = []
+    for piece in SENTENCE_END.split(text.strip()):
+        if sentences and ABBREVIATION.search(sentences[-1]) and not STARTER.match(piece):
+            sentences[-1] += " " + piece
+        elif piece.strip():
+            sentences.append(piece)
+    return sentences
 
 
 class Source(Protocol):

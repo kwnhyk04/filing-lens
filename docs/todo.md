@@ -10,10 +10,8 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 - [ ] (manual, before step 10) Vercel and Tailscale accounts created.
 - [ ] (manual, before step 10) Replace the example passwords in `.env`, and set both `API_KEY` and `ADMIN_API_KEY` (step 2 appended a random `ADMIN_API_KEY`).
 - [ ] (manual, optional) Remove the unused Docker volume `filinglens_sec-cache` (`docker volume rm filinglens_sec-cache`); the SEC cache now lives in `.cache/sec`.
-- [ ] 6b. Golden dataset v1, judge calibration and the eval harness; the eval report lists every target with pass or fail. The evals run on model A at the dev revision (0008, or a newer one before 0004), through `LiveBackend` with `allow_fallback=False`, and score numeric exact match with the amount finder from 6a. Calibrate the 6a refusal thresholds there. An eval run needs about 0.7M tokens, close to `DAILY_AI_TOKEN_BUDGET` (1M).
-  - Reranker choice (user decision, 2026-10-15): on the dev split only, compare recall@10, MRR@10 and rerank p95 for TinyBERT-L-2 top 50 whole chunks (the 6a default), MiniLM-L-2 top 24 cut to 256 tokens, and MiniLM-L-6 all 100 as the quality ceiling (settings `RERANK_MODEL`, `RERANK_CANDIDATES`, `RERANK_MAX_TOKENS`). Pick the default from those numbers and record the choice and the numbers in `docs/memory.md`. All latencies are on this PC's CPU, which is also the production host.
-  - Time to first token (from 6a): textual answers took 2.2-3.8 s in the smoke runs against p95 2.0 s, because the stages run one after another (router, retrieval, then Gemini's first token 1.4-3.0 s after its call). Measure p50 and p95 on the golden set, then propose a fix. Cause and numbers: `docs/context.md`, Known Limitations.
 - [ ] Live embedding swap (after step 6; user decision): with dev on the last revision before 0004 (now 0008), record the model A baseline (`make eval`, recall@10 and MRR@10, golden set version); run 0004, the reembed backfill, 0005 (run `make check-parallel-hnsw` first, then pick a parallel build within the 256 MB `shm_size` or a serial one with more `maintenance_work_mem`, by corpus size; runbook step 3), the catch-up run and the flip to `embedding_v2`; run `make eval` again on the same golden set; record both runs in `eval_runs` and the activity log; then run 0006 in the next release and set `.env.example` to `embedding_v2`. Done when both recall@10 values are recorded and dev is at head. Runbook: `docs/migrations.md`.
+- [ ] (later idea, user, 2026-10-16) A deterministic check for derived numbers: recompute a percent of a stated total, or the difference of two cited figures, from the cited figures themselves, so correct arithmetic can pass validation and wrong arithmetic gets caught. Today validation rejects every derived figure (memory.md, step 6a), and the judge criterion counts a computed number as not stated.
 - [ ] (after step 6) Decide how a company that changes CIK in a restructure is handled (for example a `cik_aliases` table), since `get_financial_fact` looks facts up by CIK. Known case: XOM (Exxon Mobil Corp, CIK 34088, filed the latest 10-K; SEC now lists the ticker under ExxonMobil Holdings Corp, CIK 2115436).
 - [ ] 7. CI/CD: GitHub Actions for test, build, docker push; actionlint passes; test PR green. CI also runs `make contracts-check` and `make contracts-breaking BASE=origin/main` (fetch main first).
 - [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved
@@ -23,7 +21,129 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-None.
+- [ ] 6b. Golden set v1, judge calibration, eval harness and the full eval (plan approved 2026-10-16). Done when labeling and calibration are complete, the full eval runs on the test split, the report lists every target in `docs/context.md` with pass, fail or not measured, and `make test` and `make test-int` stay green.
+  - **Corpus freeze (user request, 2026-10-16):** run no `make seed-real` and queue no ingest jobs until golden v1's test run is done. Apple's FY2026 10-K lands around 2026-10-30, and the harness's drift check (gold chunk ids, fact ids and values, each company's latest fiscal year) would then stop every run.
+  - [x] Phase 1: 410 treated like 402 (permanent, 503); `Answerer(min_relevance=)` and `Gemini(minimal_thinking=)` keyword arguments; answer stats `sources` and `top_score`; `make eval` with `--env-file .env`, `make label`, `make calibrate`; `LLM_JUDGE=groq:openai/gpt-oss-120b` (user decision) for evals only.
+  - [x] Golden set v1 draft (`python -m evals.golden build`, 2026-10-16): 40 numeric, 20 textual, 15 comparison, 15 unanswerable (10 absent from the filings, 3 out of scope, 2 untracked companies), 10 time traps; 70 dev and 30 test, a 20-question ci subset; 542 candidates in the pools (30 questions); labeler `make label`.
+  - [x] Labeling method changed (user decision, 2026-10-16): AI-labeled (Claude, all 543 pooled passages in `ai_labels.jsonl`), spot-checked by a non-expert. The user labeled x01's 19 passages by hand. x15 kept, with CAT's "Order Backlog" chunk added to its pool (the pool had missed it; Claude labeled it gold). `make audit` built; its 60-passage blind sample is drawn (`audit.jsonl`: 23 Claude-gold, 29 questions).
+  - [x] Spot-check (`make audit`, user, 2026-10-16): 79 blind passages, agreement 49.4%, kappa 0.10 (95% CI -0.07 to 0.26); 40 disagreements reviewed, 37 settled on Claude's label. Written into `evals/eval-card.md`, the README and memory.md as "AI-labeled, spot-checked by a non-expert": a fast spot-check that cannot validate the labels on its own, not human-verified.
+  - [x] Golden v1 frozen (`python -m evals.golden freeze`, 2026-10-16): the manifest holds the sha256 of each file, the method and the spot-check numbers.
+  - [x] Two label corrections by the user (2026-10-16): x01 `e9a636de` and x05 `de1c06bf` set to not gold after reading the passage text; x02 `89cfdd9a` stays gold. Recorded as `step: "correction"` rows with reasons and logged in the eval card. V1 was unfrozen and refrozen before any test run. The integrity checks rerun: an edited copy and each drift case exit 3, and the real files match the manifest.
+  - [x] Harness (`make eval`, 2026-10-16):
+    - Retrieval and answer suites, a call cache and run files, the judge, bootstrap intervals, reports, floors and a quota estimate.
+    - Exit codes 1 (floor), 2 (quota or refused key) and 3 (golden set or corpus changed).
+    - Checked without quota:
+      - `make test` 223 passed, with lint and pyright clean.
+      - An edited copy of `questions.jsonl` exits 3.
+      - A fake gold chunk, a changed fact value and a changed latest fiscal year each exit 3.
+      - A dry run of the answer suite with scripted models on the dev database made 7 router, 4 primary and 4 judge calls live; the resumed pass and the cache-only pass then made none.
+  - [x] Decision 1, reranker (dev, 2026-10-16): TinyBERT-L-2 top 50 stays.
+    - The quality tie with MiniLM-L-2 top 24 (MRR +0.071, CI -0.060 to +0.208) goes to the faster one, which is TinyBERT: rerank p95 162 against 184 ms over three passes.
+    - MiniLM-L-6 is ineligible at a rerank p95 of 3,065 ms.
+    - Numbers in memory.md.
+  - [x] Decision 2, refusal threshold (dev, 2026-10-16):
+    - The gate-off run with its judge pass: 70 questions, no errors, no quota stop.
+    - `--sweep` result: no threshold meets the rule, because false refusal is 0.288 with the gate off (router and model refusals) while correct refusal is already 1.000. `RELEVANCE_MIN` stays -3.0, which adds no false refusal on dev. Numbers in memory.md.
+  - [x] Router v2 (user decision, 2026-10-16; `docs/prompt-log.md`):
+    - The tracked companies go in the prompt, as a ticker enum, with `other_companies` for untracked ones.
+    - One retry and code validation; a comparison needs a metric; names are matched in code.
+    - Dev rerun, gate off: false refusal 0.096 (model 3, validation 2), numeric and comparison match 1.000.
+    - The sweep again finds no feasible threshold, so `RELEVANCE_MIN` stays -3.0.
+  - [x] Calibration sample drawn (option A, user decision): 21 natural (16 pass, 5 fail the validator) and 9 constructed negatives, frozen in `evals/calibration/v1/sample.jsonl`. The eval card describes it.
+  - [x] Calibration export (user decision, 2026-10-16: Claude labels in another chat): `evals/calibration/v1/sample_for_labeling.jsonl` (30 sentences, no verdicts or strata). The import is built (`make calibrate ARGS=import`).
+  - [x] `make calibrate ARGS=import` (2026-10-16, third try at 08:18 UTC; Groq's daily token limit had stopped the first two):
+    - 29 of 30 sentences scored; the judge's reply for s30 (x08) did not parse.
+    - Agreement 93.1%, kappa 0.84 (95% CI 0.59 to 1.00), so citation precision and faithfulness count.
+    - Natural sentences alone: agreement 90.5%, kappa 0.00, since Claude labeled all 21 supported.
+    - 2 disagreements (s07 c06, s19 x01), both judge "partly" against Claude "supported".
+    - Result in the eval card.
+  - [x] `split_sentences` fixed (user request, 2026-10-16): a period after an abbreviation (initials such as U.S. or e.g., and Inc., Corp., Co., No., etc.) ends a sentence only before a sentence starter such as The or It. 12 unit tests, x16 included. x16's cached draft now passes validation whole. None of the calibration sample's 30 sentences or 14 judge prompts change.
+  - [x] Dev answer rerun with the splitter fix and the calibrated judge (gate off, 2026-10-16, report `20261016T082033Z-answer-dev-full`): all answer calls from the cache, one live judge call (x16).
+    - False refusal 0.096, the same five: insufficient evidence x03, x05, x15; no sentence held up x06, x17.
+    - x16 keeps its whole sentence. Citation coverage 0.930 to 0.941.
+    - Citation precision 0.981 and faithfulness 0.937 now count and pass.
+  - [x] Eval card additions (user request, 2026-10-16):
+    - The s30 sensitivity: counted as a disagreement, kappa 0.77 (95% CI 0.47 to 1.00).
+    - The judge was tested only on constructed negatives, and a follow-up check is planned.
+    - s19's "partly" is defensible. On s07 the judge's reading is the correct one under the written criterion, and Claude's v1 label was lenient (revised the same day; v1's labels stay unchanged).
+  - **Plan for decisions 3-4, the follow-up check and the test run (2026-10-16): approved by the user the same day, without extra dev-full runs unless 4a and 4b are too close to call.**
+    - **Groq budget (user rule; memory.md, Constraints):**
+      - FreightAudit's CI keeps about 25K tokens a day of gpt-oss-120b, so FilingLens spends at most 175K of it in any 24 hours.
+      - The judge runs only where a decision depends on it: the follow-up check and the test run. Decisions 3 and 4 run with `--no-judge`.
+      - Estimates come from report `20261016T082033Z-answer-dev-full`. Router: 1,106 tokens a call. Judge: 643 (numeric), 1,139 (comparison) or 2,222 (textual) a call.
+      - The gpt-oss-120b primary estimate uses Gemini's prompt sizes on ci, plus up to 1,024 output tokens a call. The high end assumes every draft with chunk quotes is regenerated.
+
+      | Run | gpt-oss-20b | gpt-oss-120b | Judge | When (UTC) |
+      | --- | --- | --- | --- | --- |
+      | 3a | 77K (spent 77.4K) | 0 | no | 2026-10-16 |
+      | 3b | 0 | 0 | no | 2026-10-16 |
+      | 4a | 22K (spent 22.2K) | 0 | no | 2026-10-16 |
+      | 4b | 22K (spent 22.2K) | 0 | no | 2026-10-16 |
+      | 4c | skipped (user decision) | - | - | - |
+      | Follow-up check | 0 | now about 11K (6 sentences) | yes | 2026-10-17 |
+      | Test run | 33K | about 22-33K | yes | 2026-10-17, after the user's go |
+
+      Added later the same day: A2 (decision 3's drift control, 0 Groq) and fix B's dev run (spent 77.5K gpt-oss-20b).
+
+      - Times come from refill arithmetic, because Groq shows no daily token level. gpt-oss-120b was nearly empty at 08:21 UTC on 2026-10-16. A run that hits a long Retry-After exits 2 and resumes on a rerun.
+      - FreightAudit uses gpt-oss-120b and qwen3.8-27b on Groq, not gpt-oss-20b, and Groq limits are per model (user, 2026-10-16). FreightAudit's CI runs about 10:30-11:00 UTC on 2026-10-16 (20-25K of gpt-oss-120b), so 4c waits for 2026-10-17 from about 06:00 UTC.
+    - [x] **Before the runs (no quota, 2026-10-16):**
+      - `--tag=NAME` replaces `--refresh`. NAME joins the answer path (`answer_path`), so the run's router and primary calls get their own cache keys and run live once. A rerun with the same NAME resumes and reuses them. `Cache` lost its `refresh` flag. Why: memory.md, Known Issues (the `--refresh` overwrite).
+      - `--compare` adds paired timings of the primary call itself: first token and total, p50 and p95. It also prints both values.
+      - Added for decision 3's drift control: `--primary-tag=NAME` gives only the primary new keys, so router replies come from the cache (0 Groq tokens).
+      - `make test` 250 passed; ruff and pyright clean.
+    - [x] **Decision 3, time to first token (dev full, 2026-10-16, 09:00-09:25 UTC):** thinking minimal stays; numbers in memory.md.
+      - Ran A-B-A because Gemini drifted: 3a `--tag=d3` (minimal, every call live), 3b `--tag=d3 --thinking=default`, A2 `--tag=d3 --primary-tag=r2` (minimal). Groq: 77K gpt-oss-20b (3a only).
+      - 3a end to end: TTFT p50 4.24 s, p95 9.26 s. Stage p50: router 0.66 s, retrieval 0.30 s, Gemini's own first token 3.37 s.
+      - Default against minimal (A2): Gemini first token p50 −0.21 s (CI −0.86 to +0.63). The two minimal passes differed by −0.46 s. Default added no output tokens.
+      - Gemini 503s: 2, 12 and 7 errors in the three passes.
+    - [x] **Decision 3 fix (user decision, 2026-10-16): fix B, the search starts while the router runs;** fix A (hedging with the fallback) rejected. Numbers in memory.md.
+      - `router.guess` plus `_Early` in `answering.py`: the early search is kept only when the router's tickers and years match the guess, so answers never change. Tests: the guess, a kept early search, and a router that disagrees getting its own search. `make test` 254 passed.
+      - Dev, live (`--tag=fixb`, report `20261016T100134Z`): the router agreed on 18 of 28 searching questions. On those, time before Gemini starts went from p50 1,060 to 684 ms (median paired −268 ms, 95% CI −490 to −128, n 16). TTFT end to end: p50 3.72 s, p95 9.65 s.
+      - README and eval card report the TTFT miss: Gemini's drift and 1.0 s out of reach on free tiers with the stages in sequence.
+    - [x] **Decision 4, fallback (user decision, 2026-10-16): NVIDIA gpt-oss-20b (4a) stays `LLM_FALLBACK`.** No change.
+      - Runs: `LLM_PRIMARY=<candidate> make eval SUITE=answer SUBSET=ci ARGS=--no-judge`. Rule: draft citation pass rate (checked in code), then latency (primary-call timings, paired with `--compare`).
+      - 4a and 4b (reports `20261016T092724Z` and `093202Z`): not too close to call, so no dev-full runs.
+        - The pass rates rest on 7 quotes from 3 questions (4a, 3 passed) and 1 quote (4b), sharing one question, so the rule's first step cannot separate them.
+        - Latency decides: nemotron's own first token is +10.1 s slower at p50 (95% CI +3.5 to +14.0, n 13), likely from its default reasoning (not tested switched off). It also hit the 30 s answer limit on 3 of 4 textual questions.
+      - 4c (Groq gpt-oss-120b) skipped: a Groq-hosted fallback shares outages with the Groq router and spends the gpt-oss-120b allowance shared with FreightAudit and the judge.
+      - 4d (NVIDIA gpt-oss-120b) was proposed and found retired, so it was not an option: a tiny request got 410 ("retired this model"). Two tiny requests went out, because the first one's output was lost.
+    - [ ] **Follow-up judge check (eval card), 2026-10-17:** `make calibrate ARGS="followup import"`, a spot check with no kappa.
+      - Built (2026-10-16): a second sample in `evals/calibration/v1-followup/`, from 4b first, topped up from 4a, never from 4c; v1 stays frozen. `spot_check` reports how many of the sentences labeled not supported the judge failed too. Unit tests for the draw and the spot check.
+      - 6 sentences (2 from nemotron, 4 from gpt-oss-20b), short of about 10. Claude's labels: 2 y, 4 n, under the written criterion (a computed number is not stated). They check out against the sample (`imported`).
+      - Cost: 6 judge calls, about 8.7K input tokens, so about 11K gpt-oss-120b. Not on 2026-10-16: FreightAudit's CI needs gpt-oss-120b that evening.
+  - [x] **Router misses checked (user request, no quota, 2026-10-16):** not clearly worse than the rest on recall or answers, so no deterministic fill. Numbers in memory.md.
+  - [x] **Reports record the code and prompts (user request, 2026-10-16):** `code_version` (commit, uncommitted changes, source sha256) and `prompt_hashes` (system prompts and schemas). `make test` 255 passed; ruff and pyright clean.
+  - [ ] **Test run (golden v1 test split), 2026-10-17: approved by the user on 2026-10-16, with conditions.** `make eval SUITE=all SPLIT=test`, judge on; no `--tag`, the production path. The 30 questions are 12 numeric, 6 textual, 5 comparison, 4 unanswerable and 3 time traps.
+    - Start: 15:07 Taipei (07:07 UTC), after Gemini's daily reset at midnight Pacific, 15:00 Taipei (user, 2026-10-16): the dev runs of 2026-10-16 may have used most of this project's Gemini allowance. A one-shot prompt is scheduled in the session for that time.
+    - Order:
+      1. Run the follow-up import (spot check).
+      2. Rebuild and restart this project's api, ingest and embed services from the current code (`docker compose build api ingest embed`, then `docker compose up -d api ingest embed`), and check readiness.
+      3. Confirm that golden v1 is frozen and unchanged, the corpus check passes, and calibration v1 matches its hashes below.
+      4. Run the test.
+      5. Report the full results table against targets and floors, misses included, and stop.
+    - Floors: `evals/thresholds.json` does not exist yet.
+      - The test run writes none (user decision): its report shows the floors the rule would set, unwritten.
+      - The user reviews the results. Then `uv run python -m evals.harness --set-floors evals/reports/2026-10-17.json` writes every floor from the test run's own measured values, latency included (built 2026-10-16, with a test).
+    - Code: the user commits locally on the evening of 2026-10-16. So the report must show no uncommitted changes to the code (`dirty` false) on the new commit, with source sha256 `b238808a9abff8a6c5273c93042127925b4f0d86268f04b93399aaa7a9f7b9f9` (after the gitleaks field rename).
+    - Calibration v1 sha256 (2026-10-16, 11:50 UTC):
+      - claude_labels.jsonl `b50fbc6b10e9fb4c`
+      - result.json `cc03426a17edece2`
+      - sample.jsonl `aa128cde3808323d` (since the gitleaks field rename on 2026-10-16: `"key"` became `"cache_id"`, values unchanged; before, `2c65f1cbe85b3fed`)
+      - sample_for_labeling.jsonl `82efec0fbbb70767`
+      - Golden v1 manifest.json `e3ecaba53c6b9595`
+    - Checked the same day: golden v1 frozen and unchanged; corpus check passed.
+
+    | Run | gpt-oss-20b | gpt-oss-120b | Judge | Other |
+    | --- | --- | --- | --- | --- |
+    | Follow-up import | 0 | about 11K (6 calls) | yes, it is the check | none |
+    | Test run | about 33K (30 router calls) | 22-27K, up to 33K if absent questions get answered (judge on about 21 answers) | yes: citation precision and faithfulness are targets | Gemini about 25 requests; retrieval suite local |
+    | Total | about 33K | about 33-44K | | |
+
+    - Estimates use dev's measured averages: router 1,106 tokens a call; judge 643 (numeric), 1,139 (comparison), 2,222 (textual) a call.
+    - gpt-oss-120b on 2026-10-17: FreightAudit's CI ran on the evening of 2026-10-16 (20-25K). By 06:00 UTC the allowance has refilled well past 44K plus FreightAudit's 25K, so both runs can start any time after 06:00 UTC.
+    - gpt-oss-20b: 2026-10-16 spent about 200K (3a, 4a, 4b and fix B); by 2026-10-17 it has refilled.
+    - After the run: report and markdown summary, the README eval table, docs.
 
 ## Completed
 

@@ -2,8 +2,8 @@
 Ollama) over httpx, and Gemini on google-genai. Every call reports its tokens and latency.
 
 Failures map to the error taxonomy: 429 RateLimitedError and 5xx, timeouts or unreachable hosts
-UpstreamError (both transient, so the caller may fall back), 402 (credits used up) and 401/403
-AiUnavailableError, which no retry fixes.
+UpstreamError (both transient, so the caller may fall back), 402 (credits used up), 410 (model
+retired) and 401/403 AiUnavailableError, which no retry fixes.
 """
 
 import json
@@ -64,6 +64,8 @@ def failure(provider: str, status: int, retry_after: str | None = None) -> Filin
         return RateLimitedError(f"{provider} is rate limited (429).", retry_after_s=seconds)
     if status == 402:
         return AiUnavailableError(f"{provider} has no credits left (402).")
+    if status == 410:
+        return AiUnavailableError(f"{provider} retired this model (410).")
     if status in (401, 403):
         return AiUnavailableError(f"{provider} refused the API key ({status}).")
     return UpstreamError(f"{provider} answered {status}.")
@@ -174,9 +176,12 @@ class Gemini:
     passed here wins over GOOGLE_API_KEY or GEMINI_API_KEY in the environment.
     """
 
-    def __init__(self, model: str, key: str, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self, model: str, key: str, client: httpx.AsyncClient, *, minimal_thinking: bool = True
+    ) -> None:
         self.name = f"gemini:{model}"
         self._model = model
+        self._minimal_thinking = minimal_thinking  # False: the model's default (evals compare)
         options = types.HttpOptions(
             httpx_async_client=client,
             retry_options=types.HttpRetryOptions(attempts=1),  # the caller falls back instead
@@ -184,10 +189,11 @@ class Gemini:
         self._client = genai.Client(api_key=key, vertexai=False, http_options=options)
 
     def _config(self, system: str, max_tokens: int, schema: Mapping[str, Any] | None) -> Any:
+        minimal = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
         return types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=max_tokens,
-            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+            thinking_config=minimal if self._minimal_thinking else None,
             response_mime_type="application/json" if schema is not None else None,
             response_json_schema=dict(schema) if schema is not None else None,
         )

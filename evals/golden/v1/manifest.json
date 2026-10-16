@@ -1,0 +1,65 @@
+{
+ "version": "v1",
+ "status": "frozen",
+ "as_of": "2026-10-16",
+ "corpus": {
+  "embedding_column": "embedding",
+  "latest_fiscal_years": {
+   "AAPL": 2025,
+   "MSFT": 2026,
+   "NVDA": 2026,
+   "GOOGL": 2025,
+   "META": 2025,
+   "VZ": 2025,
+   "AMZN": 2025,
+   "TSLA": 2025,
+   "HD": 2025,
+   "WMT": 2026,
+   "PG": 2026,
+   "KO": 2025,
+   "COP": 2025,
+   "CVX": 2025,
+   "JPM": 2025,
+   "BAC": 2025,
+   "GS": 2025,
+   "V": 2025,
+   "LLY": 2025,
+   "UNH": 2025,
+   "JNJ": 2025,
+   "PFE": 2025,
+   "CAT": 2025,
+   "LMT": 2025,
+   "UNP": 2025,
+   "LIN": 2025,
+   "FCX": 2025,
+   "PLD": 2025,
+   "NEE": 2025,
+   "DUK": 2025
+  }
+ },
+ "frozen_on": "2026-10-16",
+ "gold": "AI-labeled (Claude), spot-checked by a non-expert: a fast blind spot-check of a sample, then a final call on each disagreement after seeing Claude's reason (not independent), then corrections after reading the passage text; the human's final label wins where given. The spot-check cannot validate the labels on its own",
+ "audit": {
+  "passages": 79,
+  "claude_gold": 27,
+  "human_gold": 55,
+  "agreement": 0.4936708860759494,
+  "kappa": 0.09920182440136842,
+  "kappa_ci": [
+   -0.06787460454414729,
+   0.26335122916077985
+  ],
+  "disagreements": 40,
+  "reviewed": 40,
+  "review_as_claude": 37,
+  "corrections": 2,
+  "final_as_claude": 39
+ },
+ "files": {
+  "questions.jsonl": "1b53fb6f3cf40af237a8bda2e702917828afa052827e9e2042b55d2851d33a88",
+  "pools.jsonl": "44de88aa5cbdda986732727b27108bbb3ba775d0f3163362241938adb344f696",
+  "ai_labels.jsonl": "57f8e14d3982abd430b6a346122f5fcc21cdb498013386abe53fba1a54b84a10",
+  "audit.jsonl": "630eb0541ca86159248735909a5af47c8094f2456c6ddc9201fb071ca5281400",
+  "labels.jsonl": "5aea33223c07849b8127bda1f012071b5bfb85d732e02e7d580f1ce1caa8b736"
+ }
+}

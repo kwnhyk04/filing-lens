@@ -57,6 +57,9 @@ class RecordingEvidence(PostgresEvidence):
         found = await super().companies(tickers)
         return self._keep("companies", {"tickers": list(tickers)}, found)
 
+    async def tracked(self) -> dict[str, str]:
+        return self._keep("tracked", {}, await super().tracked())
+
     async def names(self, ciks: Sequence[int]) -> dict[int, str]:
         return self._keep("names", {"ciks": list(ciks)}, await super().names(ciks))
 

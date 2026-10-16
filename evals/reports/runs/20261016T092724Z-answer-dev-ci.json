@@ -1,0 +1,2077 @@
+{
+ "suite": "answer",
+ "split": "dev",
+ "subset": "ci",
+ "created_at": "2026-10-16T09:27:24+00:00",
+ "golden": {
+  "version": "v1",
+  "as_of": "2026-10-16",
+  "manifest_sha256": "e3ecaba53c6b95958848e8eaba933b5a6efc0d3f9f6754a30137ba8e849931f2"
+ },
+ "index": {
+  "column": "embedding",
+  "model": "BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+  "chunks": 11263,
+  "sha256": "0dfc474e74c5e896f38e60984373e3506bb2df7534d1cc8cad9d7ef01e6171ae"
+ },
+ "config": {
+  "router": "groq:openai/gpt-oss-20b",
+  "primary": "nvidia:openai/gpt-oss-20b",
+  "thinking": "minimal",
+  "judge": null,
+  "embedder": "BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+  "reranker": "cross-encoder/ms-marco-TinyBERT-L-2-v2@81d1926f67cb8eee2c2be17ca9f793c7c3bd20cc",
+  "rerank_candidates": 50,
+  "rerank_max_tokens": 512,
+  "rerank_timeout_ms": 500,
+  "min_relevance": -3.0,
+  "tag": null,
+  "primary_tag": null
+ },
+ "judge_calibration": {
+  "n": 29,
+  "unscored": 1,
+  "agreement": 0.9310344827586207,
+  "kappa": 0.8397790055248618,
+  "kappa_ci": [
+   0.5915492957746479,
+   1.0
+  ],
+  "natural": {
+   "n": 21,
+   "labeler_no": 0,
+   "judge_no": 2,
+   "agreement": 0.9047619047619048,
+   "kappa": 0.0,
+   "kappa_ci": [
+    0.0,
+    1.0
+   ]
+  },
+  "per_stratum": {
+   "passing": {
+    "n": 16,
+    "agreement": 0.875
+   },
+   "failing": {
+    "n": 5,
+    "agreement": 1.0
+   },
+   "constructed": {
+    "n": 8,
+    "agreement": 1.0
+   }
+  },
+  "confusion": {
+   "labeler no, judge no": 8,
+   "labeler yes, judge no": 2,
+   "labeler yes, judge yes": 19
+  },
+  "items": [
+   {
+    "id": "s01",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s02",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s03",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s04",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s05",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s06",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s07",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "partly"
+   },
+   {
+    "id": "s08",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s09",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s10",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s11",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s12",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s13",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s14",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s15",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s16",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s17",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s18",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s19",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "partly"
+   },
+   {
+    "id": "s20",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s21",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s22",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s23",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s24",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s25",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s26",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s27",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s28",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s29",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s30",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": null
+   }
+  ],
+  "sample": "21 natural sentences and 9 constructed negatives, shuffled; constructed negatives may be easier to catch than natural errors",
+  "labeler": "claude",
+  "judge": "groq:openai/gpt-oss-120b"
+ },
+ "metrics": {
+  "answer": {
+   "numeric_exact_match": {
+    "value": 1.0,
+    "low": 1.0,
+    "high": 1.0,
+    "n": 8,
+    "status": "pass"
+   },
+   "comparison_match": {
+    "value": 0.6666666666666666,
+    "low": 0.0,
+    "high": 1.0,
+    "n": 3
+   },
+   "citation_precision": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "citation_coverage": {
+    "value": 0.9333333333333333,
+    "low": 0.8235294117647058,
+    "high": 1.0,
+    "n": 14,
+    "status": "fail"
+   },
+   "faithfulness": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "draft_citation_pass_rate": {
+    "value": 0.42857142857142855,
+    "low": 0.0,
+    "high": 0.6666666666666666,
+    "n": 3
+   },
+   "correct_refusal": {
+    "value": 1.0,
+    "low": 1.0,
+    "high": 1.0,
+    "n": 5,
+    "status": "pass"
+   },
+   "false_refusal": {
+    "value": 0.2,
+    "low": 0.0,
+    "high": 0.4,
+    "n": 15,
+    "status": "fail"
+   },
+   "router_accuracy": {
+    "value": 0.8,
+    "low": 0.6,
+    "high": 0.95,
+    "n": 20
+   },
+   "route_accuracy": {
+    "value": 0.8947368421052632,
+    "low": 0.7368421052631579,
+    "high": 1.0,
+    "n": 19
+   },
+   "ttft_p50_ms": {
+    "value": 1994.2,
+    "low": 1627.8,
+    "high": 2378.9,
+    "n": 14,
+    "status": "fail"
+   },
+   "ttft_p95_ms": {
+    "value": 3853.5,
+    "low": 2539.8,
+    "high": 3853.5,
+    "n": 14,
+    "status": "fail"
+   },
+   "answer_p50_ms": {
+    "value": 2833.1,
+    "low": 2110.9,
+    "high": 5537.5,
+    "n": 14
+   },
+   "answer_p95_ms": {
+    "value": 25848.0,
+    "low": 8143.1,
+    "high": 25848.0,
+    "n": 14,
+    "status": "fail"
+   },
+   "route_p50_ms": {
+    "value": 616.9,
+    "low": 565.7,
+    "high": 672.1,
+    "n": 20
+   },
+   "route_p95_ms": {
+    "value": 831.7,
+    "low": 683.3,
+    "high": 922.8,
+    "n": 20
+   },
+   "facts_p50_ms": {
+    "value": 54.5,
+    "low": 48.6,
+    "high": 111.3,
+    "n": 11
+   },
+   "facts_p95_ms": {
+    "value": 190.0,
+    "low": 63.2,
+    "high": 190.0,
+    "n": 11
+   },
+   "retrieve_p50_ms": {
+    "value": 294.8,
+    "low": 196.7,
+    "high": 395.2,
+    "n": 6
+   },
+   "retrieve_p95_ms": {
+    "value": 496.2,
+    "low": 310.9,
+    "high": 496.2,
+    "n": 6
+   },
+   "generate_p50_ms": {
+    "value": 2096.6,
+    "low": 1518.0,
+    "high": 4234.2,
+    "n": 14
+   },
+   "generate_p95_ms": {
+    "value": 12681.5,
+    "low": 4375.5,
+    "high": 12681.5,
+    "n": 14
+   },
+   "regenerate_p50_ms": {
+    "value": 2987.3,
+    "low": 2146.5,
+    "high": 12006.1,
+    "n": 5
+   },
+   "regenerate_p95_ms": {
+    "value": 12006.1,
+    "low": 2987.3,
+    "high": 12006.1,
+    "n": 5
+   },
+   "input_tokens": {
+    "value": 3922.85,
+    "low": 2208.8,
+    "high": 5896.1,
+    "n": 20,
+    "status": "pass"
+   },
+   "output_tokens": {
+    "value": 241.65,
+    "low": 135.45,
+    "high": 404.55,
+    "n": 20,
+    "status": "pass"
+   },
+   "cost_usd": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "cost_billed_usd": {
+    "value": 0.0,
+    "low": 0.0,
+    "high": 0.0,
+    "n": 20,
+    "status": "pass"
+   },
+   "truncated": {
+    "value": 0,
+    "low": null,
+    "high": null,
+    "n": 20
+   },
+   "errors": {
+    "value": 0,
+    "low": null,
+    "high": null,
+    "n": 20
+   }
+  }
+ },
+ "calls": {
+  "groq:openai/gpt-oss-20b": {
+   "calls": 20,
+   "live": 20,
+   "input_tokens": 20636,
+   "output_tokens": 1517
+  },
+  "nvidia:openai/gpt-oss-20b": {
+   "calls": 19,
+   "live": 19,
+   "input_tokens": 57821,
+   "output_tokens": 3316
+  }
+ },
+ "records": {
+  "answer": [
+   {
+    "id": "n05",
+    "category": "numeric",
+    "kind": "latest",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Meta spent $57.372 billion on research and development in fiscal 2025. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "203865",
+      "quote": "57,372,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/1326801/000162828026003942/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "META"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": null,
+     "metric": "research_and_development"
+    },
+    "timings_ms": {
+     "route_ms": 546.4,
+     "facts_ms": 190.0,
+     "generate_ms": 2096.6,
+     "total_ms": 2833.1
+    },
+    "first_token_ms": 2378.9,
+    "input_tokens": 1390,
+    "output_tokens": 172,
+    "top_score": null,
+    "sources": {
+     "F1": "203865"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "e81878465ef95ce4c323592959763661c3853bac2675b834223804911e9dbe6c",
+      "cached": false,
+      "input_tokens": 1031,
+      "output_tokens": 70,
+      "latency_s": 0.531988700007787,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "d9bc03578e20c8a723e85c7625f08e5338398bc2f789266a4024308ce1496d55",
+      "cached": false,
+      "input_tokens": 359,
+      "output_tokens": 102,
+      "latency_s": 2.0947440000018105,
+      "first_token_s": 1.539972200000193,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n09",
+    "category": "numeric",
+    "kind": "latest",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Home Depot reported diluted earnings per share of $14.23 for fiscal 2025. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "248765",
+      "quote": "14.23 USD/shares",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/354950/000162828026019436/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "HD"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "eps_diluted"
+    },
+    "timings_ms": {
+     "route_ms": 672.1,
+     "facts_ms": 44.5,
+     "generate_ms": 1394.2,
+     "total_ms": 2110.9
+    },
+    "first_token_ms": 1437.9,
+    "input_tokens": 1394,
+    "output_tokens": 139,
+    "top_score": null,
+    "sources": {
+     "F1": "248765"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "033a9f4282b6d7f7d7108cef3a4dbcbee164b65b93b66fb70ccf23abc0d027ca",
+      "cached": false,
+      "input_tokens": 1032,
+      "output_tokens": 83,
+      "latency_s": 0.6657502000161912,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "5201149a20f9a5133a1414f76663292b5e1bd98401e7d6fff6184b91d752cb9d",
+      "cached": false,
+      "input_tokens": 362,
+      "output_tokens": 56,
+      "latency_s": 1.3924080999859143,
+      "first_token_s": 0.6832362999848556,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n13",
+    "category": "numeric",
+    "kind": "latest",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "ConocoPhillips reported total assets of $121,939,000,000 at the end of fiscal 2025. [1]\n\nSources: [1] “121,939,000,000 USD”",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "88702",
+      "quote": "121,939,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/1163165/000116316526000032/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "COP"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "total_assets"
+    },
+    "timings_ms": {
+     "route_ms": 603.5,
+     "facts_ms": 50.4,
+     "generate_ms": 1935.1,
+     "total_ms": 2589.1
+    },
+    "first_token_ms": 1994.2,
+    "input_tokens": 1387,
+    "output_tokens": 158,
+    "top_score": null,
+    "sources": {
+     "F1": "88702"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "5bf1569d01253e8acfb3554f5a55bd122a8be9b1bf52baa617eb396b63a3b07b",
+      "cached": false,
+      "input_tokens": 1035,
+      "output_tokens": 70,
+      "latency_s": 0.5971698999928776,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "a026d837b231b2762376b377552d820c8ea0bdb1df660bfafcca9680e2839f95",
+      "cached": false,
+      "input_tokens": 352,
+      "output_tokens": 88,
+      "latency_s": 1.9331946999882348,
+      "first_token_s": 1.2227897999982815,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n16",
+    "category": "numeric",
+    "kind": "latest",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Bank of America reported diluted earnings per share of 3.81 USD for fiscal 2025. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "310592",
+      "quote": "3.81 USD/shares",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/70858/000007085826000157/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "BAC"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "eps_diluted"
+    },
+    "timings_ms": {
+     "route_ms": 675.1,
+     "facts_ms": 63.2,
+     "generate_ms": 2339.8,
+     "total_ms": 3078.2
+    },
+    "first_token_ms": 2023.4,
+    "input_tokens": 1397,
+    "output_tokens": 132,
+    "top_score": null,
+    "sources": {
+     "F1": "310592"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "82a5176478f8daa897099afd21921e1e820f734621411f0412acf9f3825dfd42",
+      "cached": false,
+      "input_tokens": 1032,
+      "output_tokens": 74,
+      "latency_s": 0.6683535000192933,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "51be1ce3e5ae64708092b607401e59c78afca86aa7d5b9af79c51aa01ba8418b",
+      "cached": false,
+      "input_tokens": 365,
+      "output_tokens": 58,
+      "latency_s": 2.3379237999906763,
+      "first_token_s": 1.2079856999916956,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n24",
+    "category": "numeric",
+    "kind": "latest",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Lockheed Martin held $4,121,000,000 in cash and cash equivalents at the end of fiscal 2025. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "557549",
+      "quote": "4,121,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/936468/000162828026049411/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "LMT"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "cash"
+    },
+    "timings_ms": {
+     "route_ms": 583.7,
+     "facts_ms": 111.3,
+     "generate_ms": 1309.5,
+     "total_ms": 2004.6
+    },
+    "first_token_ms": 1517.1,
+    "input_tokens": 1412,
+    "output_tokens": 157,
+    "top_score": null,
+    "sources": {
+     "F1": "557549"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "f347f78cfdc520005a967b3ff870dd85d7f5fdb7195fb917d2531f5d661c137e",
+      "cached": false,
+      "input_tokens": 1037,
+      "output_tokens": 84,
+      "latency_s": 0.5764872999861836,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "4f390fc5e4b7dcc0e81675a5ae4b8c3f6f3841b051100b3ec3a50652c3719d87",
+      "cached": false,
+      "input_tokens": 375,
+      "output_tokens": 73,
+      "latency_s": 1.3076892000099178,
+      "first_token_s": 0.7267971000110265,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n27",
+    "category": "numeric",
+    "kind": "latest",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Freeport‑McMoRan reported total revenue of $25.9 billion for fiscal 2025. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "810654",
+      "quote": "25,915,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/831259/000083125926000012/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "FCX"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "revenue"
+    },
+    "timings_ms": {
+     "route_ms": 565.7,
+     "facts_ms": 50.1,
+     "generate_ms": 1487.3,
+     "total_ms": 2103.2
+    },
+    "first_token_ms": 1724.4,
+    "input_tokens": 1395,
+    "output_tokens": 128,
+    "top_score": null,
+    "sources": {
+     "F1": "810654"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "43bfd418654b5433341985e03b8f05ebcbd770b1dba6949ac7b379c11efa11a7",
+      "cached": false,
+      "input_tokens": 1034,
+      "output_tokens": 72,
+      "latency_s": 0.5596072000043932,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "cf4cb561ad41fca9c570ec16ba493a717efb65a62a3d04285a67b14c8de5393f",
+      "cached": false,
+      "input_tokens": 361,
+      "output_tokens": 56,
+      "latency_s": 1.4856567999813706,
+      "first_token_s": 1.0259839999780525,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n33",
+    "category": "numeric",
+    "kind": "prior",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "NVIDIA reported net income of $72.88 billion for fiscal 2025. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "284757",
+      "quote": "72,880,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "NVDA"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "net_income"
+    },
+    "timings_ms": {
+     "route_ms": 589.3,
+     "facts_ms": 48.6,
+     "generate_ms": 1586.6,
+     "total_ms": 2224.5
+    },
+    "first_token_ms": 1627.8,
+    "input_tokens": 1389,
+    "output_tokens": 113,
+    "top_score": null,
+    "sources": {
+     "F1": "284757"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "577f4b70300236e179146636136a92201002d84d8cbcdfdac351ad794ffc3175",
+      "cached": false,
+      "input_tokens": 1029,
+      "output_tokens": 71,
+      "latency_s": 0.5835670999949798,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "9b128bcb3ff723f308b92905c242b02191535f564eb1f857cb6b11e49123372f",
+      "cached": false,
+      "input_tokens": 360,
+      "output_tokens": 42,
+      "latency_s": 1.5847128000168595,
+      "first_token_s": 0.8972650000068825,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "n36",
+    "category": "numeric",
+    "kind": "prior",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Coca‑Cola reported operating income of $9.992 billion for fiscal 2024. [1]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "89515",
+      "quote": "9,992,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "KO"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2024
+     ],
+     "fiscal_period": "FY",
+     "metric": "operating_income"
+    },
+    "timings_ms": {
+     "route_ms": 534.2,
+     "facts_ms": 54.5,
+     "generate_ms": 1518.0,
+     "total_ms": 2106.9
+    },
+    "first_token_ms": 1491.0,
+    "input_tokens": 1388,
+    "output_tokens": 138,
+    "top_score": null,
+    "sources": {
+     "F1": "89515"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "65df5ebadcfaa74a862018491e6ed5d8e47f427e1aaabcfc51702c8996b1a01f",
+      "cached": false,
+      "input_tokens": 1030,
+      "output_tokens": 66,
+      "latency_s": 0.5278778999927454,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "ac6f13479151a5f536e802b7ff1b55eec61355ea439f592f7708eb4e8db8fa7e",
+      "cached": false,
+      "input_tokens": 358,
+      "output_tokens": 72,
+      "latency_s": 1.51629359999788,
+      "first_token_s": 0.8044850000005681,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "exact": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "c06",
+    "category": "comparison",
+    "kind": "peers",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Caterpillar’s cash from operating activities for fiscal 2025 was $11.739 billion, which is higher than Union Pacific’s $9.290 billion. [1] [2]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "749531",
+      "quote": "11,739,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": "692646",
+      "quote": "9,290,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/100885/000010088526000037/"
+     }
+    ],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "comparison",
+     "tickers": [
+      "CAT",
+      "UNP"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": null,
+     "metric": "operating_cash_flow"
+    },
+    "timings_ms": {
+     "route_ms": 616.9,
+     "facts_ms": 119.9,
+     "retrieve_ms": 395.2,
+     "retrieve_embed_ms": 24.2,
+     "retrieve_sql_ms": 29.4,
+     "retrieve_load_ms": 7.6,
+     "retrieve_rerank_ms": 333.2,
+     "generate_ms": 4405.2,
+     "total_ms": 5537.5
+    },
+    "first_token_ms": 3316.4,
+    "input_tokens": 5926,
+    "output_tokens": 220,
+    "top_score": 5.157786,
+    "sources": {
+     "F1": "749531",
+     "F2": "692646",
+     "C1": "e4c4fd2ab2054d5773dabcc9b2c8b40bbdc7c5fda1e7a31938b5aa5ab2c67778",
+     "C2": "7d7954aa3463c596f503b5a1501337b0965aab85ffaf50ec139e52f8520dde57",
+     "C3": "b9d914d3c1780ea013b4f8470089c6a0bbb052e56ac8f0910e6b6a0a12846c2a",
+     "C4": "add8cbcaf1a00ddda308e83ad0205c5a74e0322661f5d8019a7499ece3e1fc2a",
+     "C5": "c9f237bddd4d65616144a4d901a913ef58b2a7f5154dd2ed1abb625c6ce21f2a",
+     "C6": "2b9a32b233cb2ea467420540434f7c9a7c36ec43e39569a298b52fcb1ba4f9f7",
+     "C7": "8d04d0d4a9eec363cd4e6a936d9629665b30f7795fc03f45aec9ccc6af09ac11",
+     "C8": "8d8fae579f6da86ce40a469c386aa3db2932ae96a9f3cdcf003db2a0cafb6ca6",
+     "C9": "0379e66d79f212778c7b88e27d46cf2b1f69f6554dd6b460718ed228fca944e7",
+     "C10": "946f21ea50ed7b318a86314b179aa8aa8c7a41a4146c60e9cbc05258bd516dc2",
+     "C11": "9e154bfedadd557a8e5ccc2e1c9b5d6f7bbb9e069632d07ce32b9de99cef143c",
+     "C12": "f8cd5120974829acdb9313f0a80492d231c7234536f2089b3d2841d5a4ace2a4"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "6e492f367fbc03646efe048053b21a3510b68e9b55ca2ae5b36b33e114f6601f",
+      "cached": false,
+      "input_tokens": 1038,
+      "output_tokens": 105,
+      "latency_s": 0.6110923999804072,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "cfd4b261e9841dc37b1e4dc17242fbe7b07e5b63ea8f3b9673bb78d0df6e88b4",
+      "cached": false,
+      "input_tokens": 4888,
+      "output_tokens": 115,
+      "latency_s": 4.402948600007221,
+      "first_token_s": 1.9504802000010386,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "both": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "c07",
+    "category": "comparison",
+    "kind": "peers",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Procter & Gamble’s total revenue for fiscal 2025 was higher than Coca‑Cola’s. [1] [2]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "119729",
+      "quote": "84,284,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/80424/000008042426000103/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": "147566",
+      "quote": "47,941,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/"
+     }
+    ],
+    "warnings": [
+     "The draft failed validation, so the answer was written again."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "comparison",
+     "tickers": [
+      "KO",
+      "PG"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": null,
+     "metric": "revenue"
+    },
+    "timings_ms": {
+     "route_ms": 642.4,
+     "facts_ms": 59.1,
+     "retrieve_ms": 196.7,
+     "retrieve_embed_ms": 30.1,
+     "retrieve_sql_ms": 20.7,
+     "retrieve_load_ms": 7.2,
+     "retrieve_rerank_ms": 138.1,
+     "generate_ms": 5293.1,
+     "regenerate_ms": 2987.3,
+     "total_ms": 9178.6
+    },
+    "first_token_ms": 3853.5,
+    "input_tokens": 11267,
+    "output_tokens": 343,
+    "top_score": 3.726475,
+    "sources": {
+     "F1": "147566",
+     "F2": "119729",
+     "C1": "f365c220a95946842f5ead2cbf04f3960a945ef79ea4a7c4a116ce39c524a434",
+     "C2": "bc3b0da0fba95518607af677ced8621327300ef99310344c9db49496258b4c23",
+     "C3": "6ee436f0f1ef082c466eedb11912be0d668cc5e9dc66be90cb38b2760d979d6e",
+     "C4": "a6804d416a75e0417b19ab90937fef27b0f2d6df8517e3a73a2a14609d8d96af",
+     "C5": "03abe194e15c73a734880cde455aaae63127b0c062e29a7d182ffdcc76622b12",
+     "C6": "5a7da6f6418a1b03a99c5fc337d35aaf3498d3f9ddeaa7326ca18178465a7779",
+     "C7": "b53057657b9b84eee225ce77875a71933b5d124eb0b010c16ecbfe9fe0d1ed16",
+     "C8": "9c5913b6f8b1f051ac86f15ef108aec34f7d0ec41230b3bd4625c51b07cd9f86",
+     "C9": "c33de4760224e418888da6a5f5eb733e1abbbb0f16c56bf34cf6203fe6c83dbe",
+     "C10": "0366b0eb38abd861faaec41417958ff3daada5704b6a810873725a54d8aa692e",
+     "C11": "e680f0544b6fbbb8bf002e1b888dadc5d4ac07233f0bd1ed4737af4d10ccc1b3",
+     "C12": "cb8a2255036403c9a49780e26419f292d609c6206fe7b7d95d6b44d5d43bb8d7"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "399a48630ebb9fe93132ee9f734cc00caf2492c2ac8b61f6ceca7210eded615e",
+      "cached": false,
+      "input_tokens": 1038,
+      "output_tokens": 105,
+      "latency_s": 0.6361156000057235,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "4f1d007c1ad668c4bd2bd15ad2de729e834251f30508e8240d2690e625f89156",
+      "cached": false,
+      "input_tokens": 5093,
+      "output_tokens": 136,
+      "latency_s": 5.291064899996854,
+      "first_token_s": 2.6475939999800175,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "e1945be6afb5ce742bf1928d3856b8b6d6271b3fe2c34eab189d2be1b8eb5a9e",
+      "cached": false,
+      "input_tokens": 5136,
+      "output_tokens": 102,
+      "latency_s": 2.985379199992167,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "both": false,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": true,
+    "truncated": false
+   },
+   {
+    "id": "c11",
+    "category": "comparison",
+    "kind": "years",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "NVIDIA’s gross profit for fiscal 2026 was $153,463,000,000 USD, compared with $97,858,000,000 USD for fiscal 2025. [1][2]",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "229009",
+      "quote": "153,463,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": "228930",
+      "quote": "97,858,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/"
+     }
+    ],
+    "warnings": [
+     "The draft failed validation, so the answer was written again."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "comparison",
+     "tickers": [
+      "NVDA"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2026,
+      2025
+     ],
+     "fiscal_period": null,
+     "metric": "gross_profit"
+    },
+    "timings_ms": {
+     "route_ms": 404.1,
+     "facts_ms": 41.5,
+     "retrieve_ms": 310.9,
+     "retrieve_embed_ms": 41.7,
+     "retrieve_sql_ms": 30.2,
+     "retrieve_load_ms": 16.4,
+     "retrieve_rerank_ms": 221.8,
+     "generate_ms": 2555.0,
+     "regenerate_ms": 2146.5,
+     "total_ms": 5458.1
+    },
+    "first_token_ms": 1988.7,
+    "input_tokens": 11222,
+    "output_tokens": 294,
+    "top_score": 6.777153,
+    "sources": {
+     "F1": "229009",
+     "F2": "228930",
+     "C1": "a1ed4c469b8bdfb8c2afbed0ae0cd644b882d548472ce5ba0c307b2a685633a0",
+     "C2": "6f0de6e3f23c48a4a87fe83faa2b15b67f17ad0dc0e12de11ba188df5ac13178",
+     "C3": "cca7b0baed9ed8b575a637e3d34a0fcf8b520fc2364a907378e49a7374904ec4",
+     "C4": "626a3e8f885bc7da5921ccb5c23a0912277822a5a891707afcc94389472a6ba1",
+     "C5": "8f82f3525d16de6abc2a3d280f012a234e3905f1e5993f5b98782d6fd9a7ff7c",
+     "C6": "366c8ecb7927959bfdb8c64a1f4baa489093b3dbb23f15d69b1149947924e44f",
+     "C7": "49c4b3c19c892aef92c80c7f4cc7235298ff4d7443db0e68471b57568c2860ca",
+     "C8": "43802762e07998f1b410233988c5868310a74131d7e1bcedf76c257167d1561d",
+     "C9": "9203a4be403edab186e51bb17aedb191ba4b056aeb507312a23af303334689c2",
+     "C10": "83b35435a1351f106ae50bdd0fe2af4686cfc3d6c01935c04c77c4259dfbc850",
+     "C11": "87674ea546ac085e639c22a841412410d9632b7ea0ebb7e817af74fc23c5d682",
+     "C12": "53104ccbc2fefb36a728ef4015d56f958722d99e38657e45a11cfa5caecc392a"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "f8a4381ccee173e18c1abf67b2e327503cc11b2042f7d464006d374f775f581e",
+      "cached": false,
+      "input_tokens": 1035,
+      "output_tokens": 79,
+      "latency_s": 0.39505179997649975,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "38023617478633b80fed8f39b436076d8968f628fa2a38db68ee458b962c63dd",
+      "cached": false,
+      "input_tokens": 5050,
+      "output_tokens": 108,
+      "latency_s": 2.552966399991419,
+      "first_token_s": 1.1459809999796562,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "5cc3394fc7dee2e9c1c5acf2ad98c9183fae2da192f15bf8344270244ab40e05",
+      "cached": false,
+      "input_tokens": 5137,
+      "output_tokens": 107,
+      "latency_s": 2.143539399985457,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "both": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": true,
+    "truncated": false
+   },
+   {
+    "id": "x06",
+    "category": "textual",
+    "kind": "passage",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Walmart’s reportable segments are the Walmart U.S. segment, the Walmart International segment and the Sam’s Club U.S. segment. [1][2]",
+    "citations": [
+     {
+      "chunk_id": "c2063b3351b71553184a6ac36a2a80c8144aa60b7008bc204e8cef5aaae4f6f5",
+      "fact_id": null,
+      "quote": "operations are conducted in three reportable segments: Walmart U.S., Walmart International and Sam's Club U.S.",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/104169/000010416926000055/wmt-20260131.htm"
+     },
+     {
+      "chunk_id": "fd98dd95578b4f91de757ed35049107905a806dff3a1c1f3ec22381cc9cd1ae0",
+      "fact_id": null,
+      "quote": "Our operations comprise three reportable segments: Walmart U.S., Walmart International and Sam's Club U.S.",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/104169/000010416926000055/wmt-20260131.htm"
+     }
+    ],
+    "warnings": [
+     "The draft failed validation, so the answer was written again."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "textual",
+     "tickers": [
+      "WMT"
+     ],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 710.7,
+     "retrieve_ms": 294.8,
+     "retrieve_embed_ms": 23.9,
+     "retrieve_sql_ms": 15.1,
+     "retrieve_load_ms": 7.4,
+     "retrieve_rerank_ms": 213.0,
+     "generate_ms": 4375.5,
+     "regenerate_ms": 4497.2,
+     "total_ms": 9878.4
+    },
+    "first_token_ms": 2356.6,
+    "input_tokens": 10611,
+    "output_tokens": 420,
+    "top_score": 4.480374,
+    "sources": {
+     "C1": "098091e062475d0aa21d0ff0aa088ea9b142628ffbe93b179abb14f1961b056f",
+     "C2": "e99cc22d1293cf12867574f4ce8cab7067c0d7ae9f5a748e54a6e349cc0caab0",
+     "C3": "c2063b3351b71553184a6ac36a2a80c8144aa60b7008bc204e8cef5aaae4f6f5",
+     "C4": "fd98dd95578b4f91de757ed35049107905a806dff3a1c1f3ec22381cc9cd1ae0",
+     "C5": "988d4682af373c530bff2b430fbdc7656074002d30f386597fd1bfac7411a1e1",
+     "C6": "355732f386e812bed5055c510b76c0228c760c77b419129fc6185e811dae14f6",
+     "C7": "dd7b444814ea8f243a3b7ab86bee48ee173ed382e07c90c5915a8e79581a500a",
+     "C8": "f176fac94523d9a0174a8374665a4b1dffc2ba92148a093b3ed8367d4e6fd04b",
+     "C9": "3c8c56b2d8b91d9455b8a6270f1194935ba8aa7d3c2f29659eb3eb1da2369283",
+     "C10": "35b0d7673c08f70aaf27e2c7904a0ee14d536b833cabc5868a3607af4fdfeece",
+     "C11": "7ae53892c7f08d7e6e7769bd5247c9545c40660b617f93fec2fe9d6a36e09c24",
+     "C12": "c533b5f7dd3503f5ed9a19aefda1e57cfa28328551d87dc9b461dbd7515e770f"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "d1dcc18bf5b499eadc27ed82f0b09bb99135db95e737cfd374b8b1f29754948f",
+      "cached": false,
+      "input_tokens": 1025,
+      "output_tokens": 58,
+      "latency_s": 0.6996574999939185,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "82c8d73f893c9e5e822a7eb19f515393840edc5dac8cb5009263a64f9f0a2289",
+      "cached": false,
+      "input_tokens": 4746,
+      "output_tokens": 194,
+      "latency_s": 4.373437100002775,
+      "first_token_s": 1.2486948999867309,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "ce2ff9cc1661ed149fa5382c5b742e3e9d427f374d2744de0577b36af6b6aef3",
+      "cached": false,
+      "input_tokens": 4840,
+      "output_tokens": 168,
+      "latency_s": 4.493598400003975,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "draft_quotes": [
+     2,
+     3
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": true,
+    "truncated": false
+   },
+   {
+    "id": "x11",
+    "category": "textual",
+    "kind": "passage",
+    "expect": "answer",
+    "outcome": "refused",
+    "error": null,
+    "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+    "citations": [],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "out_of_scope",
+     "tickers": [],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 717.0,
+     "total_ms": 717.0
+    },
+    "first_token_ms": null,
+    "input_tokens": 1028,
+    "output_tokens": 49,
+    "top_score": null,
+    "sources": {},
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "a06c0e4fd0625b69c26e6d3ba475eafc3834a5cb8342783c57d367829c617f04",
+      "cached": false,
+      "input_tokens": 1028,
+      "output_tokens": 49,
+      "latency_s": 0.6807890000054613,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": false,
+    "router_ok": false
+   },
+   {
+    "id": "x15",
+    "category": "textual",
+    "kind": "passage",
+    "expect": "answer",
+    "outcome": "refused",
+    "error": null,
+    "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+    "citations": [],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "out_of_scope",
+     "tickers": [],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 648.1,
+     "total_ms": 648.1
+    },
+    "first_token_ms": null,
+    "input_tokens": 1033,
+    "output_tokens": 97,
+    "top_score": null,
+    "sources": {},
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "3bb4b7480f3dfd52418a7ba6f6af656a3ecfe5771696de94d8cbbd6c6dec2d95",
+      "cached": false,
+      "input_tokens": 1033,
+      "output_tokens": 97,
+      "latency_s": 0.6370259999821428,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": false,
+    "router_ok": false
+   },
+   {
+    "id": "x16",
+    "category": "textual",
+    "kind": "passage",
+    "expect": "answer",
+    "outcome": "refused",
+    "error": null,
+    "answer": "No sentence of the answer held up.",
+    "citations": [],
+    "warnings": [
+     "The draft failed validation, so the answer was written again.",
+     "Removed 2 sentence(s) whose citations or amounts did not check out."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "textual",
+     "tickers": [
+      "LMT"
+     ],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 922.8,
+     "retrieve_ms": 256.1,
+     "retrieve_embed_ms": 24.5,
+     "retrieve_sql_ms": 16.4,
+     "retrieve_load_ms": 7.2,
+     "retrieve_rerank_ms": 174.4,
+     "generate_ms": 4234.2,
+     "regenerate_ms": 2729.8,
+     "total_ms": 8143.1
+    },
+    "first_token_ms": 2539.8,
+    "input_tokens": 11429,
+    "output_tokens": 448,
+    "top_score": 4.654222,
+    "sources": {
+     "C1": "359c7189a9984c7d7f73266117f0a8c78fecdcf24a9c142049c5c64e6e716d82",
+     "C2": "f33bbe805fc5afb8f5e42201c3672e54ba2d8b8c8c8dd13336392cf5996664b0",
+     "C3": "da28a5b05dc1ad2a1a27ab54bfcec01d1974a97971996a46ebd0a07ce1e11cab",
+     "C4": "d8dd36e2a2dd6016f19f346bc1f0c273bac0aa7ac8c128e0bd2bd61d8496bc18",
+     "C5": "d6f0c4122bfdc05b70de7090aa2bc7a09fe0760f6b43752c2d80526ab4630cfe",
+     "C6": "8a737e6451b7375761383d94f30dced0642d7a78b9eb57d126f292eff0bd7dde",
+     "C7": "3f71db857320d8e58386590898ca6fa35c4555a96a3a69ac645248ebc6fd8470",
+     "C8": "d1e4307fa7dcbeac6107753cab7fed70ca33e88396b21c4eda093ad5b2484097",
+     "C9": "0b805761ab0231333cb8fe81d759415b5b40f04e251675f4daec05d12a57f659",
+     "C10": "2d3024b8efffbf481503f9f6fd11fd870dc44fca7483223ffd64b94ddc416ca3",
+     "C11": "4a9045411f654b8bc0c9ab517c08cdf663e6a0a7ca0b0a69129eef77864fcb1e",
+     "C12": "7ae938ecf1462f4767e6d0c080c66f449a307f8971c21f00cc4ddab9ba500303"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "6cc79a94091257b0f13418ffac84782db06ea2dd69187f7e0d93ce2e1e651090",
+      "cached": false,
+      "input_tokens": 1034,
+      "output_tokens": 98,
+      "latency_s": 0.9167476000147872,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "c206d014614a2541c963e0dfb835ecd44c1c8738086d3f70afb73760c2fbfa64",
+      "cached": false,
+      "input_tokens": 5136,
+      "output_tokens": 141,
+      "latency_s": 4.232385299983434,
+      "first_token_s": 1.1052110999880824,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "76c288380b9be2dcfcc11cec3be40847623cacca20f9e880a8e044fdf077ae21",
+      "cached": false,
+      "input_tokens": 5259,
+      "output_tokens": 209,
+      "latency_s": 2.7273271000012755,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "draft_quotes": [
+     0,
+     1
+    ],
+    "coverage": [
+     1,
+     2
+    ],
+    "regenerated": true,
+    "truncated": false
+   },
+   {
+    "id": "a02",
+    "category": "unanswerable",
+    "kind": "absent",
+    "expect": "refuse",
+    "outcome": "refused",
+    "error": null,
+    "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+    "citations": [],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "out_of_scope",
+     "tickers": [],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 683.3,
+     "total_ms": 683.4
+    },
+    "first_token_ms": null,
+    "input_tokens": 1030,
+    "output_tokens": 69,
+    "top_score": null,
+    "sources": {},
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "0f57f77331c65ef95746829239a6bb0a7309eb4bac919173b0ec0891306d7737",
+      "cached": false,
+      "input_tokens": 1030,
+      "output_tokens": 69,
+      "latency_s": 0.6772992000041995,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": null,
+    "router_ok": false
+   },
+   {
+    "id": "o03",
+    "category": "unanswerable",
+    "kind": "out_of_scope",
+    "expect": "refuse",
+    "outcome": "refused",
+    "error": null,
+    "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+    "citations": [],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "out_of_scope",
+     "tickers": [],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 525.7,
+     "total_ms": 525.7
+    },
+    "first_token_ms": null,
+    "input_tokens": 1027,
+    "output_tokens": 53,
+    "top_score": null,
+    "sources": {},
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "a47b3baa5713ebf2a52766336e1494ef323be9e835dbb2f4fa4ab249f6ffdf64",
+      "cached": false,
+      "input_tokens": 1027,
+      "output_tokens": 53,
+      "latency_s": 0.5189398000075016,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true
+   },
+   {
+    "id": "u01",
+    "category": "unanswerable",
+    "kind": "untracked",
+    "expect": "refuse",
+    "outcome": "refused",
+    "error": null,
+    "answer": "FilingLens has no filings for Netflix.",
+    "citations": [],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [],
+     "other_companies": [
+      "Netflix"
+     ],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": null,
+     "metric": "revenue"
+    },
+    "timings_ms": {
+     "route_ms": 831.7,
+     "total_ms": 831.7
+    },
+    "first_token_ms": null,
+    "input_tokens": 1028,
+    "output_tokens": 72,
+    "top_score": null,
+    "sources": {},
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "84a62865329c620f73d8cfacc91ac862e5fb1ddf3eb4e09aeabcf68a39c42c1c",
+      "cached": false,
+      "input_tokens": 1028,
+      "output_tokens": 72,
+      "latency_s": 0.8246798999898601,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true
+   },
+   {
+    "id": "t02",
+    "category": "time_trap",
+    "kind": "numeric",
+    "expect": "refuse",
+    "outcome": "refused",
+    "error": null,
+    "answer": "Amazon.com, Inc. (AMZN) has filed no 10-K for fiscal 2026; its latest is fiscal 2025.",
+    "citations": [],
+    "warnings": [],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "AMZN"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2026
+     ],
+     "fiscal_period": null,
+     "metric": "net_income"
+    },
+    "timings_ms": {
+     "route_ms": 433.3,
+     "total_ms": 499.7
+    },
+    "first_token_ms": null,
+    "input_tokens": 1029,
+    "output_tokens": 76,
+    "top_score": null,
+    "sources": {},
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "bbcc51bd0b8e3cc14a8f44b0ae84fcbf71bfcc8e0ca08921c647b18b9372682f",
+      "cached": false,
+      "input_tokens": 1029,
+      "output_tokens": 76,
+      "latency_s": 0.4254940000246279,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true
+   },
+   {
+    "id": "t07",
+    "category": "time_trap",
+    "kind": "textual",
+    "expect": "refuse",
+    "outcome": "refused",
+    "error": null,
+    "answer": "No sentence of the answer held up.",
+    "citations": [],
+    "warnings": [
+     "The draft failed validation, so the answer was written again.",
+     "Removed 1 sentence(s) whose citations or amounts did not check out."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "textual",
+     "tickers": [],
+     "other_companies": [],
+     "fiscal_years": [],
+     "fiscal_period": null,
+     "metric": null
+    },
+    "timings_ms": {
+     "route_ms": 664.1,
+     "retrieve_ms": 496.2,
+     "retrieve_embed_ms": 52.6,
+     "retrieve_sql_ms": 197.2,
+     "retrieve_load_ms": 7.7,
+     "retrieve_rerank_ms": 238.0,
+     "generate_ms": 12681.5,
+     "regenerate_ms": 12006.1,
+     "total_ms": 25848.0
+    },
+    "first_token_ms": 2846.7,
+    "input_tokens": 10675,
+    "output_tokens": 1555,
+    "top_score": 4.025764,
+    "sources": {
+     "C1": "0ce60c56e31620e4a4a21d67536220765a15b336ba4d36b757b9a7363ea3641a",
+     "C2": "b5f51cf97428e8b2ac0c7f4a4c5e6081fc737bf17c5ec70f90dfc8bfc2844952",
+     "C3": "f46365bea6fe054ee61618fb1f649c85c72cec82dec6b751ab1c2682bd28bb69",
+     "C4": "c99621e950be2b7c023eca7c840aac361d974d570748e730a893b7c60cc1ff6a",
+     "C5": "4822166b76b37f38046adbbacbb1521ef3d6e5b6020748409a8721cd0d2e8047",
+     "C6": "a9974bd7fa78588fd7c23ec70d161c448ada8742ba02c8c805883cc08bf5dac3",
+     "C7": "2a916807990e564889ee3e3c38fff4fd4346f285b71d1abe0910e84703265cbf",
+     "C8": "b386831fa13c6faa3266e7a4d81e4ab49acce8875ba04ce965f42eef71c46b34",
+     "C9": "89f8b0649b38acbe521a73a0e35749c774ea3bef5e461a102ca1ba712ee6a7bf",
+     "C10": "51fdb324bc0c73af9faf40b86641b060578d6923ac1634d5ab1a2eafeee0fb24",
+     "C11": "1dff91efd92383415985f278171d1fabd14897a067f1ccb92a9895dffb36e8c2",
+     "C12": "69e2352a3aed633742e43b34a6e90a4bfec0b91c8e2c6c06e8eb7c14b9c5f013"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "groq:openai/gpt-oss-20b",
+      "cache_id": "1626afd8bab44c226918e80e094280613567fa5356cee461156c1a2899155a27",
+      "cached": false,
+      "input_tokens": 1031,
+      "output_tokens": 66,
+      "latency_s": 0.6567989000177477,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "c38b477f80aa36492c911b9fbb1926408ce161c3aca12114a5c8e6482a7544b7",
+      "cached": false,
+      "input_tokens": 4694,
+      "output_tokens": 723,
+      "latency_s": 12.67048679999425,
+      "first_token_s": 1.653499699983513,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "nvidia:openai/gpt-oss-20b",
+      "cache_id": "a026100fcc04f815d39f6e45422d3e523c7a73388d50c7e7d95ff351ece59db5",
+      "cached": false,
+      "input_tokens": 4950,
+      "output_tokens": 766,
+      "latency_s": 12.003822300001048,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": false,
+    "draft_quotes": [
+     1,
+     3
+    ],
+    "coverage": [
+     1,
+     1
+    ],
+    "regenerated": true,
+    "truncated": false
+   }
+  ]
+ },
+ "notes": [
+  "Latency comes only from questions whose model calls were all live: 20 of 20.",
+  "Citation coverage is measured on the last reply before sentence removal; final answers are 100% covered by construction, since validation drops each sentence without a passing citation.",
+  "Judge metrics count: Cohen's kappa 0.84 against labels by claude, not by the judge.",
+  "Cost as billed is $0 on the free tiers; the paid-equivalent uses the prices in evals/providers.json.",
+  "False refusals by cause: router: out of scope 2 (x11, x15); validation: no sentence held up 1 (x16)."
+ ]
+}

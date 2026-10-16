@@ -88,7 +88,17 @@ Contracts and clients: `contracts/openapi.json` and `contracts/schema.graphql` (
 
 Tests: the root `conftest.py` (network guard, markers, JSON logs, hypothesis profile, Testcontainers fixtures) and `network_guard.py`; each package and service keeps its tests in its own `tests/`.
 
-Planned: the eval harness (step 6b).
+Evals (`evals/`):
+- `golden.py`: golden set v1 build and freeze.
+- `label.py`: `make audit` and `make label`; both refuse once the set is frozen.
+- `metrics.py`: ranking metrics, exact match, percentiles, Cohen's kappa, bootstrap intervals and the floor rule.
+- `calls.py`: the reply cache, call records and 429 handling.
+- `judge.py`: the `LLM_JUDGE` prompt, schema and parsing.
+- `harness.py`: `make eval`.
+- `providers.json`: limits and prices, each with its source and date.
+- `eval-card.md`.
+- `golden/v1/`: frozen, with a sha256 manifest.
+- `reports/`.
 
 ## Implemented Functionality
 
@@ -131,7 +141,22 @@ Planned: the eval harness (step 6b).
 - Embedding: chunk queues `embed` on the `embed` service (one process, `-Q embed,reembed -c 1`), which fills `RETRIEVAL_EMBEDDING_COLUMN` and its `_model` column, 512 chunks a run, then marks the filing indexed (fiscal year known) or embedded; facts indexes embedded filings. The 30 golden-set filings are indexed: 11,263 chunks in about 14 min, 13.0 chunks/s on this CPU (2026-10-15). Models load offline from `HF_HOME` (`make models` fetches the pinned commits; containers mount it read-only).
 - Search and answers:
   - `GET /v1/search` (optional `cik`, `fiscal_year`): vector top 50 and full-text top 50 (words OR-ed) within indexed filings, RRF (k = 60), the fused top `RERANK_CANDIDATES` reranked (`RERANK_MODEL`, `RERANK_MAX_TOKENS`); past `RERANK_TIMEOUT_MS` the fused order with `degraded: true`. Keyset over (score, chunk id); a cursor from another embedding column gets 409. Warm in the API container: embed 15-25 ms, SQL 5-110 ms, rerank 128-182 ms.
-  - Answers (`filinglens_api.answering`): the router picks numeric, textual, comparison or out_of_scope with tickers, years, period and metric; numeric questions read XBRL facts (`get_financial_fact`, latest-filed rule), others search; the primary writes cited text with quotes, streamed as `delta` events; validation checks every sentence's citations and amounts, regenerates once, then drops failing sentences with a warning. Refusals: out of scope, untracked company, fiscal year without a 10-K yet, best rerank score under -3.0. A failed primary or router call falls back to `LLM_FALLBACK` once (counted in `ai:usage:<date>` field `fallbacks`); a 402 or a failed fallback gives 503. Past `LLM_MAX_INFLIGHT` answers in progress: 503 `overloaded`. `Answer` carries `refused` and `warnings`.
+  - Answers (`filinglens_api.answering`): the router picks numeric, textual, comparison or out_of_scope with tickers, years, period and metric; numeric questions read XBRL facts (`get_financial_fact`, latest-filed rule), others search. The search starts while the router runs, on the companies and years the question names (`router.guess`), and is kept only when the router's plan asks for the same scope; the primary writes cited text with quotes, streamed as `delta` events; validation checks every sentence's citations and amounts, regenerates once, then drops failing sentences with a warning. Refusals: out of scope, untracked company, fiscal year without a 10-K yet, best rerank score under -3.0. A failed primary or router call falls back to `LLM_FALLBACK` once (counted in `ai:usage:<date>` field `fallbacks`); a 402 or a failed fallback gives 503. Past `LLM_MAX_INFLIGHT` answers in progress: 503 `overloaded`. `Answer` carries `refused` and `warnings`.
+- Evals:
+  - Golden set v1 (`evals/golden/v1`, frozen 2026-10-16, card `evals/eval-card.md`) holds 100 questions: 40 numeric, 20 textual, 15 comparison, 15 unanswerable and 10 time traps, split 70 dev and 30 test, with a 20-question ci subset.
+    - Numeric and comparison gold are XBRL facts.
+    - Passage gold is AI-labeled, spot-checked by a non-expert; it is not human-verified.
+  - `make eval SUITE=retrieval|answer|all SPLIT=dev|test SUBSET=full|ci ARGS=...` runs the harness:
+    - Before each run it checks the manifest and the corpus: the latest fiscal years, the gold chunk texts and the fact values. Any change exits 3.
+    - The retrieval suite times every question as a query, with a 60 s rerank cap, and scores the textual ones on recall, MRR, nDCG and judged@10.
+    - The answer suite runs the Answerer as the API does (no fallback, `today` pinned to the set's as_of, 30 s per question). Each model reply is cached by call key, progress goes to a run file, and tokens are counted in Redis db 15.
+    - A 429 waits when Retry-After is 120 s or less. The third in a row, or a longer wait, exits 2, and a rerun resumes.
+    - The judge scores every answer that was not refused. Calibrated on 2026-10-16: Cohen's kappa 0.84 (95% CI 0.59 to 1.00) against Claude's labels on 29 sentences, so citation precision and faithfulness count. With the one unparsed reply counted as a disagreement, kappa is 0.77 (0.47 to 1.00). Every negative in that sample was constructed, so its detection of natural unsupported sentences is untested. The follow-up check's sample is drawn: 6 natural sentences that fail the validator, from decision 4's NVIDIA runs, in `evals/calibration/v1-followup/` (`make calibrate ARGS="followup export|import"`). It waits for Claude's labels (`evals/eval-card.md`).
+    - Reports go to `evals/reports/runs/`: JSON with per-question records, plus a markdown table of target, measured value, 95% bootstrap CI, n and status. Each run also adds an `eval_runs` row and prints the deltas against the previous report.
+    - Floors live in `evals/thresholds.json`, and a broken floor exits 1. Runs never write them: `python -m evals.harness --set-floors REPORT` applies the floor rule to a saved report's measured values (quality, tokens, cost and latency, TTFT included) and keeps only tighter floors. None are written yet.
+    - `--compare A B` prints paired per-question differences, including the primary call's own first-token and total times.
+    - `--tag=NAME` calls the answer models live once under their own cache keys, so earlier reports still read their replies. `--primary-tag=NAME` does that for the primary only, with router replies from the cache.
+    - Each report records the code it measured (the commit, whether the source files differ from it, and a sha256 of them as they stand; data and docs left out) and the sha256 of each system prompt and schema.
 - Logs: structlog JSON lines on stdout from the API, the worker, migrations and the seed, including uvicorn, Celery and Alembic records. Each line carries `service`, `level` (threshold from `LOG_LEVEL`) and, during a request, `request_id`. Credential-named fields and the API key value are redacted.
 - Compose: `infra/docker-compose.yml` for development; `infra/docker-compose.prod.yml` unpublishes Postgres, RabbitMQ and Redis and adds `restart: unless-stopped` and memory limits (Postgres 1.5 GB). Postgres runs with `shm_size: 256mb` in both, so parallel HNSW builds fit in `/dev/shm`; `make check-parallel-hnsw` checks it on the dev stack. The worker gets `SEC_USER_AGENT` (compose refuses to start without it) and the repo's `.cache/sec` folder as its SEC cache (a bind mount), and the API gets `AI_ENABLED` and `DAILY_AI_TOKEN_BUDGET`.
 - Contracts: `make codegen` exports both contracts and regenerates all four clients, then type-checks the TS client. `make contracts-check` runs codegen and fails if git sees unstaged or untracked changes under `contracts/` or `clients/`. `make contracts-breaking` runs oasdiff (Docker) against `BASE` (default `main`) and fails on breaking changes.
@@ -145,11 +170,35 @@ Planned: the eval harness (step 6b).
 
 ## Current Development Status
 
-Steps 1 (scaffolding), 2 (contracts), 3 (data) and 4 (workers: SEC client, discover, fetch, dead letters, backpressure, API limits) done on 2026-10-14; step 4b (parse, chunk, facts and `scripts/seed_real.py`) and step 5 (tests) on 2026-10-15. Step 6a (providers, local models, embed stage, hybrid search, answers) done on 2026-10-15. The dev database holds the 30 golden-set companies' latest 10-Ks, indexed with model A vectors, and their XBRL facts. Next: step 6b (golden set, judge, eval harness). Dev runs at revision 0008 (model A) through steps 5-6; the live embedding swap, with recall@10 before and after, follows step 6 (user decision).
+Steps 1 (scaffolding), 2 (contracts), 3 (data) and 4 (workers: SEC client, discover, fetch, dead letters, backpressure, API limits) done on 2026-10-14; step 4b (parse, chunk, facts and `scripts/seed_real.py`) and step 5 (tests) on 2026-10-15. Step 6a (providers, local models, embed stage, hybrid search, answers) done on 2026-10-15. The dev database holds the 30 golden-set companies' latest 10-Ks, indexed with model A vectors, and their XBRL facts. Step 6b is in progress. Golden set v1 is AI-labeled, spot-checked by a non-expert and frozen, the eval harness is built, and decision 1 (the reranker) is settled on dev: TinyBERT-L-2 over the top 50 stays (2026-10-16). The gate-off dev answer run and decision 2 (`RELEVANCE_MIN` stays -3.0) followed. Router v2 and its dev rerun followed, and the calibration sample is drawn. The judge is calibrated against labels by Claude, a different and stronger model than the judge, not by a human; the sample is exported for it (`make calibrate ARGS=export`, then `ARGS=import`). The sentence splitter no longer cuts after abbreviations such as "U.S.", the judge is calibrated (kappa 0.84), and the dev answer suite was rerun with both (2026-10-16). Decision 3 is settled: minimal thinking stays, and fix B (the search starts while the router runs) is built and measured on dev. Decision 4 is settled: NVIDIA gpt-oss-20b stays the fallback; Groq gpt-oss-120b was skipped and NVIDIA's gpt-oss-120b is retired (410). The judge follow-up sample is labeled by Claude. Next, on 2026-10-17: the follow-up import (a spot check), then the test run, which waits for the user's go (`docs/todo.md`). Dev runs at revision 0008 (model A) through steps 5-6; the live embedding swap, with recall@10 before and after, follows step 6 (user decision).
 
 ## Known Limitations
 
-The targets are design goals; 6b measures them on the golden set. Time to first token already misses its target (6b item): textual answers took 2.2 s and 3.8 s in the 6a smoke runs (single runs, 2026-10-15) against p95 2.0 s. Cause: the stages run one after another, the router call (0.53-0.54 s), then retrieval (0.21-0.27 s), then Gemini's first visible text 1.4-3.0 s after its call, with a prompt of about 4,600 tokens (12 chunks); the stream filter holds back only 24 characters. The numeric answer's first token came at 2.0 s (router 0.68 s, facts 0.05 s, Gemini 1.3 s with a prompt of about 340 tokens), so Gemini's first token alone exceeded the p50 1.0 s target in every run.
+The targets are design goals; 6b measures them on the golden set.
+
+First dev measurements (gate off, judge not yet calibrated, 2026-10-16; single run, 95% CIs in the report):
+- Numeric exact match 0.821 and comparison match 0.200.
+- False refusal 0.288, and correct refusal 1.000.
+- Time to first token: p50 1.8 s and p95 2.3 s (36 live answers). Full answer p95 9.3 s.
+
+The router caused most of those misses: wrong tickers and comparisons without a metric. Router v2 fixed them (`docs/prompt-log.md`), with these dev results (gate off):
+- numeric and comparison match 1.000;
+- correct refusal 1.000;
+- false refusal 0.096 (5 of 52: 3 where the model found no evidence in the retrieved passages, 2 where no sentence held up).
+
+The rerun with the splitter fix and the calibrated judge (gate off, 2026-10-16) kept false refusal at 0.096, with the same five questions. x16 now keeps its whole sentence, and citation coverage rose from 0.930 to 0.941 (target 0.95). Citation precision (0.981) and faithfulness (0.937) now count and pass, but the judge's calibration sample held no natural unsupported sentence.
+
+Decision 3 (dev, 2026-10-16, 09:00-09:25 UTC; numbers in `docs/memory.md`):
+- With every call live, time to first token was p50 4.2 s and p95 9.3 s. Stage p50: router 0.66 s, retrieval 0.30 s, and Gemini's own first token 3.4 s.
+- Gemini's own first token drifts with the hour on the free tier: 1.0 s p50 at 05:56 UTC against 3.4 s at 09:00, on the same questions. The 09:00 runs also drew Gemini 503s.
+- Its thinking setting makes no measurable difference, so minimal stays.
+- Even at Gemini's best, router and retrieval take about 1 s before Gemini starts, so the p50 1.0 s target is out of reach on free tiers with the stages in sequence.
+- Fix B (search started with the router): where the router agreed (18 of 28 searching dev questions), the time before Gemini starts fell from p50 1,060 to 684 ms. End to end, TTFT stayed Gemini-bound at p50 3.7 s and p95 9.6 s (10:00 UTC).
+- The router sometimes leaves tickers empty for a company the question names, such as x01 (Apple) and x11 (Visa); those questions search every company. On dev that is not clearly worse: the question names the company, so the unscoped search ranks its chunks anyway (memory.md). No code fills the ticker in.
+
+The refusal gate stays at -3.0, which adds no false refusal on dev. `split_sentences` ends a sentence after an abbreviation (U.S., e.g., Inc., Corp., Co., No., etc.) only when a common sentence starter follows (The, It, However...), so "in the U.S. Revenue rose" stays one sentence.
+
+Golden v1's passage gold, which retrieval metrics rest on, is AI-labeled, spot-checked by a non-expert: a fast check that cannot validate the labels on its own (blind kappa 0.10, `evals/eval-card.md`). Time to first token already misses its target (6b item): textual answers took 2.2 s and 3.8 s in the 6a smoke runs (single runs, 2026-10-15) against p95 2.0 s. Cause: the stages run one after another, the router call (0.53-0.54 s), then retrieval (0.21-0.27 s), then Gemini's first visible text 1.4-3.0 s after its call, with a prompt of about 4,600 tokens (12 chunks); the stream filter holds back only 24 characters. The numeric answer's first token came at 2.0 s (router 0.68 s, facts 0.05 s, Gemini 1.3 s with a prompt of about 340 tokens), so Gemini's first token alone exceeded the p50 1.0 s target in every run.
 
 Tables are flattened row by row into the text. Some 10-Ks (XOM, CVX, JPM, PLD and NVDA in the survey) keep MD&A or the statements in a separate financial section, and their Items 7, 7A or 8 only point to it: that content is chunked under the last item (15 or 16). The fiscal year and period fallback (period of report) is approximate for 52-53 week years; it was not needed for the 30 golden-set filings. Company-level failures (discovery, facts) show in the job status and `dead_letters`, not in the API's failure list, which holds filings only. Flipping `RETRIEVAL_EMBEDDING_COLUMN` needs an API and embed restart. Validation rejects derived figures (growth rates computed by the model), and the refusal threshold is provisional until 6b. Streamed deltas are the draft: when validation changes it, the `completed` answer (with warnings) replaces them. `make seed-fake` locks `chunks` while it loads, so it is not for a database that serves traffic. The web `/readyz` equals `/healthz` until the backend-for-frontend lands. `citation_error` is exact on letter case, so a quote that recapitalizes a word fails. `parse_amount` reads a single amount, not amounts inside prose (step 6 adds the finder), with the scale words thousand, million, billion and trillion or the abbreviations K, M, B or bn, and T; others, such as MM, are refused. The test network guard stops name lookups; a client that connects to a literal IP address would pass it (none does).
 
