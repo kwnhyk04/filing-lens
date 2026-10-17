@@ -71,7 +71,7 @@ class TelemetrySettings(BaseSettings):
 
     @field_validator("otel_exporter_otlp_endpoint", mode="before")
     @classmethod
-    def _empty_is_off(cls, value: Any) -> Any:
+    def _empty_endpoint_is_off(cls, value: Any) -> Any:
         return value or None  # compose passes OTEL_EXPORTER_OTLP_ENDPOINT= when it is off
 
 
@@ -113,7 +113,7 @@ class ApiSettings(DatabaseSettings, TelemetrySettings):
 
     @field_validator("llm_answer_fallback", mode="before")
     @classmethod
-    def _empty_is_off(cls, value: Any) -> Any:
+    def _empty_fallback_is_off(cls, value: Any) -> Any:
         return value or None  # compose passes LLM_ANSWER_FALLBACK= when it is unset
 
     @model_validator(mode="after")

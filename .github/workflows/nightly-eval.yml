@@ -5,7 +5,7 @@ name: Nightly eval
 
 on:
   schedule:
-    - cron: "0 19 * * *" # 03:00 Taipei
+    - cron: "17 19 * * *" # 03:17 Taipei: GitHub can delay or drop on-the-hour runs (memory.md)
   workflow_dispatch:
 
 permissions: {}

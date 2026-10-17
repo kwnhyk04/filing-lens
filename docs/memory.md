@@ -345,6 +345,10 @@ From step 8 (monitoring; design in `docs/monitoring.md`):
 - 2026-10-18: CitationValidationDegraded divides regenerations by drafts (`filinglens_answer_stage_duration_seconds_count{stage="generate"}`), not by answered answers (final review). Reason: a regeneration can end in a refusal, so the old ratio could fire with no answered draft rewritten, or pass 1; drafts are the unit of the 2-of-53 baseline.
 - 2026-10-18: The metric label allowlist is checked once the whole test session ends, over every series any test recorded (root conftest), not in one test (final review). Reason: a test sees only what ran before it.
 - 2026-10-18: The end-to-end trace test lives in `services/ingest/tests/test_pipeline.py`, not a new `test_trace.py` (ruling, session 2). Reason: under `--import-mode=importlib` a new module cannot import that file's fake SEC, worker launcher and helpers, and copying them would duplicate about 100 lines. Search telemetry is tested in the integration `test_search.py`, since `search()` needs Postgres and the local models.
+- 2026-10-18: The nightly's cron moved from `0 19 * * *` to `17 19 * * *` (19:17 UTC, 03:17 Taipei), replacing the 19:00 UTC of the step 7 decisions; `workflow_dispatch` stays (user decision).
+  - Why: `nightly-eval.yml` has never run. GitHub's API showed no runs at 04:37 Taipei, after the 03:00 schedule, though the workflow had been on main since 00:07 Taipei (59ed9fe). Likely cause, not confirmed: GitHub delays or drops scheduled runs on minute 0 under load.
+  - What we did: changed the cron and its comment, ran `make actionlint` (no findings), and added a todo item: after the merge, start one run by hand, then check that the next scheduled run happens.
+  - Best option: a one-line change, and the manual run tells a broken workflow apart from a missed schedule. A manual run always runs the eval, because the gate skips unchanged inputs on scheduled runs only, so it spends a full nightly's quota.
 
 ## Preferences and Instructions
 
@@ -476,6 +480,10 @@ None yet.
 - 2026-10-18: A counter with no zero series hides a process's first events: its first export already holds them, and `increase()` sees no rise. The live check showed it for `filinglens_sec_requests_total`, whose status panel stayed empty; `start_ingest_series` now creates each SEC kind at status 200 too.
 - 2026-10-18: `export MSYS_NO_PATHCONV=1` (for Docker paths in Git Bash) also stops the conversion of `/h/...` for other programs, so Python was handed `H:\h\...`; with it set, pass `H:/...` paths.
 - 2026-10-18: A client polling uvicorn every 5 s can reuse a keep-alive connection just as uvicorn's 5 s idle timeout closes it: httpx raises "Server disconnected without sending a response" with no fault on the server. Poll with a fresh connection, or more often than the timeout.
+- 2026-10-18: A pydantic validator is a class method, so a subclass method with the same name replaces the parent's validator, even when the two validate different fields. `ApiSettings._empty_is_off` (`LLM_ANSWER_FALLBACK`) replaced `TelemetrySettings._empty_is_off` (`OTEL_EXPORTER_OTLP_ENDPOINT`), so `ApiSettings` and `EvalSettings` read an empty endpoint as an invalid URL and exited at startup.
+  - It showed first in CI on the step 8 pull request: CI's `.env` is a copy of `.env.example`, which sets the variable empty. The local `.env` has no such line, and an absent variable takes the default without the validator. Compose also passes it empty when telemetry is off (not observed in a container).
+  - What we did: renamed them `_empty_endpoint_is_off` and `_empty_fallback_is_off`, then added a test that loads `ApiSettings` and `IngestSettings` with both variables empty. It was written first and failed for `ApiSettings` before the rename. Best option: the user's choice, and the smallest change that restores the inherited rule.
+  - Rule: a validator's name must be unique across the whole settings hierarchy, `EvalSettings` in `evals/harness.py` included. `Cls.__pydantic_decorators__.field_validators` shows which fields each name validates.
 
 ## Rejected Approaches
 

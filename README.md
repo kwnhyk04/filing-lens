@@ -70,7 +70,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests, pushes to mai
   - INCOMPLETE: only for a quota or rate limit stop, which says to rerun after the quota resets.
   - NOT RUN: a Dependabot or fork PR gets no secrets, so no answer is measured. It is shown at the top, never as a pass, and the nightly eval measures main after the merge.
   - Latency is reported, marked "not gated": runners are not the production PC.
-- Nightly (`nightly-eval.yml`, 19:00 UTC): the test split with the judge, only when the eval inputs changed since the last complete nightly run. It uploads the report and opens an issue when a floor breaks.
+- Nightly (`nightly-eval.yml`, 19:17 UTC): the test split with the judge, only when the eval inputs changed since the last complete nightly run. It uploads the report and opens an issue when a floor breaks.
 - Tokens per run, uncached (cached replies cost nothing):
   - PR answer eval (25 questions, 10 of them should-refuse): about 28K gpt-oss-20b, 0 gpt-oss-120b and about 20 Gemini requests (measured 2026-10-17). The Groq account is shared with FreightAudit's CI. Its daily allowance is per model, about 200K tokens each. FreightAudit keeps about 25K a day of gpt-oss-120b, which only the nightly's judge uses here.
   - CI floors are a tripwire for large drops, not a precise measure: with 8 numeric questions, the floor of 0.676 still lets 6 of 8 pass. The nightly run and the exam give the precise numbers.

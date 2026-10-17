@@ -15,6 +15,64 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-18: Step 7's manual GitHub steps 3 and 4 confirmed
+
+- Changes:
+  - **Step 3 (user, from GitHub's API):** the `corpus-v1` release was published on 2026-10-17 at 15:28 UTC with `corpus-v1.dump` (46.5 MB, 16 downloads). The previous entry had ticked it by deduction (CI's eval downloads the dump and checks its sha256); the API now confirms it.
+  - **Step 4 (user, from GitHub's API):** ruleset 25308468 is active on main. It requires a pull request with 0 approvals and the `ci-ok` check, not strict, and it blocks force pushes and deletion.
+  - **Docs:** todo.md ticks step 4 with this evidence, replaces step 3's deduction with the API's facts, and keeps step 5 (public GHCR packages, optional before step 10) in Pending. context.md records the release's publication time and the ruleset.
+- Small events: none.
+- Files: docs/{context,todo,activity-log}.md
+- Validation: docs only; no checks run.
+- Outstanding: step 5 (optional, before step 10). The user commits and pushes these with the settings fix and the nightly change.
+
+### 2026-10-18: Docs say CI runs on GitHub and step 7 is merged; the nightly cron moved off the hour
+
+- Changes:
+  - **CI facts (user, from the repo's public Actions page at 03:07 Taipei):** CI #1 on pull request #1 failed (the floor problem fixed with Wilson intervals). CI #2 on its next push and CI #3 on the push to main passed. CI #7 on pull request #5 and CI #8 on its push to main passed. So the workflows run on GitHub, the `safe.directory` setup for oasdiff and gitleaks works, and step 7 is merged. Dependabot's npm group pull request #3 failed CI and has not been looked into.
+  - **Docs corrected:**
+    - context.md said the workflows had not run on GitHub, and that step 7 waited for the `corpus-v1` release, the push and a green test PR.
+    - todo.md: step 7 moved to Completed. Its manual step 3 (the `corpus-v1` release) is marked done, because CI's eval downloads the dump from that release and checks its sha256, and CI #1's eval ran as far as its floors. Steps 4 (the ruleset on main) and 5 (public GHCR packages) went to Pending, since nothing records them done. Dependabot's pull request #3 is a new Pending item.
+  - **The nightly never ran (user, from GitHub's API at 04:37 Taipei):** no runs of `nightly-eval.yml` after its 03:00 schedule. The workflow had been on main since 00:07 Taipei (59ed9fe, committed by GitHub), so a missing workflow file is ruled out. Likely cause, not confirmed: the cron sat on minute 0, where GitHub delays or drops scheduled runs under load.
+  - **What we did, in order:**
+    1. Changed the cron from `0 19 * * *` to `17 19 * * *` (03:17 Taipei) and its comment. `workflow_dispatch` stays.
+    2. Ran `make actionlint`: no findings.
+    3. Updated the time in README and context.md. memory.md records the decision, and todo.md has the follow-up: after the merge, one manual run, then a check of the next scheduled run.
+    - Why this way: the user chose it. Moving off the hour is a one-line change, and a manual run tells a broken workflow apart from a missed schedule.
+  - **Found while writing the todo item:** a manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. So the manual run spends a full nightly's quota: about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit) and about 25 Gemini requests.
+- Small events, in order:
+  - The GateGuard hook refused the first edits of `nightly-eval.yml` and README until the facts were restated; each retry passed. Expected behavior.
+  - `TZ=Asia/Taipei date` in Git Bash printed the UTC time under the Taipei label. Likely cause, not confirmed: Git for Windows ships no time zone database. The times in this entry are UTC plus 8 hours.
+- Files: .github/workflows/nightly-eval.yml, README.md, docs/{context,memory,todo,activity-log}.md
+- Validation: `make actionlint` passed with no findings.
+- Outstanding:
+  - The user commits and pushes these with the settings fix.
+  - Dependabot pull request #3's CI failure.
+  - After the step 8 merge: one manual nightly run, then a check that the next scheduled run happens.
+
+### 2026-10-18: Step 8 PR's CI eval stopped at startup; settings validator names made unique
+
+- Changes:
+  - **What happened (user report):** on the step 8 pull request (5c8cb70), the CI job "Retrieval eval (dev, every question; local models, no LLM call)" stopped at startup with `Invalid configuration: OTEL_EXPORTER_OTLP_ENDPOINT: Input should be a valid URL, input is empty`. CI copies `.env.example` to `.env`, so the variable is set but empty.
+  - **Why (the user reproduced it outside the repo with pydantic 2.14.1 and pydantic-settings 2.15.0, the locked versions; confirmed here):**
+    - `TelemetrySettings` and `ApiSettings` each had a validator method named `_empty_is_off`: one for `OTEL_EXPORTER_OTLP_ENDPOINT`, one for `LLM_ANSWER_FALLBACK`.
+    - In pydantic, a subclass method with the same name replaces the parent's validator. So `ApiSettings`, and `EvalSettings` (its subclass), lost the endpoint's empty-means-off rule. `IngestSettings` kept it.
+    - `__pydantic_decorators__.field_validators` showed `_empty_is_off` bound only to `llm_answer_fallback` on `ApiSettings` and `EvalSettings`.
+    - It did not show locally: `.env` has no `OTEL_EXPORTER_OTLP_ENDPOINT` line, and an absent variable takes the default (None) without the validator.
+  - **Reach beyond CI (read from the code; not observed in a container):** compose passes the variable empty whenever `.env` leaves telemetry off, so the api container on 5c8cb70 would also exit at startup with telemetry off. Every host run that loads `ApiSettings` or `EvalSettings` with the variable empty fails the same way, such as `make eval`. Ingest and embed load `IngestSettings` and were not affected.
+  - **What we did, in order:**
+    1. Reproduced it in the repo: `uv run --env-file .env.example` with `ApiSettings` exited with CI's message.
+    2. Audited the names (user request): in `settings.py` and `evals/harness.py`, only `_empty_is_off` repeated. `_differs_from_api_key`, `_keys_for_roles`, `_real_contact` and `_not_claude` are unique. A wider check of all 47 pydantic models in our packages and `evals` found no other shadowed validator.
+    3. Wrote the test first: `test_an_empty_otel_endpoint_and_answer_fallback_read_as_off` loads `ApiSettings` and `IngestSettings` with both variables empty and checks that each of these fields the class has reads None (`IngestSettings` has no answer fallback). Before the rename, the `ApiSettings` case failed with CI's message and the `IngestSettings` case passed.
+    4. Renamed the validators `_empty_endpoint_is_off` (`TelemetrySettings`) and `_empty_fallback_is_off` (`ApiSettings`). The test then passed, and `EvalSettings` loaded from `.env.example` with both values None, which is the CI job's startup.
+    - Why this way: the user chose the rename. It is the smallest change that gives the subclasses their parent's validator back, and it changes nothing else.
+- Small events, in order:
+  - The GateGuard hook refused the first Bash command and the first edit of each file until the facts were restated; each retry passed. Expected behavior.
+  - `make test-int` was not run: the user asked for `make test`, lint and pyright.
+- Files: packages/core/src/filinglens_core/settings.py, packages/core/tests/test_settings.py, docs/{context,memory,todo,activity-log}.md
+- Validation: `make lint` clean; `make typecheck` 0 errors; `make test` 326 passed, the 2 new cases included. `.env` was not touched.
+- Outstanding: the user commits and pushes to `step-8-monitoring`, which reruns CI on the same pull request.
+
 ### 2026-10-18: Step 8 live check on the throwaway stack `filinglens-demo` (19:41-19:58 UTC)
 
 - Changes:

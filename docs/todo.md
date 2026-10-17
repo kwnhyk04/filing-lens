@@ -6,7 +6,11 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (manual, step 7) The GitHub steps listed under In Progress, step 7.
+- [ ] (manual, step 7, optional before step 10) GitHub step 5 under Completed, step 7: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
+- [ ] Dependabot's npm group pull request #3 failed CI (public Actions page, 2026-10-18 03:07 Taipei). Not looked into yet.
+- [ ] (manual, after step 8 merges) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow) to prove the workflow works, then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). It has never run (memory.md, 2026-10-18).
+  - A manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. It spends about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit's Groq account) and about 25 Gemini requests.
+  - After a complete manual run, a scheduled run with unchanged inputs shows SKIPPED and spends nothing. It still proves that the schedule fires.
 - [ ] (manual, optional) pre-commit keeps its cache on C: (`C:\Users\kwonhyuk\.cache\pre-commit`, gitleaks build included), because `PRE_COMMIT_HOME` is unset. AGENTS.md wants caches on H:: set `PRE_COMMIT_HOME=H:\.cache\pre-commit` for the user, then remove the old folder (found 2026-10-17).
 - [ ] (manual, before step 10) Vercel and Tailscale accounts created.
 - [ ] (manual, before step 10) Replace the example passwords in `.env`, and set both `API_KEY` and `ADMIN_API_KEY` (step 2 appended a random `ADMIN_API_KEY`).
@@ -32,7 +36,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] 8. Instrumentation (branch `step-8-monitoring`, created 2026-10-18 from main at 5af8fcd when the user said to start Part B; all work on it is uncommitted). Done when OpenTelemetry traces span services end to end, the dashboards and alerts are committed with promtool tests, and the screenshots are saved. Plan approved 2026-10-18 with the user's changes, then the design critique's revisions with three user conditions. Nothing is committed (user). Paused on 2026-10-18 at the user's request (context at 75%); a fresh session resumes from this checklist.
+- [ ] 8. Instrumentation (branch `step-8-monitoring`, created 2026-10-18 from main at 5af8fcd when the user said to start Part B; the user committed it as 5c8cb70 and opened a pull request). Done when OpenTelemetry traces span services end to end, the dashboards and alerts are committed with promtool tests, and the screenshots are saved. Plan approved 2026-10-18 with the user's changes, then the design critique's revisions with three user conditions. Paused on 2026-10-18 at the user's request (context at 75%); a fresh session resumes from this checklist.
   - **Plan file:** `C:\Users\kwonhyuk\.claude\plans\start-step-8-monitoring-iridescent-sedgewick.md`. It holds the approved Part B plan and, at its end, "Revisions from the design critique".
   - **The approved Part B plan, with the critique's revisions folded in:**
     - **What runs where:**
@@ -165,13 +169,19 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - The final report gives: the 10 answers (provider, tokens, any refusal or error), both drills (alert fired and cleared, with times), the screenshots and the `/metrics` capture saved, any label names corrected, and the volume lists before and after teardown.
       - Docs as AGENTS.md describes; no commit. It also saves `packages/telemetry/tests/fixtures/metrics-capture.txt` (names and label names only) for the drift test's third-party check, and confirms the httpcheck label names.
   - [x] Docs: `docs/monitoring.md`, README, context, memory, activity log (2026-10-18). After the live check: the screenshots, the capture, and any label name it corrects.
+  - [x] CI fix (2026-10-18, uncommitted): the PR's eval job stopped at startup, because `ApiSettings` had lost the empty-means-off rule for `OTEL_EXPORTER_OTLP_ENDPOINT` (validator name clash; memory.md). Validators renamed and a test added; `make lint`, `make typecheck` and `make test` (326) pass.
+  - [x] Added to this change set (user, 2026-10-18, uncommitted): the docs say CI runs on GitHub and step 7 is merged, with its steps 3 and 4 confirmed, and the nightly cron moved to 19:17 UTC (`make actionlint` passes).
+  - [ ] The user commits and pushes the fix and these additions to `step-8-monitoring`; CI reruns on the same pull request with every job green.
 
-- [ ] 7. CI/CD (design doc prompt 7). **Plan approved 2026-10-17 with all 8 recommendations and five user additions; built and checked locally the same day.** Done when actionlint passes and a test PR shows every job green, with `make contracts-check` and `make contracts-breaking` (against main) among the jobs.
+## Completed
+
+- [x] GraphQL answer guards and the SSE in-flight cap (2026-10-18, merged as #5): GraphQL answers take REST's 10-a-minute bucket, budget and 30 s limit through the same code, and an answer counts in flight from admission. `make test` 289 passed, `make test-int` 29 passed.
+- [x] 7. CI/CD (design doc prompt 7). **Merged as pull request #1 (2026-10-18): CI #1 failed on the floor problem fixed with Wilson intervals; CI #2 on its next push and CI #3 on the push to main passed (public Actions page, read 2026-10-18 03:07 Taipei).** **Plan approved 2026-10-17 with all 8 recommendations and five user additions; built and checked locally the same day.** Done when actionlint passes and a test PR shows every job green, with `make contracts-check` and `make contracts-breaking` (against main) among the jobs.
   - **Manual (user, on GitHub):**
     1. [x] The public repo `kwnhyk04/filing-lens` exists, empty (user, 2026-10-17). It requires actions pinned to full-length commit SHAs. All 32 remote `uses:` in `.github/` are pinned that way, checked the same day.
     2. [x] Actions secrets `GEMINI_API_KEY` and `GROQ_API_KEY`, both CI-only keys (user, 2026-10-17). Never `ANTHROPIC_API_KEY`. No `NVIDIA_API_KEY` (evals never call a fallback) and no Dependabot secrets.
-    3. Once main is pushed: a release tagged `corpus-v1` with `.cache/corpus/corpus-v1.dump` attached. It was made on 2026-10-17: 46.5 MB, sha256 `50faa04aa39bc16b622235ebc33f223d86a9dba870d38365870bf057bc6a52c0`, pinned in `evals/corpus.py`. Its table list is in the activity log, for the user's review before the public upload.
-    4. After the first CI run: a ruleset on main that requires a pull request and the `ci-ok` check and blocks force pushes.
+    3. [x] Once main is pushed: a release tagged `corpus-v1` with `.cache/corpus/corpus-v1.dump` attached. It was made on 2026-10-17: 46.5 MB, sha256 `50faa04aa39bc16b622235ebc33f223d86a9dba870d38365870bf057bc6a52c0`, pinned in `evals/corpus.py`. Its table list is in the activity log, for the user's review before the public upload. Confirmed (user, GitHub's API, 2026-10-18): published 2026-10-17 at 15:28 UTC with `corpus-v1.dump` (46.5 MB, 16 downloads).
+    4. [x] After the first CI run: a ruleset on main that requires a pull request and the `ci-ok` check and blocks force pushes. Done (user, GitHub's API, 2026-10-18): ruleset 25308468 is active on main, with a pull request required (0 approvals), `ci-ok` required (not strict), and force pushes and deletion blocked.
     5. Optional, before step 10: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
   - **Before the first push:** full-history gitleaks scan on 2026-10-17: 12 commits (about 7.9 MB), no leaks. Commit authors use the GitHub noreply address, and no personal email is in a tracked file. `make secrets-scan` runs again right before the push.
   - [x] **Built (2026-10-17):**
@@ -211,10 +221,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - retrieval recall@10 0.314 to 0.416, MRR@10 0.500 to 0.667.
     - `retrieval:dev:full` re-derived from its own report the same way, unchanged. There are no other floor keys, and no Haiku key.
     - Each report passes its floors.
-  - [ ] **Remaining:**
-    - The manual GitHub steps 3 to 5 above.
-    - `make secrets-scan` right before the push.
-    - The test PR, with every job green.
+  - [x] **The test PR (2026-10-18):** CI #2 on pull request #1's next push and CI #3 on the push to main passed. Step 4 is done (above); step 5 stays in Pending. Whether `make secrets-scan` ran right before the push is not recorded.
   - **Eval in CI:**
     - Runs only when an eval input changed: `packages/{core,db,llm,retrieval,telemetry}/src`, `services/api/src`, `evals` (reports, tests and Markdown left out) or `uv.lock`, or on a manual run.
     - Pull requests: the retrieval suite on dev full (local models, no LLM call), then the answer suite on dev ci with `--no-judge`. The reports go to the PR comment, the job summary and an artifact.
@@ -238,11 +245,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - The corpus's table list is reviewed before the upload, and it holds only public SEC data.
     - Trivy runs only from a digest-pinned image, never a hijacked version or its actions, with no secrets in the scan jobs.
     - Latency is reported, marked "not gated".
-  - **Risk:** git inside the oasdiff and gitleaks containers may refuse the runner-owned checkout ("dubious ownership"). The `safe.directory` setting should cover it; the test PR shows whether it does.
-
-## Completed
-
-- [x] GraphQL answer guards and the SSE in-flight cap (2026-10-18, merged as #5): GraphQL answers take REST's 10-a-minute bucket, budget and 30 s limit through the same code, and an answer counts in flight from admission. `make test` 289 passed, `make test-int` 29 passed.
+  - **Risk:** git inside the oasdiff and gitleaks containers may refuse the runner-owned checkout ("dubious ownership"). The `safe.directory` setting should cover it; the test PR shows whether it does. It does: CI passes on GitHub (user, 2026-10-18).
 - [x] 6b (2026-10-17). Golden set v1, judge calibration, eval harness and the full eval (plan approved 2026-10-16).
   - Done 2026-10-17:
     - Labeling and calibration are complete. The full eval ran on the test split, its report lists every target with pass, fail or not measured, and the floors are written.

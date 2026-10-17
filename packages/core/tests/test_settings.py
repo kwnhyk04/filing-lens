@@ -105,3 +105,20 @@ def test_the_answer_fallback_is_off_by_default_and_claude_only_answers(
     set_env(monkeypatch, LLM_ROUTER=None, LLM_FALLBACK="anthropic:claude-haiku-5-5")
     with pytest.raises(SystemExit, match="LLM_FALLBACK cannot be Claude"):  # it also routes
         load_settings(ApiSettings)
+
+
+@pytest.mark.parametrize("settings_class", [ApiSettings, IngestSettings])
+def test_an_empty_otel_endpoint_and_answer_fallback_read_as_off(
+    monkeypatch: pytest.MonkeyPatch, settings_class: type[ApiSettings | IngestSettings]
+) -> None:
+    # CI's copy of .env.example sets both empty, and compose passes them empty when off.
+    set_env(
+        monkeypatch,
+        OTEL_EXPORTER_OTLP_ENDPOINT="",
+        LLM_ANSWER_FALLBACK="",
+        SEC_USER_AGENT="FilingLens Jane Doe jane.doe@mail.net",  # ingest needs one
+    )
+    settings = load_settings(settings_class)
+    assert settings.otel_exporter_otlp_endpoint is None
+    if isinstance(settings, ApiSettings):  # ingest has no answer fallback
+        assert settings.llm_answer_fallback is None
