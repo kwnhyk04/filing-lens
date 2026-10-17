@@ -16,9 +16,12 @@ from evals import harness, judge
 from evals.calibrate import FOLLOWUP_MODELS, draw, draw_followup, imported, spot_check
 from evals.calls import Cache, Call, Recorded, Stop, patiently
 from evals.harness import EvalSettings, answer_path, code_version, refusal_sweep, routed
+from filinglens_api.schemas import Answer
 from filinglens_core.errors import AiUnavailableError, RateLimitedError
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_llm.providers import Completion
+
+TEXTUAL = Path(__file__).parents[2] / "services/api/tests/fixtures/answers/textual.json"
 
 
 class Scripted:
@@ -141,6 +144,26 @@ def test_the_judge_must_cover_every_sentence_and_citation() -> None:
         judge.parse(json.dumps({"sentences": rows}), answer)  # a citation skipped
     with pytest.raises(judge.JudgeError):
         judge.parse("not json", answer)
+
+
+async def test_a_number_without_a_source_errors_before_any_judge_call(tmp_path: Path) -> None:
+    """The textual recording's answer shows [2][3][12] with 6 citations (Gemini wrote [12] for
+    C12), like x18's in the nightly run; judged live once, the judge made up a rating for 12."""
+    recorded = json.loads(TEXTUAL.read_text(encoding="utf-8"))
+    answer = Answer.model_validate(recorded["answer"])
+    search = next(call for call in recorded["evidence"] if call["method"] == "search")
+    texts = {hit["chunk_id"]: hit["text"] for hit in search["result"]["hits"]}
+    sources = {
+        f"C{n}": harness.Src(c.chunk_id, None, "Apple 10-K", texts[c.chunk_id or ""], None)
+        for n, c in enumerate(answer.citations, 1)
+    }
+    suite = SimpleNamespace(judge=Scripted(), cache=Cache(tmp_path / "calls.jsonl"))
+    question = {"id": "textual", "question": recorded["question"]}
+    found = await harness.AnswerSuite.judged(
+        cast(harness.AnswerSuite, suite), question, answer, sources
+    )
+    assert found == {"error": "sentence 2: given sources [2, 3], cited [2, 3, 12]", "calls": []}
+    assert suite.judge.calls == 0  # no judge call spent
 
 
 def test_router_scoring_skips_what_the_gold_leaves_open() -> None:

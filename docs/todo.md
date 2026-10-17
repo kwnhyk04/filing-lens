@@ -8,8 +8,16 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 - [ ] (manual, step 7, optional before step 10) GitHub step 5 under Completed, step 7: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
 - [ ] Dependabot's npm group pull request #3 failed CI (public Actions page, 2026-10-18 03:07 Taipei). Not looked into yet.
-- [ ] (manual, after step 8 merges) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow) to prove the workflow works, then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). It has never run (memory.md, 2026-10-18).
-  - A manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. It spends about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit's Groq account) and about 25 Gemini requests.
+- [ ] (manual, user) Commit, push and open the PR for branch `fix-dangling-citation-markers` (uncommitted). It contains three fixes:
+  - validation fails a bracketed marker that names no source (x18's `[12]`);
+  - the eval refuses to judge a sentence that cites a number with no source, before any call;
+  - the nightly's artifact keeps a report that replaced a committed one (`--modified`).
+
+  `make test` (331 passed), `make lint`, `make typecheck` and `make actionlint` pass locally (activity-log.md, 2026-10-18).
+- [ ] (manual, after `fix-dangling-citation-markers` merges) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
+  - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
+  - Until the fix merges, each scheduled run replays the x18 judge error from the reply cache and exits 4. An exit-4 run is not complete, so the gate measures again.
+  - A manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. The reply cache carries over, so after the fix only x18's regeneration and judge call go live. A cold cache spends about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit's Groq account) and about 25 Gemini requests.
   - After a complete manual run, a scheduled run with unchanged inputs shows SKIPPED and spends nothing. It still proves that the schedule fires.
 - [ ] (manual, optional) pre-commit keeps its cache on C: (`C:\Users\kwonhyuk\.cache\pre-commit`, gitleaks build included), because `PRE_COMMIT_HOME` is unset. AGENTS.md wants caches on H:: set `PRE_COMMIT_HOME=H:\.cache\pre-commit` for the user, then remove the old folder (found 2026-10-17).
 - [ ] (manual, before step 10) Vercel and Tailscale accounts created.

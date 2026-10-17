@@ -350,12 +350,28 @@ From step 8 (monitoring; design in `docs/monitoring.md`):
   - What we did: changed the cron and its comment, ran `make actionlint` (no findings), and added a todo item: after the merge, start one run by hand, then check that the next scheduled run happens.
   - Best option: a one-line change, and the manual run tells a broken workflow apart from a missed schedule. A manual run always runs the eval, because the gate skips unchanged inputs on scheduled runs only, so it spends a full nightly's quota.
 
+From the nightly x18 fix (2026-10-18; branch `fix-dangling-citation-markers`, user-approved plan):
+
+- 2026-10-18: Validation fails a sentence that holds a bracketed marker with a digit that is no source id, such as `[12]` or `[D1]` (`validate.STRAY`, checked first in `check_sentence`). The existing regeneration names the marker ("[12] is not one of the sources"), and a sentence that still carries it is dropped. A bracket without a digit, such as `[sic]`, is not flagged (a test row, user addition).
+  - What happened: the first manual nightly run (39068994474) exited 4 on "x18 (judge): sentence 1: judged sources [1, 2], cited [1, 2, 12]". Gemini wrote `[12]` for C12. `MARKER` never saw it, so the answer showed a citation number with no citation behind it, and the judge prompt cited a source it did not list.
+  - Why here: every entry point validates through `drafting.check`, so one check covers REST, the stream, GraphQL, smoke, record-fixtures and evals.
+  - Not a judge retry: the judge cannot rate a source it was never shown. The live replay on the recorded twin (one gpt-oss-120b call) showed the other outcome: it rated the unseen source 12 as not supporting, and `parse` accepted it.
+  - Not a harness or judge change: the judge's prompt and schema are frozen with its calibration.
+- 2026-10-18: The nightly's report copy lists modified tracked files too (`git ls-files --others --modified`; user: same branch as the validator fix).
+  - What happened: run 39068994474's artifact held only the verdict. The full test run is named `evals/reports/<date>.json` by the runner's date. Started at 21:02Z on 10-17, it replaced the committed `2026-10-17.json` in the checkout, and `--others` alone skips a tracked file.
+  - What we did: added `--modified`, with a one-line comment. A throwaway repo showed that the new flags list the replaced report and still leave ignored files out. `ci.yml` keeps its line, since CI writes only new `runs/` reports.
+- 2026-10-18: The eval never sends the judge a sentence that cites a number with no source (user request). `judge.user_prompt` raises JudgeError first ("sentence 2: given sources [2, 3], cited [2, 3, 12]"), and `AnswerSuite.judged` records it as the question's judge error. So `--ci` exits 4 and no judge call is spent.
+  - Why: the live twin replay showed that the judge can rate a source it was never shown, and that `parse` accepts the rating, which would silently skew citation precision. The validator fix keeps such answers out of the API; this keeps the eval honest if a marker arrives another way.
+  - Where: `user_prompt` is where the harness and calibrate both build the judge's prompt. Its text for every other answer, `judge.SYSTEM` and `judge.SCHEMA` are unchanged, so the calibration stands.
+  - Test: `test_a_number_without_a_source_errors_before_any_judge_call`, on the textual recording's `[12]`. It failed before the change (a judge call was made).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
 - 2026-10-13: General coding rules live in `AGENTS.md`. `CLAUDE.md` imports it so Claude Code loads the rules.
 - 2026-10-13: Markdown filenames use kebab-case (for example `docs/migrations.md`).
 - 2026-10-17: Never read the user's GitHub token or Git Credential Manager, even for a read-only call (user). Artifact and job-log downloads need authentication (401 and 403 without it), so the user downloads such files and gives a path. Runs, jobs and PR comments are public.
+- 2026-10-18: When a cost estimate grows before a live model call, ask the user first, even on the free tier (user). This followed the twin judge replay: its estimate grew from about 1.8k to about 3.5k tokens, and the call went ahead after only saying so.
 
 ## Solved Problems
 
@@ -484,6 +500,15 @@ None yet.
   - It showed first in CI on the step 8 pull request: CI's `.env` is a copy of `.env.example`, which sets the variable empty. The local `.env` has no such line, and an absent variable takes the default without the validator. Compose also passes it empty when telemetry is off (not observed in a container).
   - What we did: renamed them `_empty_endpoint_is_off` and `_empty_fallback_is_off`, then added a test that loads `ApiSettings` and `IngestSettings` with both variables empty. It was written first and failed for `ApiSettings` before the rename. Best option: the user's choice, and the smallest change that restores the inherited rule.
   - Rule: a validator's name must be unique across the whole settings hierarchy, `EvalSettings` in `evals/harness.py` included. `Cls.__pydantic_decorators__.field_validators` shows which fields each name validates.
+- 2026-10-18: Two parsers read an answer's markers. `validate.MARKER` reads source ids only (`[C2]`, `[F1]`); `judge.CITE` and `metrics.NUMBERED` read any `[n]` in the final text. Whatever the first lets through and the second reads breaks the judge: a JudgeError, or a verdict made up for a source the judge never saw.
+  - Seen so far: Gemini dropped the "C" of C12 twice (the textual fixture, 2026-10-15; nightly x18, 2026-10-18) and wrote `[D1]` once (x11, dev, 2026-10-16).
+  - What we did: the `STRAY` check above. A new check on markers needs both a row it flags and a row it leaves alone.
+- 2026-10-18: A recorded fixture can hold a bug as its expected output. `services/api/tests/fixtures/answers/textual.json` recorded an answer that shows a dangling `[12]`, and its tests passed. The file stays as recorded. Tests that need a draft that holds use `textual_exchanges()` (`[C12]` where Gemini wrote `[12]`), and `test_a_marker_naming_no_source_is_sent_back_and_never_shown` replays it verbatim.
+- 2026-10-18: A nightly rerun replays; it does not resample. This comes from the code and the workflow; it has not been observed yet.
+  - A completed run deletes its run file. The reply cache, judge replies included, is saved and restored (`restore-keys: eval-calls-`), so a rerun without a code or prompt change repeats the same replies and verdicts.
+  - A changed validation outcome changes the regeneration prompt, so only that call goes live.
+  - Model variation found in one run stays in the cache until a key changes, such as c15's refusal in run 39068994474.
+- 2026-10-18: A nightly job log shows no reply text: evals log at WARNING, and "answer failed validation, regenerating" is info level. A question's failing sentences are only in the run's Actions cache, which cannot be downloaded, and in the report JSON of the artifact.
 
 ## Rejected Approaches
 

@@ -195,6 +195,10 @@ QUOTES = {"F1": ["416,161,000,000 USD"], "C1": ["Net sales rose 6% to $416.2 bil
         ("Net sales were $416.2 billion.", "it cites no source"),
         ("Net sales were $416.2 billion [C9].", "[C9] is not one of the sources"),
         ("Net sales were $416.2 billion [C1][C2].", "[C2] is not one of the sources"),
+        # A marker that is no source id: x18's [12] (nightly, 2026-10-18) and x11's [D1] (dev).
+        ("Net sales were $416.2 billion [F1][12].", "[12] is not one of the sources"),
+        ("Net sales were $416.2 billion [F1][D1].", "[D1] is not one of the sources"),
+        ("Net sales [sic] were $416.2 billion [F1].", None),  # no digit, so not a marker
     ],
 )
 def test_a_sentence_holds_only_when_its_citations_and_amounts_check_out(

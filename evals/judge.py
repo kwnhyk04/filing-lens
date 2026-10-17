@@ -59,7 +59,8 @@ SCHEMA = {
 
 
 class JudgeError(ValueError):
-    """The judge's reply skipped, repeated or invented a sentence or a citation."""
+    """The judge's reply skipped, repeated or invented a sentence or a citation, or the answer
+    cites a number with no source, so no reply could rate it."""
 
 
 @dataclass(frozen=True)
@@ -84,8 +85,13 @@ def sentences(answer: str) -> list[tuple[str, list[int]]]:
 
 
 def user_prompt(question: str, answer: str, sources: Mapping[int, Cited]) -> str:
+    """The judge's prompt; JudgeError before any call when a sentence cites a number with no
+    source, which the judge may otherwise rate unseen (live replay, 2026-10-18)."""
     lines = [f"Question: {question}", "", "Sentences:"]
     for n, (sentence, cites) in enumerate(sentences(answer), 1):
+        if any(cite not in sources for cite in cites):
+            given = sorted(cite for cite in cites if cite in sources)
+            raise JudgeError(f"sentence {n}: given sources {given}, cited {cites}")
         lines.append(f"{n}. {sentence} (cites {', '.join(map(str, cites))})")
     lines += ["", "Sources:"]
     for number, source in sorted(sources.items()):
