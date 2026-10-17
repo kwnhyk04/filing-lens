@@ -7,6 +7,7 @@ from evals.metrics import (
     bootstrap,
     broken,
     cohen_kappa,
+    deterministic_floor,
     floor,
     mrr_at,
     ndcg_at,
@@ -43,6 +44,11 @@ def test_ranking_metrics_cap_at_the_gold_count() -> None:
     twelve = {str(n) for n in range(12)}  # 10 of 12 gold passages fill a perfect top 10
     assert recall_at([str(n) for n in range(10)], twelve) == 1.0
     assert ndcg_at([str(n) for n in range(10)], twelve) == pytest.approx(1.0)
+
+
+def test_a_retrieval_floor_allows_one_question_less_than_measured() -> None:
+    assert deterministic_floor(0.613, 14, 0.90) == pytest.approx(0.613 - 1 / 14)
+    assert deterministic_floor(0.98, 14, 0.90) == 0.90  # capped at the target
 
 
 def test_the_floor_rule() -> None:

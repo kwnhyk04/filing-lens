@@ -11,8 +11,8 @@
     "openapi-fetch": "0.17.0"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "7.4.3",
-    "@graphql-codegen/client-preset": "6.2.0",
+    "@graphql-codegen/cli": "7.4.6",
+    "@graphql-codegen/client-preset": "6.2.3",
     "graphql": "16.14.2",
     "openapi-typescript": "7.13.0",
     "typescript": "5.9.3"

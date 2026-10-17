@@ -28,6 +28,12 @@ Dev, and the backend on the PC, stays on the last revision before the swap (now 
 - Code must run on the dev revision. It reads and writes embeddings through the column `RETRIEVAL_EMBEDDING_COLUMN` names, with that column's model from `EMBEDDING_MODELS`, as `nearest_chunks` does. It never uses `Chunk.embedding_v2`, which exists only from 0004 on. The ORM maps head's columns but defers the embedding ones, so loading chunks still works without them.
 - `make seed-fake` fills whichever embedding columns exist.
 - A plain `make migrate` goes to head: 0004 and 0005 only add, and 0006 refuses to drop model A while any chunk lacks `embedding_v2`. To return to the dev path: `uv run --env-file .env python -m alembic downgrade 0008`.
+- CI checks every change on real data (`migrations` job in `.github/workflows/ci.yml`):
+  1. Restore `corpus-v1.dump`, golden v1's corpus at the deployed revision (`make corpus-restore`).
+  2. Upgrade to the dev path's target: the revision 0004 revises, read from the chain, so a new revision is picked up by itself.
+  3. Downgrade one step, then upgrade again.
+
+  An empty database's upgrade to head, its downgrade to base and `alembic check` stay in `test_migrations.py` (integration job). Run on 2026-10-17 on a restored copy: 0008, then 0008 to 0007 over 856,438 facts, then back to 0008. Never run these steps on the dev database: the downgrade drops the 0008 columns and their data. After the live swap the target becomes head.
 
 The live swap, after step 6:
 

@@ -218,7 +218,7 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
         "input_tokens": 4800.0,  # meets its target: min(high x 1.5, target)
         "cost_billed_usd": 0.0,  # the free setup bills nothing
     }
-    assert floors["retrieval:test:full"] == {"recall@10": 0.45}
+    assert floors["retrieval:test:full"] == {"recall@10": 0.55}  # no model call: value - 1/n
     answer["ttft_p95_ms"] = entry(2800.0, 2400.0, 3000.0)
     saved.write_text(json.dumps(report), encoding="utf-8")
     harness.set_floors(saved)
@@ -256,7 +256,7 @@ def test_the_judge_can_never_be_claude(monkeypatch: pytest.MonkeyPatch) -> None:
         load_settings(EvalSettings)
 
 
-async def test_credits_gone_in_an_eval_stop_the_run_with_exit_2(
+async def test_credits_gone_in_an_eval_stop_the_run_with_exit_4_not_as_a_quota(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class Gone:
@@ -277,7 +277,7 @@ async def test_credits_gone_in_an_eval_stop_the_run_with_exit_2(
     question = {"id": "x01", "question": "What does Apple make?"}
     with pytest.raises(Stop) as stopped:
         await harness.AnswerSuite.one(cast(harness.AnswerSuite, suite), question)
-    assert stopped.value.code == 2
+    assert stopped.value.code == 4  # credits do not come back when a quota resets
 
 
 def test_the_code_version_pins_the_source_as_it_stands() -> None:

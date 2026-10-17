@@ -6,7 +6,19 @@ RMTREE = uv run python -c "import shutil, sys; shutil.rmtree(sys.argv[1], ignore
 # ariadne-codegen pins graphql-core and ruff versions that clash with the workspace, so it runs in a
 # throwaway env; --exclude-newer keeps that env's dependency versions reproducible.
 ARIADNE = uv run --isolated --no-project --exclude-newer 2026-10-01T00:00:00Z --with ariadne-codegen==0.19.0 python -m ariadne_codegen
-OASDIFF = docker run --rm --mount "type=bind,source=$(CURDIR),target=/repo,readonly" -w /repo tufin/oasdiff:v1.32.1@sha256:3b14fe0112e5d1bf862f91ab234a4bcd161a3f399e98f8b0b665ce70857694ac
+MKDIR = uv run --no-project python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)"
+# Tools run from digest-pinned images with the repo mounted read-only and no token or secret.
+# git inside them refuses a checkout another user owns (Linux runners), so they trust /repo.
+REPO_RO = --mount "type=bind,source=$(CURDIR),target=/repo,readonly" -w /repo
+GIT_TRUST = -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo
+OASDIFF = docker run --rm $(REPO_RO) $(GIT_TRUST) tufin/oasdiff:v1.32.1@sha256:3b14fe0112e5d1bf862f91ab234a4bcd161a3f399e98f8b0b665ce70857694ac
+GITLEAKS = docker run --rm $(REPO_RO) $(GIT_TRUST) ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+ACTIONLINT = docker run --rm $(REPO_RO) rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+# Trivy's actions, setup-trivy tags, binary 0.69.4 and images 0.69.5-0.69.6 were hijacked in March
+# 2026 to steal CI secrets: never those, never the actions, and no Docker socket here.
+TRIVY = docker run --rm $(REPO_RO) --mount "type=bind,source=$(CURDIR)/.cache/trivy,target=/cache" aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa --cache-dir /cache
+TRIVY_ARGS = --scanners vuln --ignore-unfixed --skip-version-check --exit-code 1 --no-progress
+IMAGE ?= filinglens-api
 BASE ?= main
 REV ?= head
 SUITE ?= all
@@ -15,7 +27,7 @@ SUBSET ?= full
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures
+.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures corpus-dump corpus-restore actionlint secrets-scan vuln-scan image-scan
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -87,3 +99,27 @@ smoke: ## live: three questions through the answer pipeline (calls the models; n
 
 record-fixtures: ## live: re-record the model replies the answering tests replay
 	uv run --env-file .env python scripts/record_llm_fixtures.py
+
+corpus-dump: ## dev stack: golden v1's corpus for CI, rows of the public SEC tables only (evals/corpus.py)
+	uv run --env-file .env python -m evals.corpus dump
+
+corpus-restore: ## an empty Postgres (CI): fetch the corpus-v1 release asset if missing, check its sha256, restore
+	uv run --env-file .env python -m evals.corpus restore
+
+actionlint: ## lint the GitHub Actions workflows (CI runs it too)
+	$(ACTIONLINT) -color
+
+secrets-scan: ## gitleaks over every commit of every ref (CI runs it on each PR; run it before a push)
+	$(GITLEAKS) git --redact --log-opts=--all --no-banner /repo
+
+vuln-scan: ## Trivy on each lockfile, dev dependencies included: fail on a high or critical with a fix
+	$(MKDIR) .cache/trivy
+	$(TRIVY) fs $(TRIVY_ARGS) --include-dev-deps --severity HIGH,CRITICAL uv.lock
+	$(TRIVY) fs $(TRIVY_ARGS) --include-dev-deps --severity HIGH,CRITICAL web/package-lock.json
+	$(TRIVY) fs $(TRIVY_ARGS) --include-dev-deps --severity HIGH,CRITICAL clients/ts/package-lock.json
+
+image-scan: ## Trivy on IMAGE (default filinglens-api) from a saved tarball: fail on a critical with a fix
+	$(MKDIR) .cache/trivy
+	$(MKDIR) .cache/images
+	docker save $(IMAGE) -o .cache/images/scan.tar
+	$(TRIVY) image $(TRIVY_ARGS) --severity CRITICAL --input /repo/.cache/images/scan.tar

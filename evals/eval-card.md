@@ -196,6 +196,15 @@ The official results are Gemini's (free tiers). The Haiku column is a comparison
   - **Size and cost:** Haiku's answers ran longer, 4,853 input and 278 output tokens per query, citing more passages. It was cut 0 times.
   - **Spent:** 26 Claude calls (114,659 input and 6,066 output tokens), $0.0145 in credits. Groq: 0 gpt-oss-20b and 19.2K gpt-oss-120b (14 live judge calls; 6 judged answers matched earlier ones in the cache).
 - **Floors:** written from Gemini's run after the user's review (`--set-floors evals/reports/2026-10-17.json`), under `answer:test:full:gemini:gemini-3.5-flash-lite` and `retrieval:test:full`.
+  - **Dev floors for CI** (2026-10-17, after the user's review of the two reports):
+    - `retrieval:dev:full`, from `20261017T103956Z-retrieval-dev-full` (the restored CI corpus): recall@10 ≥ 0.542, MRR@10 ≥ 0.577, retrieval p95 ≤ 478 ms (not gated in CI).
+    - `answer:dev:ci:gemini:gemini-3.5-flash-lite`, from `20261017T104130Z-answer-dev-ci` (no judge, every reply from the cache): numeric exact match ≥ 0.920, coverage ≥ 0.950, correct refusal ≥ 0.900, false refusal ≤ 0.333, input tokens ≤ 8,000, output tokens ≤ 474, cost ≤ $0.0029 paid-equivalent, billed $0.
+  - **Retrieval accuracy floors use their own rule (user decision, 2026-10-17):** the measured value less one question's share, capped at the target. With 14 scored questions, that is 0.613 − 1/14 for recall and 0.649 − 1/14 for MRR.
+    - Retrieval calls no model, so the same code on the same corpus gives the same numbers.
+    - Its 95% interval reflects only which 14 questions the set holds. A floor at its lower bound (recall 0.402) would let a real drop from 0.613 pass.
+    - One question's share still tolerates one near-tie flipping on GitHub's CPUs.
+    - Answer floors keep the usual rule, since model replies vary run to run.
+    - The test-split retrieval floors predate the rule and stay until `--set-floors` runs again on a test report.
 
 ### Known weaknesses and v2 ideas
 

@@ -6,14 +6,15 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (manual, before step 7) GitHub repo created; provider keys added as Actions secrets.
+- [ ] (manual, step 7) The GitHub steps listed under In Progress, step 7.
+- [ ] (manual, optional) pre-commit keeps its cache on C: (`C:\Users\kwonhyuk\.cache\pre-commit`, gitleaks build included), because `PRE_COMMIT_HOME` is unset. AGENTS.md wants caches on H:: set `PRE_COMMIT_HOME=H:\.cache\pre-commit` for the user, then remove the old folder (found 2026-10-17).
 - [ ] (manual, before step 10) Vercel and Tailscale accounts created.
 - [ ] (manual, before step 10) Replace the example passwords in `.env`, and set both `API_KEY` and `ADMIN_API_KEY` (step 2 appended a random `ADMIN_API_KEY`).
 - [ ] (manual, optional) Remove the unused Docker volume `filinglens_sec-cache` (`docker volume rm filinglens_sec-cache`); the SEC cache now lives in `.cache/sec`.
 - [ ] Live embedding swap (after step 6; user decision): with dev on the last revision before 0004 (now 0008), record the model A baseline (`make eval`, recall@10 and MRR@10, golden set version); run 0004, the reembed backfill, 0005 (run `make check-parallel-hnsw` first, then pick a parallel build within the 256 MB `shm_size` or a serial one with more `maintenance_work_mem`, by corpus size; runbook step 3), the catch-up run and the flip to `embedding_v2`; run `make eval` again on the same golden set; record both runs in `eval_runs` and the activity log; then run 0006 in the next release and set `.env.example` to `embedding_v2`. Done when both recall@10 values are recorded and dev is at head. Runbook: `docs/migrations.md`.
 - [ ] (later idea, user, 2026-10-16) A deterministic check for derived numbers: recompute a percent of a stated total, or the difference of two cited figures, from the cited figures themselves, so correct arithmetic can pass validation and wrong arithmetic gets caught. Today validation rejects every derived figure (memory.md, step 6a), and the judge criterion counts a computed number as not stated.
 - [ ] (after step 6) Decide how a company that changes CIK in a restructure is handled (for example a `cik_aliases` table), since `get_financial_fact` looks facts up by CIK. Known case: XOM (Exxon Mobil Corp, CIK 34088, filed the latest 10-K; SEC now lists the ticker under ExxonMobil Holdings Corp, CIK 2115436).
-- [ ] (user decision) Turn on Claude Haiku 5.5 as the answer fallback in `.env`: `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5`, with `AI_ENABLED=true` for answers at all. Its credits expire 2026-11-10.
+- [ ] Claude Haiku 5.5 as the answer fallback: `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5` is set in `.env` (user, 2026-10-17). `AI_ENABLED` stays false until step 10 (user), so no answer calls run before then; `.env` has no `AI_ENABLED` line, so the default (false) applies. Its credits expire 2026-11-10. CI never calls Claude (step 7).
 - [ ] (v2, with golden set v2) The known weaknesses from the test run (README, "Known weaknesses"):
   - router fixes: an out-of-scope guard, and a ticker fill;
   - a comparison check;
@@ -24,7 +25,6 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - latency at scale.
 
   Nothing is tuned on golden v1's test results.
-- [ ] 7. CI/CD: GitHub Actions for test, build, docker push; actionlint passes; test PR green. CI also runs `make contracts-check` and `make contracts-breaking BASE=origin/main` (fetch main first).
 - [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved
 - [ ] (before step 9) Chunks from a separate financial section (JPM, CVX, NVDA, PLD, XOM) are labeled with the last item (15 or 16). Detect the MD&A and financial-statement headings inside that section and label those chunks Items 7, 7A and 8, so citations show the right section.
 - [ ] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, demo snapshot shown when the backend is offline; Playwright tests pass. The BFF uses `clients/ts` (`createApiClient`, `executeGraphql`) with `API_KEY` only.
@@ -32,7 +32,68 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-None.
+- [ ] 7. CI/CD (design doc prompt 7). **Plan approved 2026-10-17 with all 8 recommendations and five user additions; built and checked locally the same day.** Done when actionlint passes and a test PR shows every job green, with `make contracts-check` and `make contracts-breaking` (against main) among the jobs.
+  - **Manual (user, on GitHub):**
+    1. [x] The public repo `kwnhyk04/filing-lens` exists, empty (user, 2026-10-17). It requires actions pinned to full-length commit SHAs. All 32 remote `uses:` in `.github/` are pinned that way, checked the same day.
+    2. [x] Actions secrets `GEMINI_API_KEY` and `GROQ_API_KEY`, both CI-only keys (user, 2026-10-17). Never `ANTHROPIC_API_KEY`. No `NVIDIA_API_KEY` (evals never call a fallback) and no Dependabot secrets.
+    3. Once main is pushed: a release tagged `corpus-v1` with `.cache/corpus/corpus-v1.dump` attached. It was made on 2026-10-17: 46.5 MB, sha256 `50faa04aa39bc16b622235ebc33f223d86a9dba870d38365870bf057bc6a52c0`, pinned in `evals/corpus.py`. Its table list is in the activity log, for the user's review before the public upload.
+    4. After the first CI run: a ruleset on main that requires a pull request and the `ci-ok` check and blocks force pushes.
+    5. Optional, before step 10: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
+  - **Before the first push:** full-history gitleaks scan on 2026-10-17: 12 commits (about 7.9 MB), no leaks. Commit authors use the GitHub noreply address, and no personal email is in a tracked file. `make secrets-scan` runs again right before the push.
+  - [x] **Built (2026-10-17):**
+    - `.github/workflows/ci.yml`, `.github/workflows/nightly-eval.yml`, `.github/actions/setup/action.yml` and `.github/dependabot.yml` (details in context.md).
+    - `infra/Dockerfile`: base images pinned by digest, and a `HEALTHCHECK` on `/healthz`.
+    - Makefile: `corpus-dump`, `corpus-restore`, `actionlint`, `secrets-scan`, `vuln-scan` and `image-scan`.
+    - `evals/harness.py --ci` and the new exit codes (2 quota or rate limit only, 4 every other failure).
+    - `evals/corpus.py`, with tests in `evals/tests/test_ci.py` and `test_corpus.py`.
+    - The codegen bump for CVE-2026-104852 (memory.md).
+  - [x] **Checked locally (2026-10-17):**
+    - `make lint`, `make typecheck` (0 errors), `make test` (283 passed), `make test-int` (28 passed) and `make actionlint` (with shellcheck).
+    - `make secrets-scan`: 12 commits, no leaks; the new files are clean too. `make vuln-scan`: 0 findings.
+    - `make image-scan` on both images: 0 critical, and 44 HIGH Debian packages without a fix (not gated).
+    - The image healthcheck command passed in the running api, ingest and embed containers. `make codegen` leaves the clients unchanged.
+    - On the restored corpus (throwaway compose project `filinglens-corpus-check`, port 15433):
+      - `--ci` without floors exits 4 before any call.
+      - `--ci` on the test split's retrieval passes, 2 gated floors, with latency "not gated". It reproduced the official recall@10 0.583 and MRR@10 0.833. Its report was deleted afterwards.
+      - The CI migration steps: 0008, down to 0007, up to 0008.
+      - Two restores gave identical top 10s on all 70 dev questions.
+  - [x] **Dev reports for the floors (2026-10-17, shown to the user; no floors written):**
+    - `20261017T103956Z-retrieval-dev-full` (restored corpus): recall@10 0.613, MRR@10 0.649, nDCG@10 0.585, retrieval p95 289 ms.
+    - `20261017T104130Z-answer-dev-ci` (restored corpus, `--no-judge`, every call from the cache, 0 tokens): numeric 1.000, comparison 1.000, coverage 1.000, correct refusal 1.000, false refusal 0.133, 0 errors.
+    - `20261017T104033Z` is the same retrieval eval on the dev database, as a comparison.
+  - [x] **Dev floors written (2026-10-17, after the user's review):**
+    - `retrieval:dev:full`: recall@10 ≥ 0.542, MRR@10 ≥ 0.577, retrieval p95 ≤ 478 ms.
+    - `answer:dev:ci:gemini:gemini-3.5-flash-lite`: numeric ≥ 0.920, coverage ≥ 0.950, correct refusal ≥ 0.900, false refusal ≤ 0.333, input tokens ≤ 8,000, output tokens ≤ 474, cost ≤ $0.0029, billed $0.
+    - Retrieval accuracy uses the measured value less 1/14 (user rule; memory.md, eval card). Both reports pass their floors, with and without latency gated.
+  - [x] Throwaway volume `filinglens-corpus-check_postgres-data` removed (user request, 2026-10-17).
+  - [ ] **Remaining:**
+    - The manual GitHub steps 3 to 5 above.
+    - `make secrets-scan` right before the push.
+    - The test PR, with every job green.
+  - **Eval in CI:**
+    - Runs only when an eval input changed: `packages/{core,db,llm,retrieval,telemetry}/src`, `services/api/src`, `evals` (reports, tests and Markdown left out) or `uv.lock`, or on a manual run.
+    - Pull requests: the retrieval suite on dev full (local models, no LLM call), then the answer suite on dev ci with `--no-judge`. The reports go to the PR comment, the job summary and an artifact.
+    - Nightly (19:00 UTC, only when the eval inputs changed since the last complete nightly run): the test split with the judge. It uploads the report and opens an issue when a floor breaks.
+    - The model reply cache carries over between runs, so a rerun spends only on calls not yet made.
+    - CI pins `LLM_PRIMARY`, `LLM_ROUTER` and `LLM_JUDGE` to the free models, sets `LLM_ANSWER_FALLBACK` empty, and sets `LLM_FALLBACK` to the router's Groq model only so startup validation passes.
+  - **Stops (user addition):** only a quota or rate limit stop (exit 2) is INCOMPLETE and says to rerun after the quota resets. Every other failure fails plainly with its reason (exit 4 under `--ci`), and each one writes a verdict and an error annotation. No workflow step can fail without failing its job.
+  - **Tokens per run** (from measured runs; cached replies cost nothing):
+
+    | Run | gpt-oss-20b (router) | gpt-oss-120b (judge, shared with FreightAudit) | Gemini |
+    | --- | --- | --- | --- |
+    | PR answer eval, dev ci, first run | about 22K (20 calls; 22.2K measured on 2026-10-16) | 0 | about 16 requests |
+    | PR answer eval, later pushes with unchanged prompts | 0 | 0 | 0 |
+    | PR retrieval eval | 0 | 0 | 0 |
+    | Nightly, test split, judge on | about 33K (33.2K measured) | about 18-28K (17.9K and 28.1K measured) | about 25 requests |
+
+  - **Decisions (approved 2026-10-17, all 8 recommendations):** retrieval on dev full; quality floors only in CI; NOT RUN for Dependabot and fork PRs, with the nightly as backstop; no second answer eval on main; Trivy rather than pip-audit, ignoring findings with no fix; one ci.yml; the nightly with the judge at 19:00 UTC; the corpus as a public release asset.
+  - **User additions (2026-10-17):**
+    - Only a quota stop says to rerun after the quota resets.
+    - NOT RUN is shown at the top of the PR comment and the job summary.
+    - The corpus's table list is reviewed before the upload, and it holds only public SEC data.
+    - Trivy runs only from a digest-pinned image, never a hijacked version or its actions, with no secrets in the scan jobs.
+    - Latency is reported, marked "not gated".
+  - **Risk:** git inside the oasdiff and gitleaks containers may refuse the runner-owned checkout ("dubious ownership"). The `safe.directory` setting should cover it; the test PR shows whether it does.
 
 ## Completed
 
@@ -171,7 +232,7 @@ None.
       - Spent: $0.0145 in credits, 19.2K gpt-oss-120b, 0 gpt-oss-20b.
     - [x] Floors checked (2026-10-17): `ttft_p50_ms` is 2428.95 on disk (the 0 was a cut paste); it follows the rule, as does `ttft_p95_ms` 2000.0 (target met, so capped at the target). No change.
     - [x] Floors written from Gemini's test report; README and eval card carry the official table, a Haiku column, every miss explained, and v2 ideas.
-    - [x] api rebuilt and restarted on the Part 2 code (anthropic 1.15.0, thinking disabled; healthy). `.env` still has `AI_ENABLED=false` and no `LLM_ANSWER_FALLBACK`, so answers stay off and the chain stays free-only.
+    - [x] api rebuilt and restarted on the Part 2 code (anthropic 1.15.0, thinking disabled; healthy). `.env` still has `AI_ENABLED=false` and no `LLM_ANSWER_FALLBACK`, so answers stay off and the chain stays free-only. Later the same day the user set `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5` in `.env`; `AI_ENABLED` stays false until step 10.
     - Start: 15:07 Taipei (07:07 UTC), after Gemini's daily reset at midnight Pacific, 15:00 Taipei (user, 2026-10-16): the dev runs of 2026-10-16 may have used most of this project's Gemini allowance. A one-shot prompt is scheduled in the session for that time.
     - Order:
       1. Run the follow-up import (spot check).

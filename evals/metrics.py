@@ -97,6 +97,14 @@ def floor(kind: str, value: float, low: float, high: float, target: float) -> fl
     return min(high * 1.5, target) if value <= target else high * 1.5
 
 
+def deterministic_floor(value: float, n: int, target: float) -> float:
+    """Retrieval accuracy (user rule, 2026-10-17): the measured value less one question's share,
+    capped at the target. Retrieval calls no model, so the same code on the same corpus gives
+    the same numbers; a bootstrap lower bound reflects only which questions the set holds and
+    would let a real drop pass, while one share still tolerates one near-tie flipping."""
+    return min(value - 1 / n, target)
+
+
 def broken(kind: str, value: float, limit: float) -> bool:
     """Whether a value breaks its floor (accuracy) or its ceiling (everything else)."""
     return value < limit if kind == "accuracy" else value > limit

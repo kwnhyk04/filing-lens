@@ -30,7 +30,8 @@ class RateLimited(Exception):
 
 
 class Stop(Exception):
-    """Ends the run with an exit code: 2 for a quota or a refused key, 3 for drift."""
+    """Ends the run with an exit code: 2 for a quota or rate limit only, 3 for drift, 4 for any
+    other failure (a refused key, credits gone, a retired model)."""
 
     def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
@@ -179,6 +180,6 @@ async def patiently[T](attempt: Callable[[], Awaitable[T]]) -> T:
             strikes += 1
             limit = TIMED_STRIKES if limited.timed else STRIKES
             if strikes >= limit or limited.wait_s > MAX_WAIT_S:
-                raise Stop(2, f"Quota: {limited} Rerun later: the run resumes.") from None
+                raise Stop(2, f"Quota or rate limit: {limited}") from None
             print(f"  {limited} Waiting {limited.wait_s:.0f} s.", flush=True)
             await asyncio.sleep(limited.wait_s)

@@ -1,0 +1,158 @@
+# Nightly eval of main on the test split, judge on (step 7). It runs only when the eval inputs
+# changed since the last complete nightly run, so unchanged code spends no quota. CI never calls
+# Claude, and only the eval step sees secrets.
+name: Nightly eval
+
+on:
+  schedule:
+    - cron: "0 19 * * *" # 03:00 Taipei
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly-eval
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The same list as ci.yml.
+  EVAL_INPUTS: >-
+    packages/core/src packages/db/src packages/llm/src packages/retrieval/src
+    packages/telemetry/src services/api/src evals uv.lock
+    :!evals/reports :!evals/tests :!*.md
+  HF_HOME: ${{ github.workspace }}/.cache/huggingface
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      inputs: ${{ steps.inputs.outputs.hash }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: inputs
+        run: |
+          set -f
+          # shellcheck disable=SC2086 # a list of pathspecs
+          echo "hash=$(git ls-files -s -- $EVAL_INPUTS | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - id: done
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/nightly-done
+          key: nightly-done-${{ steps.inputs.outputs.hash }}
+          lookup-only: true
+      - id: gate
+        env:
+          DONE: ${{ steps.done.outputs.cache-hit }}
+          EVENT: ${{ github.event_name }}
+          INPUTS: ${{ steps.inputs.outputs.hash }}
+        run: |
+          if [ "$DONE" = true ] && [ "$EVENT" = schedule ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "**SKIPPED** nightly eval: the eval inputs ($INPUTS) are unchanged since the last complete nightly run, so nothing new is measured and no quota is spent." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  eval:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+    env:
+      LLM_PRIMARY: gemini:gemini-3.5-flash-lite
+      LLM_ROUTER: groq:openai/gpt-oss-20b
+      LLM_JUDGE: groq:openai/gpt-oss-120b
+      LLM_FALLBACK: groq:openai/gpt-oss-20b # startup checks only: evals never call a fallback
+      LLM_ANSWER_FALLBACK: "" # never Claude in CI
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          models: "true"
+      - run: cp .env.example .env
+      - run: docker compose --env-file .env -f infra/docker-compose.yml up -d --wait postgres redis
+      - run: make corpus-restore
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .cache/evals/calls.jsonl
+            .cache/evals/runs
+          key: eval-calls-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: eval-calls-
+      - name: Full eval (test split, judge on)
+        id: eval
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          # The harness itself, not make: make turns every failure into its own exit 2.
+          set +e
+          uv run --env-file .env python -m evals.harness --suite all --split test --subset full --ci
+          code=$?
+          # Complete: a pass, or broken floors with their verdict (a crash also exits 1, with none).
+          complete=false
+          if [ "$code" = 0 ] || { [ "$code" = 1 ] && [ -s .cache/evals/ci/all-test-full.md ]; }; then
+            complete=true
+          fi
+          {
+            echo "code=$code"
+            echo "complete=$complete"
+          } >> "$GITHUB_OUTPUT"
+          exit "$code"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always()
+        with:
+          path: |
+            .cache/evals/calls.jsonl
+            .cache/evals/runs
+          key: eval-calls-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verdict and reports
+        if: always()
+        run: |
+          dir=.cache/evals/ci
+          mkdir -p "$dir/reports"
+          if [ -s "$dir/all-test-full.md" ]; then
+            cat "$dir/all-test-full.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**FAILED** nightly eval (test full): the eval wrote no verdict; see the job log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          git ls-files -z --others --exclude-standard -- evals/reports | xargs -0 -r cp -t "$dir/reports/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-eval-reports
+          path: .cache/evals/ci/
+          if-no-files-found: ignore
+      - name: Mark these inputs as measured
+        if: always() && steps.eval.outputs.complete == 'true'
+        env:
+          INPUTS: ${{ needs.gate.outputs.inputs }}
+        run: mkdir -p .cache/nightly-done && echo "$INPUTS" > .cache/nightly-done/inputs
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.eval.outputs.complete == 'true'
+        with:
+          path: .cache/nightly-done
+          key: nightly-done-${{ needs.gate.outputs.inputs }}
+      - name: Open an issue for the broken floors
+        if: always() && steps.eval.outputs.code == '1' && steps.eval.outputs.complete == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "Nightly eval: floors broken at ${GITHUB_SHA::7}" \
+            --body-file .cache/evals/ci/all-test-full.md

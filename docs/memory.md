@@ -269,6 +269,43 @@ From step 6b (golden set, judge, evals):
     - Findings: n28 hedged over a fact heading, and c12's conclusion was rated "partly".
     - A first comparison (`20261017T082950Z`) asked the router again, because the router's cache key includes the primary. The router routed x13, x14 and x18 as textual there, so separate runs mix router variance into an answer-model comparison. `--router-primary` fixes that.
 
+From step 7 (CI/CD):
+
+- 2026-10-17: The plan was approved with all 8 recommendations plus five user additions (user decision).
+  - **Layout:**
+    - One `ci.yml` for pull requests, main and manual runs, with publish on main only. Reason: a separate `release.yml` would repeat every job.
+    - The required check is `ci-ok`, which fails on any failed or cancelled job. Reason: GitHub counts a skipped job as a passing required check, so an upstream failure must not pass as a skip.
+  - **Eval gating:**
+    - Evals run only when an eval input changes.
+    - Retrieval runs on dev full instead of the ci subset. Reason: it is free, and tighter.
+    - The answer suite runs on dev ci with `--no-judge`, so there are 0 gpt-oss-120b tokens on PRs.
+    - There is no second answer eval on main. Reason: main cannot read a PR's cache, so it would spend the same quota again.
+    - The nightly runs the test split with the judge at 19:00 UTC, only when the inputs' hash moved since the last complete run.
+  - **Floors:** CI gates quality, tokens and cost, never latency. Latency stays in the report, marked "not gated" (user addition). Reason: runners are not the production PC.
+  - **Exit codes:**
+    - Exit 2 is only for a quota or rate limit, and only it says to rerun after the quota resets (user addition).
+    - A refused key, credits gone or a retired model exit 4; under `--ci`, so do errored questions, judge errors, setup errors and a setup without floors, each with its reason. Reason: a failure must never pass for a quota problem, FreightAudit's merged-incomplete-exam lesson.
+  - **NOT RUN:** a PR without secrets (Dependabot or a fork) shows NOT RUN for the answer eval at the top of the PR comment and the job summary, never as a pass (user addition). There are no Dependabot secrets. Reason: unreviewed dependency code would see them.
+  - **Secrets:** only `GEMINI_API_KEY` and `GROQ_API_KEY`, in the answer eval step alone. There is never an Anthropic secret or model, and a lint guard fails on one. `LLM_FALLBACK` points at the router's Groq model in CI only for startup validation.
+  - **Trivy (user rule):**
+    - Its GitHub Actions and setup-trivy tags, binary 0.69.4 and Docker Hub images 0.69.5 and 0.69.6 were hijacked in March 2026 to steal CI secrets.
+    - So it runs from an image pinned by digest, at a version at least 7 days old: 0.75.0, released 2026-10-01. Its digest is the same on Docker Hub, GHCR and ECR, and the tag was never re-pushed.
+    - It runs with no token, no secret and no Docker socket; images are scanned from a saved tarball.
+    - Trivy replaces pip-audit, which has no severity filter. `--ignore-unfixed` applies.
+  - **Corpus asset (user addition):**
+    - Its tables are an allowlist: rows only for companies, filings, sections, chunks, financial_facts and alembic_version, plus those tables' own id sequences.
+    - Its SQL is scanned for every secret-named value and the SEC contact before it is saved, and its sha256 is pinned in `evals/corpus.py`.
+    - The user uploads it publicly as the `corpus-v1` release after reviewing its table list.
+  - **Pins:** actions are pinned by commit and tools by digest, each release at least 7 days old when pinned; Dependabot has a 7-day cooldown.
+- 2026-10-17: Trivy with dev dependencies found CVE-2026-104852 (HIGH, `@graphql-tools/utils` 11.2.2) in the TS client's codegen. Fixed at the source: `@graphql-codegen/cli` 7.4.3 to 7.4.6 and `client-preset` 6.2.0 to 6.2.3, both released 8 days before, installed with `npm install --before=2026-10-10`. The hoisted utils is now 12.0.3, and the generated clients are unchanged.
+- 2026-10-17: The dev floors for CI were written after the user's review. `retrieval:dev:full` comes from `20261017T103956Z`, and `answer:dev:ci:gemini:gemini-3.5-flash-lite` from `20261017T104130Z` (values in the eval card). Answer floors follow the usual rule.
+  - Retrieval accuracy floors follow their own rule (user decision): the measured value less one question's share (1/n, n the scored questions), capped at the target. For dev: recall@10 0.613 − 1/14 = 0.542, MRR@10 0.649 − 1/14 = 0.577.
+  - Reason:
+    - Retrieval calls no model, so the same code on the same corpus gives the same numbers.
+    - Its bootstrap interval reflects only which 14 questions the set holds. A floor at the lower bound (recall 0.402) would let a real drop from 0.613 pass.
+    - One share still tolerates one near-tie flipping on GitHub's CPUs.
+  - Code: `metrics.deterministic_floor`, used by `--set-floors` for the retrieval suite's accuracy metrics. The test-split retrieval floors (0.314 and 0.500) predate it and stay until `--set-floors` runs on a test report again.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -381,6 +418,13 @@ None yet.
   - On the same 46 dev questions, its p50 was 0.97 s at 05:56 UTC and 3.38 s at 09:00 UTC.
   - Prompts of about 330 tokens slowed as much as 5,000-token ones, and the 09:00 run drew two 503s. The router (Groq) moved only from 0.60 to 0.66 s.
   - So compare latency configurations within one sitting, in interleaved passes; decision 3 runs minimal, default, minimal.
+- 2026-10-17: `uv run --env-file FILE` (uv 0.12.23) never overrides a variable already set in the environment: a set value beat the file's, and an empty value in the file did not blank a set one. So a process's environment, such as a CI job's secrets, wins over a copied `.env.example`.
+- 2026-10-17: GNU make exits 2 whenever a recipe fails, whatever the command's own code, so `make eval` hides the harness's exit 1, 2, 3 or 4. The nightly therefore calls `python -m evals.harness` directly. The PR eval reads the verdict files, not exit codes.
+- 2026-10-17: `trivy fs` over the whole repo through the Windows bind mount took 11 minutes, almost all of it the walk, even with `--skip-dirs`. One lockfile per run takes seconds, so `make vuln-scan` names each one. `--include-dev-deps` exists only for `fs`; `trivy image` refuses it.
+- 2026-10-17: git inside the oasdiff and gitleaks images refuses a checkout owned by another user, as on a Linux runner. The Makefile passes `safe.directory=/repo` through `GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0`, which counts as command-line config. It is untested on GitHub until the test PR.
+- 2026-10-17: A restore rebuilds the HNSW index. Two restores of `corpus-v1.dump` gave identical top 10s on all 70 dev questions. The dev database, whose index was built as chunks were embedded, differs on o03 and u02 (unanswerable, one chunk each); scored metrics are identical.
+- 2026-10-17: `pg_dump --exclude-table-data` also drops a sequence's value when it names the sequence. Without that, the dump carried the private tables' id counters.
+- 2026-10-17: Git Bash rewrites a `/tmp/...` argument to `docker compose exec` into a Windows path; set `MSYS_NO_PATHCONV=1`. Python's subprocess calls are not affected.
 
 ## Rejected Approaches
 

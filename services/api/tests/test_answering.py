@@ -407,7 +407,7 @@ async def test_an_eval_pinned_to_claude_stops_once_its_credits_are_gone(
         pipeline = Answerer(evidence, models, redis, max_inflight=1, allow_fallback=False)
         with pytest.raises(AiUnavailableError, match="off for the credit period"):
             async for _ in pipeline.events(AnswerRequest(question=recorded["question"])):
-                pass  # evals exit 2 on this error (evals.harness)
+                pass  # evals exit 4 on this error (evals.harness)
 
 
 async def test_a_failed_router_call_routes_with_the_fallback(mocked: respx.MockRouter) -> None:
