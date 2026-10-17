@@ -771,10 +771,10 @@ class AnswerSuite:
             if source is None:
                 return {"error": f"citation {n} is not among the answer's sources"}
             cites[n] = judge.Cited(source.heading, citation.quote, source.text)
-        prompt = judge.user_prompt(question["question"], answer.answer, cites)
         calls: list[Call] = []
         model = Recorded(self.judge, "judge", self.cache, {"question": question["id"]}, calls)
         try:
+            prompt = judge.user_prompt(question["question"], answer.answer, cites)  # before a call
             completion = await patiently(
                 lambda: model.complete(
                     judge.SYSTEM, prompt, max_tokens=judge.MAX_TOKENS, schema=judge.SCHEMA

@@ -38,6 +38,8 @@ AMOUNT_IN_TEXT = re.compile(
 NUMBER = re.compile(rf"\d[\d,]*(?:\.\d+)?(?:\s?(?:{SCALE_WORD})\b)?", re.IGNORECASE)
 # The model cites its source ids: [C2], [F1][C3] or [C2, C4].
 MARKER = re.compile(r"\[\s*([CF]\d+(?:\s*,\s*[CF]\d+)*)\s*\]")
+# Any other bracket holding a digit, such as [12] for C12 or [D1], names no source (x18).
+STRAY = re.compile(r"\[[^\[\]]*\d[^\[\]]*\]")
 # A sentence ends at . ! or ? (markers before it) when whitespace and a capital, digit or $ follow.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9$\"'(])")
 # A period that may only close an abbreviation: initials (U.S., e.g., N.A.) or Inc., Corp., Co.
@@ -206,11 +208,14 @@ def check_sentence(
 ) -> str | None:
     """Why a sentence of an answer fails, or None when it holds.
 
-    It must cite at least one source id, such as [C2]; a cited chunk needs a quote under Sources
-    that passes citation_error; and each amount in the sentence must match a cited fact's value
-    or a number in a passing quote. `quotes` maps source ids to the quotes given for them;
-    `sources` maps the ids the model was given (F1, C2) to the sources.
+    It must cite at least one source id, such as [C2], and hold no other bracketed marker such as
+    [12]; a cited chunk needs a quote under Sources that passes citation_error; and each amount
+    in the sentence must match a cited fact's value or a number in a passing quote. `quotes` maps
+    source ids to the quotes given for them; `sources` maps the ids the model was given (F1, C2)
+    to the sources.
     """
+    if stray := STRAY.search(MARKER.sub("", sentence)):  # shown, it would cite nothing
+        return f"{stray[0]} is not one of the sources"
     aliases = cited(sentence)
     if not aliases:
         return "it cites no source"

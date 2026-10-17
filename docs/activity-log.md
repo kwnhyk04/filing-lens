@@ -15,6 +15,70 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-18: The eval refuses to judge a sentence that cites a number with no source
+
+- Changes:
+  - **Why (user request):** the live twin replay (entry below) showed that the judge can make up a rating for a source it was never shown, and that `parse` accepts it. That would silently skew citation precision. The validator fix makes such an answer unreachable from the API; this check keeps the eval honest if a marker ever arrives another way.
+  - **What we did, in order:**
+    1. Wrote `test_a_number_without_a_source_errors_before_any_judge_call` in `evals/tests/test_calls.py` first. It sends the textual recording's answer (`[2][3][12]`, 6 citations) through `AnswerSuite.judged`, with a fake judge that fails on any call. On unchanged code it failed with `IndexError: pop from empty list`, because a judge call was made.
+    2. `judge.user_prompt` now raises JudgeError before building the prompt when a sentence cites a number with no source: "sentence 2: given sources [2, 3], cited [2, 3, 12]". This is `parse`'s message shape with "given" for "judged", since no judge ran. For every other answer the prompt text is unchanged, and so are `judge.SYSTEM` and `judge.SCHEMA`, so the calibration stands.
+    3. `AnswerSuite.judged` builds the prompt inside its `try`, so the error lands in the question's record (`{"error": ..., "calls": []}`), `errored()` lists it, and `--ci` exits 4 with it, instead of the run crashing.
+    - Why in `user_prompt`: both callers (the harness and `calibrate.new_verdicts`) build the judge's prompt there, so one check covers both. In calibrate it would stop the run before a call. No cached reply holds a bare `[n]`, so no calibration item can reach it.
+- Small events, in order:
+  - The GateGuard hook asked for facts before the first edit of each file; each retry passed. Expected behavior.
+  - Mistake, recorded in the entry below: the twin replay's estimate grew from about 1.8k to about 3.5k tokens before the call. The call went ahead after I said so, without asking. User rule since then: when a cost estimate grows before a live call, ask first, even on the free tier (memory.md).
+- Files: evals/judge.py, evals/harness.py, evals/tests/test_calls.py, docs/{context,memory,todo,activity-log}.md
+- Validation: the new test failed before the change and passes after it. `make test`: 331 passed. `make lint` and `make typecheck` (0 errors): clean. No model call.
+- Outstanding: the user commits, pushes and opens the PR. The change is uncommitted on `fix-dangling-citation-markers`, with the validator and artifact fixes.
+
+### 2026-10-18: The first nightly run failed on x18's dangling citation marker; validator and artifact fixes
+
+- Changes:
+  - **What happened (user report):** the first manual run of the nightly eval (run 39068994474, main at febbe5f, started 2026-10-17T21:02Z) ran all 30 test questions and waited out its 429s, then exited 4: "x18 (judge): sentence 1: judged sources [1, 2], cited [1, 2, 12]". Against the 2026-10-17 report, comparison_match fell from 1.000 to 0.800; the gated metrics held their floors. It was the first judge run since step 7, since CI's PR eval runs without the judge.
+  - **Why x18 failed (confirmed on a recorded twin; x18's own answer is not recoverable):**
+    - The validator reads only source-id markers (`MARKER`: `[C2]`, `[F1]`). A bare `[12]`, written by the model for C12, passed unseen, and `answer.numbered` left it in the answer next to [1][2]. So the answer showed a citation number with no citation behind it, and C12's quote was never checked.
+    - The judge's parser reads every `[n]` (`judge.CITE`), while the harness gives the judge one source per citation (`AnswerSuite.judged`). The prompt said "(cites 1, 2, 12)" and listed no source [12]. The judge rated what it was shown, and `parse` raised. Source 12 never reached the judge.
+    - Evidence: the recorded fixture `services/api/tests/fixtures/answers/textual.json` (2026-10-15) holds the same defect. Gemini wrote `[C4][C5][12]` while its Sources block quotes `[C12]`, and the recorded answer shows `[2][3][12]` with 6 citations. Replayed offline through `judge.user_prompt` and `parse`, it raises "sentence 2: judged sources [2, 3], cited [2, 3, 12]".
+    - First-use numbering gives sentence 1's own ids the numbers 1 to 3, so x18's 12 cannot be a renumbered id.
+    - Near miss: x11 (dev, 2026-10-16) had `[C2][C6][D1]`, but its draft was regenerated for another sentence. The 640 answered records in saved reports hold no dangling marker and no judge error.
+    - On 10-17 the router sent x18 out of scope, so the judge had never seen a Gemini x18 answer. Step 7's `--ci` counts a judge error as an errored question, hence the exit 4.
+  - **Step 8 is not the cause:** 5af8fcd..febbe5f changed only telemetry, metrics and refusal codes on the answer path. `answer.py`, `validate.py`, `router.py`, `judge.py` and `harness.py` are unchanged. Since 77e59a0 (the commit the 10-17 report measured), only a comment in `answer.py` and the fallback chain (off in evals) changed on that path.
+  - **c15, the comparison that failed:** refused with "validation: no sentence held up", after the run's only regeneration. On 10-17 it passed by citing a chunk that states 11%. Likely cause, not confirmed: this time Gemini tied the 11% (or a figure it derived) to the facts, which validation rejects. Code and gold facts are unchanged (`check_corpus` passed), so this is answer-model variation. Its sentences exist only in the run's Actions cache: the job log prints no reply text.
+  - **The artifact held only the verdict:** `write_report` names the full test run `evals/reports/<date>.json` by the runner's date. At 21:02Z on 10-17 it overwrote the committed `2026-10-17.json` and `.md` in the checkout, and the copy step listed untracked files only.
+  - **Live reproduction (user choice: the judge replay on the twin, since the artifact lacks x18's answer):**
+    - One call to `groq:openai/gpt-oss-120b` on the recorded textual answer, built as `AnswerSuite.judged` builds it: 2,906 tokens in, 766 out, $0 billed.
+    - This time the judge rated a source it was never shown (sentence 2: [2, 3, 12], 12 not supporting), and `parse` accepted it. So the same prompt yields either a JudgeError or a made-up verdict that silently counts against citation precision.
+    - The plan estimated about 1.8k tokens. The dry run of the prompt showed about 3.5k input with the twin's 6 full chunks; this was said before the call, which went ahead (still one call, $0 billed).
+  - **What we did, in order:**
+    1. Created branch `fix-dangling-citation-markers` from main.
+    2. Ran the live twin replay above, on unchanged code.
+    3. Wrote the tests first:
+       - rows in `test_validate.py` for `[12]`, `[D1]` and `[sic]` (user addition: a bracket without a digit is not flagged);
+       - in `test_answering.py`, `textual_exchanges()` (the recording with `[C12]` where Gemini wrote `[12]`, for the 5 tests that need a draft that holds);
+       - and `test_a_marker_naming_no_source_is_sent_back_and_never_shown` (the recording verbatim).
+
+       On unchanged code, the `[12]` and `[D1]` rows and the new test failed (no regeneration, `[12]` shown), and 103 passed.
+    4. The fix: `validate.STRAY`, so `check_sentence` fails a sentence holding a bracketed marker with a digit that is no source id ("[12] is not one of the sources"). The existing regeneration names it, and a sentence that still carries it is dropped.
+    5. `nightly-eval.yml`: the report copy adds `--modified`.
+    - Why this way: every entry point validates through `drafting.check`, so one check covers REST, the stream, GraphQL, smoke, record-fixtures and evals. A judge retry cannot rate an unseen source, and the live replay shows it may invent a rating instead. The judge prompt and schema stay frozen with the calibration.
+    - Before writing it, the check ran in process over all 540 cached replies (967 sentences) and flagged only x11's `[D1]` sentence.
+- Small events, in order:
+  - The GateGuard hook asked for facts before the first Bash command and the first Write or Edit of each file; each retry passed. Expected behavior.
+  - `TZ=Asia/Taipei date` in Git Bash printed UTC again, as the cron entry below notes; Taipei time came from PowerShell's `ConvertTimeBySystemTimeZoneId`.
+  - The user downloaded the artifact to `C:\Users\kwonhyuk\Downloads\nightly-eval-reports.zip` instead of the suggested scratchpad folder. It was read in place with `python -I` and `zipfile`, without extracting, and held only `all-test-full.md`.
+  - `uv run` rebuilt and reinstalled the 4 workspace packages (filinglens-llm, -retrieval, -sec-client, -telemetry) before the replay. Likely cause, not confirmed: the venv's editable builds predated step 8's `pyproject.toml` changes.
+  - The new `STRAY` comment first ran to 101 characters; it was shortened to ruff's 100 before linting.
+- Files: packages/llm/src/filinglens_llm/validate.py, packages/llm/tests/test_validate.py, services/api/tests/test_answering.py, .github/workflows/nightly-eval.yml, docs/{context,memory,todo,activity-log}.md
+- Validation:
+  - `make test`: 330 passed.
+  - `make lint`, `make typecheck` (0 errors) and `make actionlint`: clean.
+  - A throwaway repo in the scratchpad: the old copy flags list only the new untracked report; the new ones also list the overwritten tracked report, and an ignored file stays out.
+- Outstanding:
+  - The user commits, pushes and opens the PR; the changes are uncommitted on `fix-dangling-citation-markers`.
+  - Tonight's scheduled nightly (19:17 UTC) replays the cached x18 judge error and exits 4 unless the fix is merged first.
+  - After the merge, one manual nightly run. Expected: PASS, with x18 regenerated and judged live, c15's cached refusal (comparison_match 0.800, ungated), and the report in the artifact.
+  - Known edge, left alone: calibrate's failing-stratum sampler would hit the same JudgeError on such a sentence, but only in a new calibration.
+
 ### 2026-10-18: Step 7's manual GitHub steps 3 and 4 confirmed
 
 - Changes:

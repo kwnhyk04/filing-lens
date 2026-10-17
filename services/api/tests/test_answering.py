@@ -6,6 +6,7 @@ failure paths use the same bodies doctored, or the providers' documented error s
 
 import asyncio
 import json
+import re
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from datetime import date
@@ -57,6 +58,14 @@ type Changes = Callable[[str], dict[str, float]]
 
 def fixture(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def textual_exchanges() -> list[dict[str, Any]]:
+    """The textual recording with [C12] where Gemini wrote [12], as its Sources block quotes C12:
+    for tests that need a draft that holds, since validation sends the recorded one back."""
+    exchanges = fixture("textual")["exchanges"]
+    exchanges[1]["body"] = exchanges[1]["body"].replace("[C5][12]", "[C5][C12]")
+    return exchanges
 
 
 class RecordedEvidence:
@@ -242,7 +251,7 @@ async def test_a_numeric_question_is_answered_from_the_xbrl_fact(mocked: respx.M
 
 
 async def test_a_textual_answer_quotes_the_chunks_it_cites(mocked: respx.MockRouter) -> None:
-    replay(mocked, fixture("textual")["exchanges"])
+    replay(mocked, textual_exchanges())
     answer, streamed, stats = await run("textual")
     search = next(c for c in fixture("textual")["evidence"] if c["method"] == "search")
     hits = search["result"]["hits"]
@@ -256,7 +265,7 @@ async def test_a_textual_answer_quotes_the_chunks_it_cites(mocked: respx.MockRou
 async def test_the_search_started_with_the_router_is_kept_when_the_router_agrees(
     mocked: respx.MockRouter,
 ) -> None:
-    replay(mocked, fixture("textual")["exchanges"])
+    replay(mocked, textual_exchanges())
     evidence = RecordedEvidence(fixture("textual")["evidence"])
     answer, _, stats = await run("textual", evidence)  # "Apple ... its latest annual report"
     assert not answer.refused and stats["early_search"] is True
@@ -269,7 +278,7 @@ async def test_a_router_that_disagrees_gets_its_own_search(mocked: respx.MockRou
         json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
     )
     mocked.post(host=GROQ).mock(return_value=router_reply(**content | {"fiscal_years": [2024]}))
-    replay(mocked, recorded["exchanges"][1:])
+    replay(mocked, textual_exchanges()[1:])
     evidence = RecordedEvidence(recorded["evidence"])
     answer, _, stats = await run("textual", evidence)
     assert not answer.refused and stats["early_search"] is False
@@ -304,7 +313,7 @@ async def test_a_sentence_with_an_unsupported_number_is_removed_after_one_regene
 ) -> None:
     recorded = fixture("textual")
     replay(mocked, recorded["exchanges"][:1])  # the router's reply
-    text = reply_text(recorded["exchanges"][1]["body"])
+    text = reply_text(textual_exchanges()[1]["body"])
     answer_part, sources = text.split("Sources:", 1)
     bad = " Apple paid its suppliers $999.9 billion [C1]."
     doctored = f"{answer_part.rstrip()}{bad}\n\nSources:{sources}"
@@ -318,6 +327,24 @@ async def test_a_sentence_with_an_unsupported_number_is_removed_after_one_regene
         "The draft failed validation, so the answer was written again.",
         "Removed 1 sentence(s) whose citations or amounts did not check out.",
     ]
+
+
+async def test_a_marker_naming_no_source_is_sent_back_and_never_shown(
+    mocked: respx.MockRouter,
+) -> None:
+    """The recording as Gemini wrote it, [C4][C5][12] with C12 quoted under Sources: the same
+    dangling marker that failed x18's judge in the nightly run (2026-10-18)."""
+    recorded = fixture("textual")
+    replay(mocked, recorded["exchanges"])
+    text = reply_text(recorded["exchanges"][1]["body"])
+    path = STREAM.replace("streamGenerateContent", "generateContent")
+    regenerate = mocked.post(host=GEMINI, path=path).mock(return_value=gemini_json(text))
+    answer, _, _ = await run("textual")
+    assert regenerate.call_count == 1
+    assert "[12] is not one of the sources" in regenerate.calls[0].request.content.decode()
+    shown = [int(n) for n in re.findall(r"\[(\d+)\]", answer.answer)]
+    assert "[12]" not in answer.answer and max(shown) <= len(answer.citations)
+    assert answer.warnings[-1].startswith("Removed 1 sentence(s)")
 
 
 async def test_a_rate_limited_primary_falls_back_and_the_fallback_is_recorded(
@@ -479,7 +506,7 @@ async def test_a_textual_question_may_mention_an_untracked_company(
         json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
     )
     mocked.post(host=GROQ).mock(return_value=router_reply(**content, other_companies=["Foxconn"]))
-    replay(mocked, recorded["exchanges"][1:])
+    replay(mocked, textual_exchanges()[1:])
     answer, _, _ = await run("textual")
     assert not answer.refused  # Apple's filing answers; Foxconn is only mentioned
 
