@@ -15,6 +15,35 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-17: Test floors recomputed under the fixed rule; v2 time-trap idea; CI limits documented
+
+- Changes (user decisions):
+  - `--set-floors evals/reports/2026-10-17.json --replace` from the saved exam report, with no new run: numeric 0.92 to 0.758, correct refusal 0.90 to 0.646, false refusal 0.261 to 0.321, retrieval recall@10 0.314 to 0.416, MRR@10 0.500 to 0.667.
+  - `retrieval:dev:full` was re-derived from its own report, unchanged. The four keys are all the floors; there is no Haiku key.
+  - The todo's v2 list gains a time-trap check in code for a fiscal year the router leaves out (t07).
+  - The eval docs now say CI is a tripwire (6 of 8 numeric still pass 0.676) and record the Groq budget: about 28K gpt-oss-20b per live CI run, on the account shared with FreightAudit's CI.
+- Files: evals/thresholds.json, evals/eval-card.md, README.md, docs/*
+- Validation: the exam, dev retrieval and fresh dev ci reports pass their floors (16, 3 and 11 checked, none broken).
+- Outstanding: the user commits and pushes; step 7 merges once the PR is green; step 8 starts in a fresh session.
+
+### 2026-10-17: First PR's CI eval failure diagnosed; Wilson intervals; wider ci subset; dev ci floors replaced
+
+- Changes (user requests):
+  - **Diagnosis:** the eval-reports artifact of run 39045222529 was downloaded by the user and read from the scratchpad; no token was used.
+    - The miss was t07, a time trap: Chevron's "fiscal 2026 annual report". The router gave no fiscal year, in CI and in the cached 10:41:30 run alike.
+    - Cached, Gemini refused; live, it answered with risks from the FY2025 10-K. Model variation; not answerable. No label changed.
+  - **Answer path unchanged:** prompt hashes, models, settings, index sha256 and manifest are identical. The only answer-path code diff is `evals/calls.py`'s stop text and codes.
+  - **Floor rule:** `metrics.wilson` gives the pass/fail metrics (`harness.BINARY`) Wilson score intervals, in reports and in `--set-floors`, recomputed from value and n. The rule stays min(low, target). `--set-floors --replace` may loosen floors.
+  - **ci subset:** `harness.CI_EXTRA` adds a04, a07, a09, t04 and t08, in the seeded rank order, which reproduces the frozen flags. That makes 25 questions, 10 should-refuse. Golden v1 is unchanged.
+  - **Floors:** a fresh live dev ci run (`20261017T154912Z`, `--tag=ci-floors-1017 --no-judge`) with every question answered or refused as expected: correct refusal 10 of 10, numeric 8 of 8, false refusal 2 of 15, 0 errors. `--set-floors --replace` from it then set:
+    - numeric 0.92 to 0.676, correct refusal 0.90 to 0.722, false refusal 0.333 to 0.379;
+    - input tokens 7,393, output tokens 312, cost $0.0023;
+    - TTFT p50 2,990 ms, TTFT p95 3,157 ms, answer p95 5,831 ms.
+  - Test floors unchanged (user decision pending).
+- Files: evals/metrics.py, evals/harness.py, evals/tests/test_metrics.py, evals/tests/test_ci.py, evals/tests/test_calls.py, evals/thresholds.json, evals/reports/runs/20261017T154912Z-answer-dev-ci.*, evals/eval-card.md, README.md, docs/*
+- Validation: `make test` 287 passed (Wilson 5 of 5, 0 of 5 and 3 of 5; replace; ci subset), ruff and pyright clean, gitleaks clean on evals, docs and README. Spent 27.7K gpt-oss-20b, 0 gpt-oss-120b and 20 Gemini calls.
+- Outstanding: the test-floor decision; the user's commit and push; CI on the new commit.
+
 ### 2026-10-17: Dev floors for CI written; throwaway volume removed; GitHub repo and secrets ready
 
 - Changes (user requests):

@@ -70,6 +70,7 @@ from evals.metrics import (
     recall_at,
     states_amount,
     tighter,
+    wilson,
 )
 from filinglens_api.answering import RELEVANCE_MIN, Answerer, Models, PostgresEvidence
 from filinglens_api.limits import ANSWER_TIMEOUT_S
@@ -144,6 +145,15 @@ TARGETS: dict[str, tuple[float, str]] = {
     "cost_billed_usd": (0.015, "billed"),
 }
 JUDGED = ("citation_precision", "faithfulness")
+# Pass/fail per question: their 95% range is a Wilson score interval, which never collapses.
+BINARY = (
+    "numeric_exact_match", "comparison_match", "correct_refusal", "false_refusal",
+    "router_accuracy", "route_accuracy",
+)  # fmt: skip
+# Should-refuse questions added to the ci subset (2026-10-17) so it holds 10 of them, not 5: the
+# next dev questions in golden.assign_splits' seeded rank order, each kind in proportion to dev's
+# mix. Golden v1 stays frozen; this widens only what --subset=ci runs.
+CI_EXTRA = ("a04", "a07", "a09", "t04", "t08")
 STAGES = ("route", "facts", "retrieve", "generate", "regenerate")
 LABELS = {
     "recall@10": "Retrieval recall@10",
@@ -835,7 +845,11 @@ def paid_cost(record: Mapping[str, Any], prices: Mapping[str, Any]) -> float | N
 
 def answer_metrics(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     def share(rows: list[dict[str, Any]], hit: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
-        return stat([float(bool(hit(r))) for r in rows], mean)
+        hits, n = sum(bool(hit(r)) for r in rows), len(rows)
+        if not n:
+            return stat([], mean)
+        low, high = wilson(hits, n)
+        return {"value": hits / n, "low": low, "high": high, "n": n}
 
     def pairs(rows: list[dict[str, Any]], field: str) -> list[tuple[int, int]]:
         return [(r[field][0], r[field][1]) for r in rows if r.get(field) and r[field][1]]
@@ -1091,11 +1105,17 @@ def floor_key(report: Mapping[str, Any], suite: str) -> str:
 
 
 def apply_floors(
-    report: Mapping[str, Any], set_floors: bool, judge_ok: bool, latency: bool = True
+    report: Mapping[str, Any],
+    set_floors: bool,
+    judge_ok: bool,
+    latency: bool = True,
+    replace: bool = False,
 ) -> tuple[list[str], int, int]:
     """Metrics past their floors in thresholds.json, with how many floors were checked and how
     many were not (no value in this run, or latency when latency is not gated); with set_floors,
-    tighten the floors by the rule in metrics.floor, never loosening one."""
+    tighten the floors by the rule in metrics.floor, never loosening one. With replace, the
+    report's keys get fresh floors from it alone, which may loosen them: only on request, with
+    the reason in docs/memory.md."""
     floors = json.loads(THRESHOLDS.read_text(encoding="utf-8")) if THRESHOLDS.exists() else {}
     past: list[str] = []
     checked = unchecked = 0
@@ -1112,14 +1132,19 @@ def apply_floors(
                 past.append(f"{key} {name}: {shown(name, value)} is past {shown(name, limit)}")
         if not set_floors:
             continue
+        if replace:
+            limits = floors[key] = {}
         for name, (target, kind) in TARGETS.items():
             entry = metrics.get(name)
             if entry is None or entry["value"] is None or (name in JUDGED and not judge_ok):
                 continue
+            low, high = entry["low"], entry["high"]
+            if name in BINARY:  # from the counts, so a report from before Wilson gets it too
+                low, high = wilson(round(entry["value"] * entry["n"]), entry["n"])
             if suite == "retrieval" and kind == "accuracy":  # no model call: exact, not sampled
                 new = deterministic_floor(entry["value"], entry["n"], target)
             else:
-                new = floor(kind, entry["value"], entry["low"], entry["high"], target)
+                new = floor(kind, entry["value"], low, high, target)
             limits[name] = round(tighter(kind, limits.get(name), new), 6)
     if set_floors:
         body = json.dumps(floors, indent=1, sort_keys=True) + "\n"
@@ -1231,7 +1256,7 @@ async def evaluate(args: argparse.Namespace) -> int:
     questions = [
         q
         for q in golden.questions
-        if q["split"] == args.split and (args.subset == "full" or q["ci"])
+        if q["split"] == args.split and (args.subset == "full" or q["ci"] or q["id"] in CI_EXTRA)
     ]
     if not questions:
         raise SystemExit(f"No {args.subset} questions in {args.split}: the ci subset is in dev.")
@@ -1455,11 +1480,13 @@ def sweep(path: Path) -> None:
         )
 
 
-def set_floors(path: Path) -> None:
+def set_floors(path: Path, replace: bool = False) -> None:
     """Write to thresholds.json the floors the rule gives a saved report's measured values, for
-    every metric with a target (quality, tokens, cost and latency), keeping only tighter ones."""
+    every metric with a target (quality, tokens, cost and latency), keeping only tighter ones;
+    with replace, the report's keys get these floors whether tighter or not."""
     report = json.loads(path.read_text(encoding="utf-8"))
-    past, _, _ = apply_floors(report, True, calibrated(report.get("judge_calibration")))
+    judge_ok = calibrated(report.get("judge_calibration"))
+    past, _, _ = apply_floors(report, True, judge_ok, replace=replace)
     for line in past:
         print(f"Past an earlier floor, which stays: {line}")
     floors = json.loads(THRESHOLDS.read_text(encoding="utf-8"))
@@ -1487,6 +1514,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--set-floors", type=Path, metavar="REPORT", help="floors from a saved report's values"
     )
+    parser.add_argument(
+        "--replace", action="store_true", help="with --set-floors: replace, even if looser"
+    )
     parser.add_argument("--compare", nargs=2, type=Path, metavar="REPORT")
     parser.add_argument("--sweep", type=Path, metavar="REPORT", help="refusal threshold sweep")
     return parser.parse_args(argv)
@@ -1501,7 +1531,7 @@ def main() -> None:
         sweep(args.sweep)
         return
     if args.set_floors:
-        set_floors(args.set_floors)
+        set_floors(args.set_floors, replace=args.replace)
         return
     run = f"{args.suite} eval ({args.split} {args.subset})"
     try:

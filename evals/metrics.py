@@ -97,6 +97,16 @@ def floor(kind: str, value: float, low: float, high: float, target: float) -> fl
     return min(high * 1.5, target) if value <= target else high * 1.5
 
 
+def wilson(hits: int, n: int, z: float = 1.959964) -> tuple[float, float]:
+    """The 95% Wilson score interval of a pass/fail share (user rule, 2026-10-17). A percentile
+    bootstrap of n identical results can only resample that result, so 5 of 5 collapses to 1.0
+    to 1.0; Wilson gives 0.566 to 1.0."""
+    p, z2 = hits / n, z * z
+    center = (p + z2 / (2 * n)) / (1 + z2 / n)
+    half = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / (1 + z2 / n)
+    return max(0.0, center - half), min(1.0, center + half)
+
+
 def deterministic_floor(value: float, n: int, target: float) -> float:
     """Retrieval accuracy (user rule, 2026-10-17): the measured value less one question's share,
     capped at the target. Retrieval calls no model, so the same code on the same corpus gives

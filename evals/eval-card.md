@@ -198,7 +198,18 @@ The official results are Gemini's (free tiers). The Haiku column is a comparison
 - **Floors:** written from Gemini's run after the user's review (`--set-floors evals/reports/2026-10-17.json`), under `answer:test:full:gemini:gemini-3.5-flash-lite` and `retrieval:test:full`.
   - **Dev floors for CI** (2026-10-17, after the user's review of the two reports):
     - `retrieval:dev:full`, from `20261017T103956Z-retrieval-dev-full` (the restored CI corpus): recall@10 ≥ 0.542, MRR@10 ≥ 0.577, retrieval p95 ≤ 478 ms (not gated in CI).
-    - `answer:dev:ci:gemini:gemini-3.5-flash-lite`, from `20261017T104130Z-answer-dev-ci` (no judge, every reply from the cache): numeric exact match ≥ 0.920, coverage ≥ 0.950, correct refusal ≥ 0.900, false refusal ≤ 0.333, input tokens ≤ 8,000, output tokens ≤ 474, cost ≤ $0.0029 paid-equivalent, billed $0.
+    - `answer:dev:ci:gemini:gemini-3.5-flash-lite`, replaced on 2026-10-17 from one fresh live run of the widened ci subset (`20261017T154912Z-answer-dev-ci`: 25 questions, 10 should-refuse, no judge). The values: numeric exact match ≥ 0.676, coverage ≥ 0.950, correct refusal ≥ 0.722, false refusal ≤ 0.379, input tokens ≤ 7,393, output tokens ≤ 312, cost ≤ $0.0023, billed $0, TTFT p50 ≤ 2,990 ms, TTFT p95 ≤ 3,157 ms, answer p95 ≤ 5,831 ms (latency gated on the PC only).
+    - The first floors, from `20261017T104130Z`, had collapsed ranges: 8 of 8 and 5 of 5 gave 1.0 to 1.0, so the floor equalled the target. One miss out of 5 then failed the first PR's CI (t07 answered live).
+  - **Pass/fail metrics use a Wilson score interval (user decision, 2026-10-17):** numeric and comparison match, correct and false refusal, router and route accuracy. A percentile bootstrap of identical results collapses to a point; Wilson gives 5 of 5 a range of 0.566 to 1.0. The rule stays min(low, target).
+  - **One rule everywhere (user decision, 2026-10-17):** the test floors were recomputed by code from this saved exam report, with no new run (`--set-floors evals/reports/2026-10-17.json --replace`):
+    - numeric exact match ≥ 0.758 (12 of 12), correct refusal ≥ 0.646 (7 of 7), false refusal ≤ 0.321;
+    - retrieval recall@10 ≥ 0.416 and MRR@10 ≥ 0.667, under the retrieval rule.
+    - Floors are guards derived from measured results, so this is not tuning.
+  - **What CI can and cannot see:** with 8 numeric questions, the CI floor of 0.676 still lets 6 of 8 pass, and the refusal floor of 0.722 lets 8 of 10 pass. CI is a tripwire for large drops. The nightly run and this exam give the precise numbers.
+  - **Groq budget:** a live CI answer run uses about 28K gpt-oss-20b tokens, on the Groq account FreightAudit's CI also uses.
+    - Groq's daily allowance is per model: about 200K tokens a day each (memory.md, Constraints).
+    - FreightAudit uses gpt-oss-120b and qwen3.8-27b, and keeps about 25K a day of gpt-oss-120b for its CI.
+    - So a PR eval (0 gpt-oss-120b) draws on FilingLens's gpt-oss-20b allowance only. The nightly's judge (18-28K gpt-oss-120b) shares FreightAudit's model.
   - **Retrieval accuracy floors use their own rule (user decision, 2026-10-17):** the measured value less one question's share, capped at the target. With 14 scored questions, that is 0.613 − 1/14 for recall and 0.649 − 1/14 for MRR.
     - Retrieval calls no model, so the same code on the same corpus gives the same numbers.
     - Its 95% interval reflects only which 14 questions the set holds. A floor at its lower bound (recall 0.402) would let a real drop from 0.613 pass.

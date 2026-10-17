@@ -51,6 +51,28 @@ def test_ci_reports_latency_without_gating_it(floors: Path) -> None:
     assert "not gated" not in harness.markdown(slow | {"ci": False})
 
 
+def test_replacing_floors_recomputes_a_collapsed_pass_fail_range_with_wilson(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "thresholds.json"
+    path.write_text(json.dumps({"answer:dev:ci:gemini:g": {"correct_refusal": 0.9}}))
+    monkeypatch.setattr(harness, "THRESHOLDS", path)
+    run = report() | {"split": "dev", "subset": "ci"}
+    run["metrics"] = {"answer": {"correct_refusal": entry(1.0) | {"n": 5}}}  # 5 of 5: 1.0 to 1.0
+    harness.apply_floors(run, True, True)
+    assert json.loads(path.read_text())["answer:dev:ci:gemini:g"] == {"correct_refusal": 0.9}
+    harness.apply_floors(run, True, True, replace=True)  # floors only tighten unless replaced
+    assert json.loads(path.read_text())["answer:dev:ci:gemini:g"] == {"correct_refusal": 0.565518}
+
+
+def test_the_ci_subset_holds_ten_should_refuse_dev_questions() -> None:
+    questions = [
+        q for q in harness.load_golden().questions if q["ci"] or q["id"] in harness.CI_EXTRA
+    ]
+    assert {q["split"] for q in questions} == {"dev"}  # the test split is untouched
+    assert (len(questions), sum(q["expect"] == "refuse" for q in questions)) == (25, 10)
+
+
 def test_ci_stops_before_any_call_when_the_setup_has_no_floors(floors: Path) -> None:
     args = argparse.Namespace(suite="all", split="dev", subset="full")
     assert harness.unfloored(args, "gemini:g") == ["answer:dev:full:gemini:g"]

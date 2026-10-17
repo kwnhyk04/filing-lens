@@ -211,9 +211,9 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
     floors = json.loads(thresholds.read_text(encoding="utf-8"))
     free = "answer:test:full:gemini:gemini-3.5-flash-lite"  # answer floors go per primary model
     assert floors[free] == {
-        "numeric_exact_match": 0.9,  # min(low, target)
+        "numeric_exact_match": 0.763869,  # min(Wilson low of 19 of 20, target)
         "faithfulness": 0.9,  # counted: the run's judge was calibrated
-        "false_refusal": 0.2,  # a ceiling: max(high, target)
+        "false_refusal": 0.301034,  # a ceiling: max(Wilson high of 2 of 20, target)
         "ttft_p95_ms": 5250.0,  # a known miss: high x 1.5
         "input_tokens": 4800.0,  # meets its target: min(high x 1.5, target)
         "cost_billed_usd": 0.0,  # the free setup bills nothing
