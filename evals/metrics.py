@@ -86,12 +86,13 @@ def bootstrap[T](
 def floor(kind: str, value: float, low: float, high: float, target: float) -> float:
     """The floor rule. Accuracy: min(low, target). False refusal: a ceiling of max(high,
     target). Efficiency meeting its target: min(high x 1.5, target); missing it: high x 1.5,
-    so a known miss doesn't fail every run. Cost as billed: 0."""
+    so a known miss doesn't fail every run. Cost as billed: 0 on the free setup, which bills
+    nothing; a setup that spends credits (Claude) gets the efficiency rule."""
     if kind == "accuracy":
         return min(low, target)
     if kind == "rate":
         return max(high, target)
-    if kind == "billed":
+    if kind == "billed" and value == 0:
         return 0.0
     return min(high * 1.5, target) if value <= target else high * 1.5
 

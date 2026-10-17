@@ -13,6 +13,17 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 - [ ] Live embedding swap (after step 6; user decision): with dev on the last revision before 0004 (now 0008), record the model A baseline (`make eval`, recall@10 and MRR@10, golden set version); run 0004, the reembed backfill, 0005 (run `make check-parallel-hnsw` first, then pick a parallel build within the 256 MB `shm_size` or a serial one with more `maintenance_work_mem`, by corpus size; runbook step 3), the catch-up run and the flip to `embedding_v2`; run `make eval` again on the same golden set; record both runs in `eval_runs` and the activity log; then run 0006 in the next release and set `.env.example` to `embedding_v2`. Done when both recall@10 values are recorded and dev is at head. Runbook: `docs/migrations.md`.
 - [ ] (later idea, user, 2026-10-16) A deterministic check for derived numbers: recompute a percent of a stated total, or the difference of two cited figures, from the cited figures themselves, so correct arithmetic can pass validation and wrong arithmetic gets caught. Today validation rejects every derived figure (memory.md, step 6a), and the judge criterion counts a computed number as not stated.
 - [ ] (after step 6) Decide how a company that changes CIK in a restructure is handled (for example a `cik_aliases` table), since `get_financial_fact` looks facts up by CIK. Known case: XOM (Exxon Mobil Corp, CIK 34088, filed the latest 10-K; SEC now lists the ticker under ExxonMobil Holdings Corp, CIK 2115436).
+- [ ] (user decision) Turn on Claude Haiku 5.5 as the answer fallback in `.env`: `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5`, with `AI_ENABLED=true` for answers at all. Its credits expire 2026-11-10.
+- [ ] (v2, with golden set v2) The known weaknesses from the test run (README, "Known weaknesses"):
+  - router fixes: an out-of-scope guard, and a ticker fill;
+  - a comparison check;
+  - more textual test questions with human labels;
+  - TTFT;
+  - fact headings for year-end values from 10-Qs;
+  - natural judge negatives;
+  - latency at scale.
+
+  Nothing is tuned on golden v1's test results.
 - [ ] 7. CI/CD: GitHub Actions for test, build, docker push; actionlint passes; test PR green. CI also runs `make contracts-check` and `make contracts-breaking BASE=origin/main` (fetch main first).
 - [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved
 - [ ] (before step 9) Chunks from a separate financial section (JPM, CVX, NVDA, PLD, XOM) are labeled with the last item (15 or 16). Detect the MD&A and financial-statement headings inside that section and label those chunks Items 7, 7A and 8, so citations show the right section.
@@ -21,7 +32,15 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] 6b. Golden set v1, judge calibration, eval harness and the full eval (plan approved 2026-10-16). Done when labeling and calibration are complete, the full eval runs on the test split, the report lists every target in `docs/context.md` with pass, fail or not measured, and `make test` and `make test-int` stay green.
+None.
+
+## Completed
+
+- [x] 6b (2026-10-17). Golden set v1, judge calibration, eval harness and the full eval (plan approved 2026-10-16).
+  - Done 2026-10-17:
+    - Labeling and calibration are complete. The full eval ran on the test split, its report lists every target with pass, fail or not measured, and the floors are written.
+    - `make test` and `make test-int` are green.
+    - Results and every miss, with v2 ideas: README and eval card. Done when labeling and calibration are complete, the full eval runs on the test split, the report lists every target in `docs/context.md` with pass, fail or not measured, and `make test` and `make test-int` stay green.
   - **Corpus freeze (user request, 2026-10-16):** run no `make seed-real` and queue no ingest jobs until golden v1's test run is done. Apple's FY2026 10-K lands around 2026-10-30, and the harness's drift check (gold chunk ids, fact ids and values, each company's latest fiscal year) would then stop every run.
   - [x] Phase 1: 410 treated like 402 (permanent, 503); `Answerer(min_relevance=)` and `Gemini(minimal_thinking=)` keyword arguments; answer stats `sources` and `top_score`; `make eval` with `--env-file .env`, `make label`, `make calibrate`; `LLM_JUDGE=groq:openai/gpt-oss-120b` (user decision) for evals only.
   - [x] Golden set v1 draft (`python -m evals.golden build`, 2026-10-16): 40 numeric, 20 textual, 15 comparison, 15 unanswerable (10 absent from the filings, 3 out of scope, 2 untracked companies), 10 time traps; 70 dev and 30 test, a 20-question ci subset; 542 candidates in the pools (30 questions); labeler `make label`.
@@ -108,13 +127,51 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
         - Latency decides: nemotron's own first token is +10.1 s slower at p50 (95% CI +3.5 to +14.0, n 13), likely from its default reasoning (not tested switched off). It also hit the 30 s answer limit on 3 of 4 textual questions.
       - 4c (Groq gpt-oss-120b) skipped: a Groq-hosted fallback shares outages with the Groq router and spends the gpt-oss-120b allowance shared with FreightAudit and the judge.
       - 4d (NVIDIA gpt-oss-120b) was proposed and found retired, so it was not an option: a tiny request got 410 ("retired this model"). Two tiny requests went out, because the first one's output was lost.
-    - [ ] **Follow-up judge check (eval card), 2026-10-17:** `make calibrate ARGS="followup import"`, a spot check with no kappa.
+    - [x] **Follow-up judge check (eval card), 2026-10-17:** `make calibrate ARGS="followup import"`, a spot check with no kappa.
+      - Done 2026-10-17 at 07:17 UTC. The judge failed 3 of the 4 sentences Claude labeled not supported (s01, s02, s05) and missed s04 (t07). It passed s06; s03 is unscored (its reply judged 3 sentences for 1). Spent 6 calls, 9.9K gpt-oss-120b. Eval card updated.
       - Built (2026-10-16): a second sample in `evals/calibration/v1-followup/`, from 4b first, topped up from 4a, never from 4c; v1 stays frozen. `spot_check` reports how many of the sentences labeled not supported the judge failed too. Unit tests for the draw and the spot check.
       - 6 sentences (2 from nemotron, 4 from gpt-oss-20b), short of about 10. Claude's labels: 2 y, 4 n, under the written criterion (a computed number is not stated). They check out against the sample (`imported`).
       - Cost: 6 judge calls, about 8.7K input tokens, so about 11K gpt-oss-120b. Not on 2026-10-16: FreightAudit's CI needs gpt-oss-120b that evening.
   - [x] **Router misses checked (user request, no quota, 2026-10-16):** not clearly worse than the rest on recall or answers, so no deterministic fill. Numbers in memory.md.
   - [x] **Reports record the code and prompts (user request, 2026-10-16):** `code_version` (commit, uncommitted changes, source sha256) and `prompt_hashes` (system prompts and schemas). `make test` 255 passed; ruff and pyright clean.
-  - [ ] **Test run (golden v1 test split), 2026-10-17: approved by the user on 2026-10-16, with conditions.** `make eval SUITE=all SPLIT=test`, judge on; no `--tag`, the production path. The 30 questions are 12 numeric, 6 textual, 5 comparison, 4 unanswerable and 3 time traps.
+  - [x] **Test run (golden v1 test split), 2026-10-17: approved by the user on 2026-10-16, with conditions.** `make eval SUITE=all SPLIT=test`, judge on; no `--tag`, the production path. The 30 questions are 12 numeric, 6 textual, 5 comparison, 4 unanswerable and 3 time traps.
+    - **Done 2026-10-17 at 07:24 UTC:** exit 0, report `evals/reports/2026-10-17.md`, the `eval_runs` row saved. 30 questions, 0 errors, 29 all-live.
+      - Before it: the stack had exited (exit 255, likely a Docker restart) and every RabbitMQ queue was empty. api, ingest and embed were rebuilt and are healthy.
+      - Integrity: commit `77e59a0`, `dirty` false, source sha256 `b238808a…`. Calibration v1 and manifest hashes match. Golden v1 is frozen and the corpus is unchanged.
+      - Pass: numeric exact match 1.000, coverage 0.971, faithfulness 0.970, correct refusal 1.000, MRR@10 0.833, TTFT p95 1.84 s, answer p95 2.15 s, tokens, cost.
+      - Fail: false refusal 0.130 (the router sent x13, x14 and x18 out of scope), citation precision 0.944 (c02's conclusion), recall@10 0.583 (n 6), TTFT p50 1.55 s.
+      - Not measured: retrieval p95 at about 250k chunks.
+      - Spent: gpt-oss-20b 33.2K, gpt-oss-120b 17.9K (judge), Gemini 23 calls.
+    - [x] **Floors (written 2026-10-17 after the user's review, `--set-floors evals/reports/2026-10-17.json`):** `evals/thresholds.json` holds:
+      - `retrieval:test:full`: recall@10 ≥ 0.314, MRR@10 ≥ 0.500, retrieval p95 ≤ 545 ms.
+      - `answer:test:full:gemini:gemini-3.5-flash-lite` (answer floors are now per primary model): numeric exact match ≥ 0.920, citation precision ≥ 0.833, coverage ≥ 0.914, faithfulness ≥ 0.906, correct refusal ≥ 0.900, false refusal ≤ 0.261, TTFT p50 ≤ 2,429 ms, TTFT p95 ≤ 2,000 ms, answer p95 ≤ 6,000 ms, input tokens ≤ 6,354, output tokens ≤ 332, cost ≤ $0.0021 paid-equivalent, billed $0.
+      - Later test runs of the same setup exit 1 past any of them.
+  - [ ] **Claude Haiku 5.5 as the answer's first fallback (user request, 2026-10-17; Anthropic credits that expire 2026-11-10).** Decisions in memory.md.
+    - [x] Built:
+      - The `Anthropic` provider on the official SDK (`anthropic` 1.15.0) and `LLM_ANSWER_FALLBACK` (empty by default, so the chain stays free-only).
+      - The answer chain Gemini, Claude while it is on, NVIDIA. The router's chain is unchanged.
+      - Claude's credits-gone rules, the expiry date, and a single retry of a short 429.
+      - Cost from usage (`credits_usd`, `Usage.cost_usd`, cost as billed in evals).
+      - The judge can never be Claude, and neither can the router or `LLM_FALLBACK`.
+      - Evals pin one model; credits gone exit 2.
+      - The $0 billed floor applies to the free setup only, and answer floors are keyed per primary model.
+      - `.env.example`, compose and the README are updated.
+    - [x] Tests (all on mock transports): 402, a 400 naming a spend limit, a 429 without Retry-After, a short 429 retried and a long one not, the expiry date, a refusal, stream usage and cost, the chain order, Claude skipped after credits are gone, the settings defaults and guards, the judge guard, billed floors, and exit 2 in an eval. `make test` 271 passed, `make test-int` 28 passed; ruff and pyright clean.
+    - [x] Dev run with Haiku pinned, once, no tuning, no judge (report `20261017T075734Z`): credits $0.0354, gpt-oss-20b 76.3K. Breakage found: adaptive thinking uses up the shared 1,024-token answer cap. 4 answers were cut; 3 regenerations had no text, so 3 false refusals. n17 and n24 answered INSUFFICIENT_EVIDENCE despite their fact. Details in the eval card.
+    - [x] User decisions (2026-10-17): Claude's thinking off with the 1,024-token cap kept; a dev rerun with `--primary-tag`; then the Haiku test split pinned, with the judge, as a comparison and with no tuning; then an api rebuild.
+    - [x] Dev rerun, thinking off (`20261017T082532Z`, `--primary-tag=nothink`, router replies cached): 0 truncated, 0 empty replies, 0 errors; false refusal 0.058 (n17, n24, x15). Claude's own first token p95 1.08 s against 3.03 s, paired. Credits $0.0381; gpt-oss-20b about 1K.
+    - n17 and n24 still answered INSUFFICIENT_EVIDENCE. Cause: the fact heading reads "fiscal 2025 Q2" for a year-end value taken from a 2026 Q2 10-Q (memory.md, Known Issues). Not fixed.
+    - [x] Haiku test split, pinned, judge on, a comparison with nothing tuned (`20261017T082950Z-answer-test-full`):
+      - Numeric 1.000, citation precision 1.000, coverage 1.000, faithfulness 0.979, correct refusal 1.000, false refusal 0.000, TTFT p50 1.58 s and p95 2.71 s.
+      - The router ran afresh and routed x13, x14 and x18 as textual this time, so the refusal gap is router variance.
+      - No Haiku-specific misses on test.
+      - Spent: credits $0.0177; gpt-oss-20b 33.2K; gpt-oss-120b 28.1K.
+    - [x] Fair comparison (user request): the Haiku test split rerun on Gemini's exact router replies (`--router-primary=gemini:gemini-3.5-flash-lite --primary-tag=fair`, `20261017T084716Z`). It replaces the run above in the README and eval card.
+      - Results: citation precision 0.958, faithfulness 0.944, false refusal 0.130 (the same router calls), own first token −0.13 s at p50, paired.
+      - Spent: $0.0145 in credits, 19.2K gpt-oss-120b, 0 gpt-oss-20b.
+    - [x] Floors checked (2026-10-17): `ttft_p50_ms` is 2428.95 on disk (the 0 was a cut paste); it follows the rule, as does `ttft_p95_ms` 2000.0 (target met, so capped at the target). No change.
+    - [x] Floors written from Gemini's test report; README and eval card carry the official table, a Haiku column, every miss explained, and v2 ideas.
+    - [x] api rebuilt and restarted on the Part 2 code (anthropic 1.15.0, thinking disabled; healthy). `.env` still has `AI_ENABLED=false` and no `LLM_ANSWER_FALLBACK`, so answers stay off and the chain stays free-only.
     - Start: 15:07 Taipei (07:07 UTC), after Gemini's daily reset at midnight Pacific, 15:00 Taipei (user, 2026-10-16): the dev runs of 2026-10-16 may have used most of this project's Gemini allowance. A one-shot prompt is scheduled in the session for that time.
     - Order:
       1. Run the follow-up import (spot check).
@@ -144,8 +201,6 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - gpt-oss-120b on 2026-10-17: FreightAudit's CI ran on the evening of 2026-10-16 (20-25K). By 06:00 UTC the allowance has refilled well past 44K plus FreightAudit's 25K, so both runs can start any time after 06:00 UTC.
     - gpt-oss-20b: 2026-10-16 spent about 200K (3a, 4a, 4b and fix B); by 2026-10-17 it has refilled.
     - After the run: report and markdown summary, the README eval table, docs.
-
-## Completed
 
 - [x] 6a (2026-10-15). Provider layer, local embeddings, hybrid retrieval, answers with verified citations. Done when `make test` and `make test-int` are green three runs in a row, then a live smoke run with `AI_ENABLED=true` answers a numeric question (fact id and value), a textual one (citations and quotes) and an unanswerable one (refusal), each with tokens, latency per stage and time to first token.
   - [x] Models (user decision, 2026-10-15): `LLM_PRIMARY=gemini:gemini-3.5-flash-lite`, `LLM_ROUTER=groq:openai/gpt-oss-20b`, `LLM_FALLBACK` on NVIDIA NIM. `AI_ENABLED` now defaults to false (it defaulted to true).

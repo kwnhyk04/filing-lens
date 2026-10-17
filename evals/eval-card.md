@@ -122,17 +122,21 @@ Citation precision and faithfulness come from an LLM judge (`LLM_JUDGE`, gpt-oss
     - The judge's "partly" is defensible. Passage [2] speaks of sourcing from partners and facilities in the U.S., not of manufacturing there, while the sentence puts manufacturing partners in the U.S.
 - **What it supports:**
   - The judge was tested only on constructed negatives. It caught every one it scored (8 of 8; s30 unscored).
-  - Its detection of natural unsupported sentences is untested: Claude labeled all 21 natural sentences supported, so the sample holds none.
+  - v1 holds no natural unsupported sentence: Claude labeled all 21 natural sentences supported. The follow-up check below tests 4 of them: the judge caught 3.
   - It was stricter than Claude on 2 of 21 natural sentences. Both of its "partly" verdicts hold up: s19's is defensible, and s07's is the correct reading under the criterion, where Claude's label was lenient.
   - Citation precision and faithfulness count under the rule, with these caveats.
-- **Follow-up check (planned):** about 10 natural sentences that fail the validator, taken from the fallback-model runs (decision 4 in `docs/todo.md`), labeled by Claude, then judged. It tests the judge on natural unsupported sentences, if Claude finds any among them.
+- **Follow-up check (done 2026-10-17):** about 10 natural sentences that fail the validator, taken from the fallback-model runs (decision 4 in `docs/todo.md`), labeled by Claude, then judged. It tests the judge on natural unsupported sentences, if Claude finds any among them.
   - **Sample (drawn 2026-10-16):** a second calibration sample in `evals/calibration/v1-followup/`; v1's files stay frozen, and only v1's result decides whether the judge metrics count.
   - **Sources:** nemotron-3-super's answers (4b) first, since it is another family than the judge, then gpt-oss-20b's (4a). Never gpt-oss-120b's (4c), the judge's own model. gpt-oss-20b shares the judge's family.
   - **Size:** 6 sentences, short of 10. 4b's run held 2 failing sentences and 4a's 5, and the cap of 2 per question kept 4 of those. So the sample holds 2 from nemotron and 4 from gpt-oss-20b.
   - **Content:** three of them state figures that look derived from cited ones, such as 72% of $75.0 billion given as $54.0 billion.
   - **Labels (Claude, 2026-10-16):** 2 supported (s03, s06) and 4 not supported (s01, s02, s04, s05), in `claude_labels.jsonl`. Claude labeled `sample_for_labeling.jsonl` in another chat, without seeing the source model.
   - **Criterion:** exactly the written one. A sentence is supported only if the cited sources state everything it claims, and a rounded figure counts as stated. A number the answer computed is not stated, so the sentence is not supported, even when the arithmetic is right: 72% of $75.0 billion given as $54.0 billion (s01, s05), or an increase of $55.605 billion from two stated figures (s02).
-  - **Result:** a spot check, not a kappa (six sentences are too few). It reports how many of the 4 unsupported sentences the judge also failed, and how many of the 2 supported ones it passed (`make calibrate ARGS="followup import"`, `result.json` in the same folder). It runs on 2026-10-17, when gpt-oss-120b's daily allowance has room after FreightAudit's CI.
+  - **Result (2026-10-17, `make calibrate ARGS="followup import"`, `result.json` in the same folder):** a spot check, not a kappa, since six sentences are too few.
+    - The judge failed 3 of the 4 sentences Claude labeled not supported. It said "partly" on s01 and s02 and "no" on s05: all three computed figures.
+    - It missed s04 (t07, Chevron): "yes" on risks that the passages list as risks to Chevron's climate aspirations, which the answer presents as risks to its business. A natural unsupported sentence can pass the judge, so faithfulness may be overstated somewhat.
+    - It passed s06, the one supported sentence it scored. s03 is unscored: its reply judged 3 sentences for a 1-sentence answer, which `judge.parse` rejects.
+    - Cost: 6 calls, 8,337 input and 1,574 output tokens of gpt-oss-120b.
 
 ## Time to first token
 
@@ -146,3 +150,105 @@ The target is p50 1.0 s and p95 2.0 s. On the free tiers FilingLens misses it, a
   - On those, the time before Gemini starts fell from p50 1,060 ms to 684 ms. The median paired change was −268 ms (95% CI −490 to −128, n 16), against the run without the fix.
   - End to end, TTFT stays bound by Gemini: p50 3.7 s and p95 9.6 s at 10:00 UTC.
 - **Reading a TTFT figure:** it depends on the hour it was measured, including the test run's.
+
+## Test run (2026-10-17)
+
+`make eval SUITE=all SPLIT=test` at 07:24 UTC, on the production path (no `--tag`). Commit `77e59a0` with no uncommitted changes, source sha256 `b238808a…`. 30 questions, no errors, 29 of 30 with every call live. Report: `evals/reports/2026-10-17.md`.
+
+The official results are Gemini's (free tiers). The Haiku column is a comparison on the same 30 questions and the same router replies: Claude Haiku 5.5 pinned, thinking off, judge on, nothing tuned. Command: `LLM_PRIMARY=anthropic:claude-haiku-5-5 make eval SUITE=answer SPLIT=test ARGS="--router-primary=gemini:gemini-3.5-flash-lite --primary-tag=fair"`, at 08:47 UTC (report `runs/20261017T084716Z-answer-test-full.md`).
+- It replaces a first Haiku run at 08:29 UTC (`runs/20261017T082950Z`), which asked the router again, because the answer path's cache key includes the primary. The router then routed x13, x14 and x18 as textual, so that run's refusals differed by the router, not the answer model.
+- `--router-primary` keys router calls as Gemini's run did, so all 30 router replies came from it.
+- With no question fully live, Haiku's end-to-end latency is not measured. Its latency cells pair the answer models' own calls.
+
+| Metric | Target | Gemini (official), 95% CI | n | Status | Haiku (comparison), 95% CI |
+| --- | --- | --- | --- | --- | --- |
+| Retrieval recall@10 | 0.90 | 0.583 (0.314 to 0.816) | 6 | fail | same retrieval |
+| MRR@10 | 0.70 | 0.833 (0.500 to 1.000) | 6 | pass | same retrieval |
+| Retrieval latency p95 | 250 ms at about 250k chunks | 336 ms (275 to 364) at 11,263 chunks | 30 | not measured | same retrieval |
+| Numeric exact match | 0.92 | 1.000 (1.000 to 1.000) | 12 | pass | 1.000 (1.000 to 1.000) |
+| Citation precision | 0.95 | 0.944 (0.833 to 1.000) | 20 | fail | 0.958 (0.880 to 1.000) |
+| Citation coverage | 0.95 | 0.971 (0.914 to 1.000) | 20 | pass | 1.000 (1.000 to 1.000) |
+| Faithfulness | 0.92 | 0.970 (0.906 to 1.000) | 20 | pass | 0.944 (0.857 to 1.000) |
+| Correct refusal | 0.90 | 1.000 (1.000 to 1.000) | 7 | pass | 1.000 (1.000 to 1.000) |
+| False refusal | 5% or lower | 13.0% (0.0 to 26.1%) | 23 | fail | 13.0% (0.0 to 26.1%), the same 3 router calls |
+| Time to first token p50 | 1.0 s | 1.55 s (1.45 to 1.62) | 19 | fail | not measured end to end; own first token 0.72 s against Gemini's 0.85 s, paired (difference −0.13 s, CI −0.18 to −0.07), n 22 |
+| Time to first token p95 | 2.0 s | 1.84 s (1.67 to 1.84) | 19 | pass | not measured end to end; own first token 0.94 s against 1.13 s |
+| Full answer latency p95 | 6 s | 2.15 s (1.97 to 4.89) | 21 | pass | not measured end to end; own reply 2.36 s against 2.10 s |
+| Tokens per query, in / out | 8,000 / 600 | 3,188 (2,196 to 4,236) / 161 (119 to 221) | 30 | pass | 4,853 / 278 |
+| Cost per query, paid-equivalent | $0.015 | $0.0010 ($0.0006 to $0.0014) | 30 | pass | $0.0006 ($0.0004 to $0.0009) |
+| Cost per query, as billed | $0.015 | $0 | 30 | pass | $0.0005 in credits ($0.0003 to $0.0008) |
+| Ingestion | 500 filings in under 2 hours | - | - | not measured | - |
+
+- **Every Gemini miss:**
+  - **False refusal 0.130 (3 of 23):** the router sent x13, x14 and x18 out of scope with no tickers. Retrieval ranked their gold first (MRR 1.0), so a correct route would likely have answered.
+  - **Citation precision 0.944 (34 of 36 pairs):** c02's conclusion "Therefore, Alphabet's total revenue was higher in fiscal 2025 [1][2]" got "partly", with neither citation counted as support. The sources state both figures but not the comparison, the reading seen in calibration (s07).
+  - **Recall@10 0.583:** it rests on 6 questions, so one question is worth about 0.17. x12 scored 0.000 and x04 0.429.
+  - **TTFT p50 1.55 s:** the stages run in sequence (router p50 0.62 s, then facts or retrieval, then Gemini). Gemini's own first token drifts with the hour on the free tier (§ Time to first token). It was fast at this hour (generate p50 1.08 s), so the p95 pass is not a steady result.
+  - **Not measured:** retrieval p95 at the 250k-chunk scale (336 ms at 11,263), and ingestion.
+  - **Refused, but not by the expected rule:** t10 (Walmart's fiscal 2027 10-K, a time trap) and a03 (absent) were refused as "nothing relevant enough", because the router gave no ticker.
+- **The Haiku comparison (same routes):**
+  - **Same refusals:** the router's 3 out-of-scope calls refuse for both models, so false refusal is 0.130 for each. Correct refusal is 1.000 for both.
+  - **Quality:** numeric and comparison match 1.000 for both. Citation precision 0.958 against 0.944 (paired difference +0.014, CI −0.103 to +0.147); faithfulness 0.944 against 0.970 (−0.025, CI −0.131 to +0.065). No measurable difference on 20 answers.
+  - **Haiku-specific misses**, as findings:
+    - n28 (Prologis' total liabilities): Haiku hedged that the fact, labeled "fiscal 2025 Q1" for a year-end balance from a 2026 10-Q, "does not directly answer" the year-end question. The value was still exact, and the judge rated the sentence "partly". This is the fact-heading weakness behind dev's n17 and n24.
+    - c12 (Tesla): its conclusion "decreased in fiscal 2025 relative to fiscal 2024" got "partly", the comparison-conclusion reading behind Gemini's c02. Haiku wrote no conclusion for c02.
+  - **Latency, paired on 22 answers:** Haiku's own first token p50 was 0.72 against 0.85 s (difference −0.13 s, 95% CI −0.18 to −0.07) and p95 0.94 against 1.13 s. Its own reply total p50 was 1.09 against 1.08 s.
+  - **Size and cost:** Haiku's answers ran longer, 4,853 input and 278 output tokens per query, citing more passages. It was cut 0 times.
+  - **Spent:** 26 Claude calls (114,659 input and 6,066 output tokens), $0.0145 in credits. Groq: 0 gpt-oss-20b and 19.2K gpt-oss-120b (14 live judge calls; 6 judged answers matched earlier ones in the cache).
+- **Floors:** written from Gemini's run after the user's review (`--set-floors evals/reports/2026-10-17.json`), under `answer:test:full:gemini:gemini-3.5-flash-lite` and `retrieval:test:full`.
+
+### Known weaknesses and v2 ideas
+
+Nothing is tuned on these test results; each idea needs a new dev measurement, and a new golden set version for any test claim.
+
+- **Router out of scope** (x13, x14, x18): in code, a question that names a tracked company (`router.guess`) is never out of scope; or in-scope examples in the router prompt.
+- **Router without tickers** (t10, a03): fill the single named company from `router.guess` when the router gives none, so the time-trap and other rules apply.
+- **Comparison conclusions** (Gemini's c02, Haiku's c12): check "higher" or "lower" against the cited fact values in code, like the derived-number idea in `docs/todo.md`.
+- **Recall on 6 questions:** a v2 set with 20 or more textual test questions and human-verified passage labels. A stronger reranker showed headroom on dev (MiniLM-L-6, recall +0.09 at about 14 times the rerank time).
+- **TTFT:** skip the router call when code can route, or start the answer model on the early search. Measure over several hours.
+- **Fact headings** (Haiku's n17 and n24 on dev, n28 on test): label an instant fact by its date and the period asked for, not by the period of the filing that reported it.
+- **Judge:** the follow-up check passed a natural unsupported sentence (t07). Calibrate on more natural negatives, labeled by a human.
+- **Scale:** retrieval latency at about 250k chunks, and ingestion of 500 filings.
+
+## Answer length: 1,024 tokens
+
+- **Where:** `MAX_TOKENS = 1024` in `packages/llm/src/filinglens_llm/answer.py`. The Answerer passes it to every answer call, the streamed draft and the one regeneration, in evals as in the API. Evals raise it to 4,096 only for Gemini's `--thinking=default` (decision 3).
+- **Why:**
+  - Latency: output tokens set most of an answer's time.
+  - Cost: output is the dearest token, $0.50 per 1M on Haiku and $2.50 on Gemini's paid tier.
+  - Focus: a cited answer is a few sentences plus a Sources block.
+  - Runaway protection: a looping or rambling reply stops at a known size, inside the 30 s answer limit.
+- **Reasoning shares it:** reasoning tokens count toward the limit, so every answer model runs its lowest reasoning setting. Gemini runs minimal thinking, gpt-oss reasoning effort low, and Claude thinking off.
+  - With adaptive thinking, Claude used up the limit on 4 dev answers, and 3 of its regenerations had no text left (§ Claude Haiku 5.5 on dev).
+  - With thinking off, no Claude reply was cut on dev or test; the longest was 956 tokens.
+  - Gemini's replies were never cut on golden v1.
+
+## Claude Haiku 5.5, pinned, on dev (2026-10-17)
+
+One run to catch model-specific breakage, nothing tuned: `LLM_PRIMARY=anthropic:claude-haiku-5-5 make eval SUITE=answer SPLIT=dev ARGS=--no-judge`. It ran with adaptive thinking at effort low and the shared 1,024-token answer cap. Report: `evals/reports/runs/20261017T075734Z-answer-dev-full.md`. Its header says "thinking minimal", the Gemini flag's value; the harness now names Claude's setting.
+
+- **Breakage: thinking uses up the 1,024-token cap.**
+  - 4 answers hit the cap (x03, x07, x17, x19).
+  - In x03, x17 and x19 the regeneration came back with no text at all, so validation kept no sentence. That is 3 of the 6 false refusals.
+  - Fixed by user decision: Claude's thinking is off (effort low accepts that), and the 1,024-token cap stays.
+- **Rerun with thinking off** (`--primary-tag=nothink`, router replies cached; report `20261017T082532Z-answer-dev-full.md`):
+  - 0 truncated, 0 empty replies, 0 errors.
+  - False refusal 0.058 (n17, n24 and x15).
+  - Coverage 0.933 and draft citation pass rate 0.889, against 0.987 and 0.963 with thinking on.
+  - Claude's own first token, paired over 54 questions: p50 0.71 against 0.78 s, p95 1.08 against 3.03 s (95% CI of the difference −3.35 to −1.46 s).
+  - Its end-to-end latency rows rest on 1 question, since only x11's router call ran live.
+  - Two reranks passed their 500 ms limit, so those answers used the fused order.
+  - Credits $0.0381 (67 calls, 301,466 input and 15,870 output tokens).
+- **Numeric:** exact match 0.929 (26 of 28) in both runs. n17 (Goldman Sachs' total assets) and n24 (Lockheed Martin's cash) were answered INSUFFICIENT_EVIDENCE although the XBRL fact was the source given.
+  - Cause, a FilingLens labeling issue that Haiku exposes: both are year-end 2025 balances taken from a 2026 Q2 10-Q's comparative (the latest-filed rule), and the fact heading reads "fiscal 2025 Q2".
+  - Haiku answered that "fiscal 2025 Q2" is not the end of fiscal 2025. Gemini answered from the same heading.
+- **Otherwise:**
+  - Comparison match 1.000 (n 10), coverage 0.987, draft citation pass rate 0.963 (16 quotes), correct refusal 1.000 (n 18).
+  - False refusal 0.115: the 3 truncations, the 2 numeric refusals and x15, which the router sent out of scope.
+  - The one error is x11: the Groq router answered 400.
+  - No Anthropic error, rate limit or refusal.
+- **Latency (69 live answers, one sitting):** TTFT p50 1.58 s and p95 4.23 s, full answer p95 9.48 s, generate p50 1.41 s. Gemini's figures drift with the hour, so this is no comparison.
+- **Tokens and cost:**
+  - Per query: 4,557 input and 394 output tokens; Claude's own output p50 241, max 1,024.
+  - Credits: 60 calls, 243,295 input and 22,083 output tokens, $0.0354 in all, $0.0005 per query as billed.
+  - Groq gpt-oss-20b: 76.3K tokens (69 router calls, new keys for the new primary). No judge.

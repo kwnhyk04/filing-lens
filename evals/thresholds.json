@@ -1,0 +1,22 @@
+{
+ "answer:test:full:gemini:gemini-3.5-flash-lite": {
+  "answer_p95_ms": 6000.0,
+  "citation_coverage": 0.914286,
+  "citation_precision": 0.833333,
+  "correct_refusal": 0.9,
+  "cost_billed_usd": 0.0,
+  "cost_usd": 0.002083,
+  "faithfulness": 0.90625,
+  "false_refusal": 0.26087,
+  "input_tokens": 6354.3,
+  "numeric_exact_match": 0.92,
+  "output_tokens": 331.85,
+  "ttft_p50_ms": 2428.95,
+  "ttft_p95_ms": 2000.0
+ },
+ "retrieval:test:full": {
+  "mrr@10": 0.5,
+  "recall@10": 0.314286,
+  "retrieval_p95_ms": 545.4
+ }
+}

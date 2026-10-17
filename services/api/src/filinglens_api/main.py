@@ -58,10 +58,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     http = httpx.AsyncClient(timeout=TIMEOUT)  # every model provider call
     answerer = None
     if settings.ai_enabled:  # settings checked that each role's key is set
+        extra = settings.llm_answer_fallback  # None keeps the free-only chain
         models = Models(
             router=provider(settings.llm_router, settings, http),
             primary=provider(settings.llm_primary, settings, http),
             fallback=provider(settings.llm_fallback, settings, http),
+            answer_fallback=provider(extra, settings, http) if extra else None,
         )
         evidence = PostgresEvidence(app.state.engine, settings)
         answerer = Answerer(

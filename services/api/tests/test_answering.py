@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+import httpx2
 import pytest
 import respx
 from redis.asyncio import Redis
@@ -20,7 +21,14 @@ from redis.asyncio import Redis
 from filinglens_api.answering import Answerer, Models
 from filinglens_api.schemas import Answer, AnswerCompleted, AnswerDelta, AnswerRequest
 from filinglens_core.errors import AiUnavailableError, OverloadedError
-from filinglens_llm.providers import BASE_URLS, Gemini, OpenAICompatible
+from filinglens_llm.providers import (
+    BASE_URLS,
+    Anthropic,
+    Gemini,
+    OpenAICompatible,
+    Provider,
+    credits_usd,
+)
 from filinglens_llm.validate import citation_error
 from filinglens_retrieval import Hit, Ranking, Scope
 from filinglens_retrieval.facts import Fact
@@ -136,25 +144,62 @@ def chat_stream(text: str) -> httpx.Response:
     return httpx.Response(200, text=body, headers=SSE)
 
 
+def claude_stream(text: str) -> httpx2.Response:
+    """A Claude Messages stream holding `text`, 900 tokens in and 60 out."""
+    start = {"type": "message", "role": "assistant", "content": [], "usage": {"input_tokens": 900}}
+    events = [
+        ("message_start", {"message": start | {"model": "claude-haiku-5-5"}}),
+        ("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}),
+        ("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": text}}),
+        ("content_block_stop", {"index": 0}),
+        ("message_delta", {"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 60}}),
+        ("message_stop", {}),
+    ]
+    body = "".join(f"event: {n}\ndata: {json.dumps(d | {'type': n})}\n\n" for n, d in events)
+    return httpx2.Response(200, text=body, headers=SSE)
+
+
+def claude(
+    *replies: httpx2.Response, today: date = date(2026, 10, 17)
+) -> tuple[Anthropic, list[httpx2.Request]]:
+    """Claude (LLM_ANSWER_FALLBACK) answering each request with the next reply, and its requests."""
+    sent: list[httpx2.Request] = []
+    queue = list(replies)
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        return queue.pop(0)
+
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
+    expires = date(2026, 11, 10)
+    model = Anthropic(
+        "claude-haiku-5-5", "k", expires=expires, today=lambda: today, http_client=client
+    )
+    return model, sent
+
+
 def answerer(
     recorded: dict[str, Any],
     http: httpx.AsyncClient,
     max_inflight: int,
     evidence: RecordedEvidence | None = None,
+    answer_fallback: Provider | None = None,
     **options: Any,
 ) -> Answerer:
     groq = OpenAICompatible("groq", BASE_URLS["groq"], "openai/gpt-oss-20b", "k", http)
     nvidia = OpenAICompatible("nvidia", BASE_URLS["nvidia"], "openai/gpt-oss-20b", "k", http)
-    models = Models(
-        router=groq, primary=Gemini("gemini-3.5-flash-lite", KEY, http), fallback=nvidia
-    )
+    gemini = Gemini("gemini-3.5-flash-lite", KEY, http)
+    models = Models(groq, gemini, nvidia, answer_fallback)
     redis = Redis.from_url("redis://0.0.0.0:1/0")  # down: usage is logged, not counted
     evidence = evidence or RecordedEvidence(recorded["evidence"])
     return Answerer(evidence, models, redis, max_inflight=max_inflight, **options)
 
 
 async def run(
-    name: str, evidence: RecordedEvidence | None = None, **options: Any
+    name: str,
+    evidence: RecordedEvidence | None = None,
+    answer_fallback: Provider | None = None,
+    **options: Any,
 ) -> tuple[Answer, str, dict[str, Any]]:
     """Answer the fixture's question; returns the answer, the joined deltas and the stats."""
     recorded = fixture(name)
@@ -163,7 +208,7 @@ async def run(
         deltas: list[str] = []
         answer = None
         request = AnswerRequest(question=recorded["question"])
-        pipeline = answerer(recorded, http, 2, evidence, **options)
+        pipeline = answerer(recorded, http, 2, evidence, answer_fallback, **options)
         async for event in pipeline.events(request, stats):
             if isinstance(event, AnswerDelta):
                 deltas.append(event.text)
@@ -296,6 +341,73 @@ async def test_a_fallback_without_credits_or_retired_fails_the_answer_with_503(
     with pytest.raises(AiUnavailableError, match=says) as raised:
         await run("numeric")
     assert raised.value.http_status == 503 and nvidia.call_count == 1  # 402/410: no retry
+
+
+async def test_claude_answers_when_gemini_fails_and_its_credits_are_counted(
+    mocked: respx.MockRouter,
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1])  # the router's reply
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=RATE_LIMITED)
+    nvidia = mocked.post(host="integrate.api.nvidia.com", path=NVIDIA_CHAT)
+    model, sent = claude(claude_stream(reply_text(recorded["exchanges"][1]["body"])))
+    answer, _, stats = await run("numeric", answer_fallback=model)
+    assert not answer.refused and len(sent) == 1 and not nvidia.called  # Claude before NVIDIA
+    assert [entry.split(": ")[1] for entry in stats["fallbacks"]] == [
+        "gemini:gemini-3.5-flash-lite"
+    ]
+    assert answer.usage.cost_usd == pytest.approx(credits_usd(model.name, 900, 60))
+
+
+async def test_claude_without_credits_hands_over_to_nvidia_and_is_skipped_after(
+    mocked: respx.MockRouter,
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1] * 2)  # the router's reply, for two answers
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=RATE_LIMITED)
+    text = reply_text(recorded["exchanges"][1]["body"])
+    nvidia = mocked.post(host="integrate.api.nvidia.com", path=NVIDIA_CHAT)
+    nvidia.mock(side_effect=[chat_stream(text), chat_stream(text)])
+    body = {"type": "error", "error": {"type": "billing_error", "message": "No credit left."}}
+    model, sent = claude(httpx2.Response(402, json=body))
+    first, _, stats = await run("numeric", answer_fallback=model)
+    assert not first.refused and first.usage.cost_usd == 0.0
+    assert [entry.split(": ")[1] for entry in stats["fallbacks"]] == [
+        "gemini:gemini-3.5-flash-lite",
+        "anthropic:claude-haiku-5-5",
+    ]
+    second, _, stats = await run("numeric", answer_fallback=model)
+    assert not second.refused and len(stats["fallbacks"]) == 1  # Gemini to NVIDIA directly
+    assert len(sent) == 1 and nvidia.call_count == 2
+
+
+async def test_claude_is_skipped_from_the_day_its_credits_expire(mocked: respx.MockRouter) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1])
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=RATE_LIMITED)
+    nvidia = mocked.post(host="integrate.api.nvidia.com", path=NVIDIA_CHAT)
+    nvidia.mock(return_value=chat_stream(reply_text(recorded["exchanges"][1]["body"])))
+    model, sent = claude(today=date(2026, 11, 10))
+    answer, _, _ = await run("numeric", answer_fallback=model)
+    assert not answer.refused and not sent and nvidia.call_count == 1
+
+
+async def test_an_eval_pinned_to_claude_stops_once_its_credits_are_gone(
+    mocked: respx.MockRouter,
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1])
+    body = {"type": "error", "error": {"type": "billing_error", "message": "No credit left."}}
+    model, _ = claude(httpx2.Response(402, json=body))
+    async with httpx.AsyncClient() as http:
+        groq = OpenAICompatible("groq", BASE_URLS["groq"], "openai/gpt-oss-20b", "k", http)
+        evidence = RecordedEvidence(recorded["evidence"])
+        redis = Redis.from_url("redis://0.0.0.0:1/0")
+        models = Models(router=groq, primary=model, fallback=model)  # as evals pin one model
+        pipeline = Answerer(evidence, models, redis, max_inflight=1, allow_fallback=False)
+        with pytest.raises(AiUnavailableError, match="off for the credit period"):
+            async for _ in pipeline.events(AnswerRequest(question=recorded["question"])):
+                pass  # evals exit 2 on this error (evals.harness)
 
 
 async def test_a_failed_router_call_routes_with_the_fallback(mocked: respx.MockRouter) -> None:

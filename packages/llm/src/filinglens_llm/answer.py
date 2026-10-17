@@ -25,7 +25,7 @@ from filinglens_llm.validate import (
 )
 
 INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
-MAX_TOKENS = 1024
+MAX_TOKENS = 1024  # answers and regenerations: short, fast, cheap, no runaway (docs/context.md)
 SOURCES_HEADING = re.compile(r"^[ \t*#_]*sources[ \t*_]*:?[ \t*_]*$", re.IGNORECASE | re.MULTILINE)
 SOURCE_LINE = re.compile(
     r"^[ \t*-]*\[\s*(?P<alias>[CF]\d+)\s*\][ \t:|\-]*(?P<quote>.*?)[ \t]*$", re.MULTILINE

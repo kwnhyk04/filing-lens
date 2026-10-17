@@ -5,6 +5,7 @@ import asyncio
 import json
 from collections import Counter
 from collections.abc import AsyncIterator, Mapping
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -15,8 +16,8 @@ from evals import harness, judge
 from evals.calibrate import FOLLOWUP_MODELS, draw, draw_followup, imported, spot_check
 from evals.calls import Cache, Call, Recorded, Stop, patiently
 from evals.harness import EvalSettings, answer_path, code_version, refusal_sweep, routed
-from filinglens_core.errors import RateLimitedError
-from filinglens_core.settings import ApiSettings
+from filinglens_core.errors import AiUnavailableError, RateLimitedError
+from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_llm.providers import Completion
 
 
@@ -88,6 +89,10 @@ def test_a_tag_joins_the_answer_path_only_when_set() -> None:
     # Every earlier run's cache keys hold exactly these: a new field would re-ask every model.
     assert set(untagged) == {"router", "primary", "embedder", "reranker", "rerank", "index"}
     assert answer_path(settings, {"sha256": "abc"}, "d3") == untagged | {"tag": "d3"}
+    # --router-primary: a Claude run's router keys equal the Gemini run's, so it reuses its routes.
+    claude = cast(ApiSettings, SimpleNamespace(**vars(stub) | {"llm_primary": "anthropic:x"}))
+    routes = answer_path(claude, {"sha256": "abc"}, "", "gemini:gemini-3.5-flash-lite")
+    assert routes == untagged and answer_path(claude, {"sha256": "abc"}, "") != untagged
 
 
 async def test_a_429_waits_and_the_third_in_a_row_stops_the_run(
@@ -193,8 +198,10 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
         "false_refusal": entry(0.10, 0.0, 0.20),
         "ttft_p95_ms": entry(3000.0, 2500.0, 3500.0),  # live latency, past its 2,000 ms target
         "input_tokens": entry(3000.0, 2800.0, 3200.0),
+        "cost_billed_usd": entry(0.0, 0.0, 0.0),
     }
     report = {"suite": "all", "split": "test", "subset": "full"} | {
+        "config": {"primary": "gemini:gemini-3.5-flash-lite"},
         "judge_calibration": {"kappa": 0.84},
         "metrics": {"answer": answer, "retrieval": {"recall@10": entry(0.60, 0.45, 0.75)}},
     }
@@ -202,24 +209,75 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
     saved.write_text(json.dumps(report), encoding="utf-8")
     harness.set_floors(saved)
     floors = json.loads(thresholds.read_text(encoding="utf-8"))
-    assert floors["answer:test:full"] == {
+    free = "answer:test:full:gemini:gemini-3.5-flash-lite"  # answer floors go per primary model
+    assert floors[free] == {
         "numeric_exact_match": 0.9,  # min(low, target)
         "faithfulness": 0.9,  # counted: the run's judge was calibrated
         "false_refusal": 0.2,  # a ceiling: max(high, target)
         "ttft_p95_ms": 5250.0,  # a known miss: high x 1.5
         "input_tokens": 4800.0,  # meets its target: min(high x 1.5, target)
+        "cost_billed_usd": 0.0,  # the free setup bills nothing
     }
     assert floors["retrieval:test:full"] == {"recall@10": 0.45}
     answer["ttft_p95_ms"] = entry(2800.0, 2400.0, 3000.0)
     saved.write_text(json.dumps(report), encoding="utf-8")
     harness.set_floors(saved)
-    tightened = json.loads(thresholds.read_text(encoding="utf-8"))["answer:test:full"]
+    tightened = json.loads(thresholds.read_text(encoding="utf-8"))[free]
     assert tightened["ttft_p95_ms"] == 4500.0  # floors only tighten
     answer["ttft_p95_ms"] = entry(4000.0, 3600.0, 4400.0)
     saved.write_text(json.dumps(report), encoding="utf-8")
     harness.set_floors(saved)  # a slower run: past the floor, which stays
-    kept = json.loads(thresholds.read_text(encoding="utf-8"))["answer:test:full"]
+    kept = json.loads(thresholds.read_text(encoding="utf-8"))[free]
     assert kept["ttft_p95_ms"] == 4500.0
+    claude = report | {
+        "config": {"primary": "anthropic:claude-haiku-5-5"},
+        "metrics": {"answer": {"cost_billed_usd": entry(0.0006, 0.0005, 0.0007)}},
+    }
+    saved.write_text(json.dumps(claude), encoding="utf-8")
+    harness.set_floors(saved)
+    floors = json.loads(thresholds.read_text(encoding="utf-8"))
+    # Credits spent: the efficiency rule, min(high x 1.5, target), under its own key.
+    assert floors["answer:test:full:anthropic:claude-haiku-5-5"] == {"cost_billed_usd": 0.00105}
+    assert floors[free]["cost_billed_usd"] == 0.0
+
+
+def test_the_judge_can_never_be_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = {
+        "DATABASE_URL": "postgresql+asyncpg://app:p@localhost:5433/app",
+        "REDIS_URL": "redis://localhost:6380/0",
+        "BROKER_URL": "amqp://app:p@localhost:5672//",
+        "API_KEY": "k" * 32,
+        "ADMIN_API_KEY": "a" * 32,
+        "LLM_JUDGE": "anthropic:claude-haiku-5-5",  # its reference labels came from Claude
+    }
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(SystemExit, match=r"LLM_JUDGE: .*cannot be Claude"):
+        load_settings(EvalSettings)
+
+
+async def test_credits_gone_in_an_eval_stop_the_run_with_exit_2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Gone:
+        """The Answerer once the pinned model's credits are gone (no fallback in evals)."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def events(self, *args: Any) -> AsyncIterator[Any]:
+            raise AiUnavailableError("anthropic:claude-haiku-5-5 is off for the credit period.")
+            yield  # an async generator, as Answerer.events is
+
+    monkeypatch.setattr(harness, "Answerer", Gone)
+    suite = SimpleNamespace(
+        evidence=None, redis=None, as_of=date(2026, 10, 16), models=lambda qid, calls: None,
+        args=SimpleNamespace(min_relevance=-3.0, judge=False),
+    )  # fmt: skip
+    question = {"id": "x01", "question": "What does Apple make?"}
+    with pytest.raises(Stop) as stopped:
+        await harness.AnswerSuite.one(cast(harness.AnswerSuite, suite), question)
+    assert stopped.value.code == 2
 
 
 def test_the_code_version_pins_the_source_as_it_stands() -> None:

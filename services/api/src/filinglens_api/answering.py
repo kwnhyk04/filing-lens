@@ -7,13 +7,16 @@ the question names (router.guess), and is kept only when the router's plan asks 
 scope, so it changes when an answer arrives, never what it says. The primary model (LLM_PRIMARY)
 writes the answer with [n] markers and quotes, and every sentence must pass validation
 (filinglens_llm.answer.check); a failure gets one regeneration, then the failing sentences are
-dropped with a warning. A router or primary call
-that fails falls back once to LLM_FALLBACK, unless allow_fallback is off (evals), and each fallback
-is logged and counted. Out-of-scope questions, unknown companies, fiscal years with no 10-K yet
-and questions without relevant evidence get a refusal instead of a model answer.
+dropped with a warning. A router call
+that fails falls back to LLM_FALLBACK; an answer call tries LLM_ANSWER_FALLBACK first while it is on
+(Claude, until its credits are gone or expire), then LLM_FALLBACK. Evals turn fallbacks off
+(allow_fallback), and each fallback is logged and counted. Out-of-scope questions, unknown
+companies, fiscal years with no 10-K yet and questions without relevant evidence get a refusal
+instead of a model answer.
 """
 
 import asyncio
+import itertools
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -45,7 +48,7 @@ from filinglens_core.settings import ApiSettings
 from filinglens_db.models import Company, Filing, FilingStatus
 from filinglens_llm import answer as drafting
 from filinglens_llm import budget, router
-from filinglens_llm.providers import Completion, Provider
+from filinglens_llm.providers import Anthropic, Completion, Provider, credits_usd
 from filinglens_retrieval import Hit, Ranking, Scope, search
 from filinglens_retrieval.facts import Fact, get_financial_fact, latest_fiscal_year
 
@@ -86,6 +89,7 @@ class Models:
     router: Provider
     primary: Provider
     fallback: Provider
+    answer_fallback: Provider | None = None  # LLM_ANSWER_FALLBACK: answers only, before `fallback`
 
 
 @dataclass
@@ -97,6 +101,7 @@ class _Run:
     timings_ms: dict[str, float] = field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
+    cost_usd: float = 0.0  # prepaid credits spent (Claude); the free tiers cost nothing
     fallbacks: list[str] = field(default_factory=list)
     first_token_ms: float | None = None
     top_score: float | None = None  # the best hit's rerank score, when the answer searched
@@ -184,6 +189,7 @@ class Answerer:
                 degraded=outcome.degraded if outcome else None,
                 input_tokens=run.input_tokens,
                 output_tokens=run.output_tokens,
+                cost_usd=run.cost_usd,
                 fallbacks=run.fallbacks,
                 first_token_ms=run.first_token_ms,
                 **run.timings_ms,
@@ -240,7 +246,7 @@ class Answerer:
                 routing = router.resolve(await ask(provider, retry), companies)
             return routing
 
-        return await self._with_fallback("router", self._models.router, route, run)
+        return await self._with_fallback("router", route, run)
 
     async def _plan(self, request: AnswerRequest, routing: router.Routing) -> "_Plan | str":
         """The companies and years to read, or a refusal."""
@@ -337,7 +343,7 @@ class Answerer:
                 await self._spent(completion, run)
                 return completion
 
-            again = await self._with_fallback("primary", self._models.primary, redo, run)
+            again = await self._with_fallback("primary", redo, run)
             reply = drafting.read_reply(again.text)
             checked = drafting.check(reply, by_alias)
             warnings.append("The draft failed validation, so the answer was written again.")
@@ -370,11 +376,22 @@ class Answerer:
         )
         yield AnswerCompleted(answer=answer)
 
+    def _chain(self, role: str) -> list[Provider]:
+        """The models a router or answer call tries in order: its own, then for answers
+        LLM_ANSWER_FALLBACK unless it is off for the credit period, then LLM_FALLBACK; evals turn
+        fallbacks off."""
+        models = self._models
+        chain = [models.router if role == "router" else models.primary]
+        if self._allow_fallback:
+            extra = models.answer_fallback
+            if role == "primary" and extra and not (isinstance(extra, Anthropic) and extra.off()):
+                chain.append(extra)
+            chain.append(models.fallback)
+        return list(dict.fromkeys(chain))  # a model in two places is tried once
+
     async def _stream(self, system: str, user: str, run: _Run) -> AsyncIterator[str | Completion]:
-        """The primary's stream; a failure before its first text falls back to LLM_FALLBACK."""
-        chain = [self._models.primary]
-        if self._allow_fallback and self._models.fallback is not self._models.primary:
-            chain.append(self._models.fallback)
+        """The answer's stream; a failure before the first text tries the next model."""
+        chain = self._chain("primary")
         for attempt, provider in enumerate(chain):
             started = False
             try:
@@ -388,30 +405,31 @@ class Answerer:
             except FilingLensError as exc:
                 if started or attempt == len(chain) - 1:
                     raise _final(exc) from exc
-                await self._fell_back("primary", provider, exc, run)
+                await self._fell_back("primary", provider, chain[attempt + 1], exc, run)
 
     async def _with_fallback[T](
-        self, role: str, first: Provider, call: Callable[[Provider], Awaitable[T]], run: _Run
+        self, role: str, call: Callable[[Provider], Awaitable[T]], run: _Run
     ) -> T:
-        try:
-            return await call(first)
-        except FilingLensError as exc:
-            fallback = self._models.fallback
-            if not self._allow_fallback or fallback is first:
-                raise _final(exc) from exc
-            await self._fell_back(role, first, exc, run)
+        chain = self._chain(role)
+        for provider, next_one in itertools.pairwise(chain):
             try:
-                return await call(fallback)
-            except FilingLensError as again:
-                raise _final(again) from again
+                return await call(provider)
+            except FilingLensError as exc:
+                await self._fell_back(role, provider, next_one, exc, run)
+        try:
+            return await call(chain[-1])
+        except FilingLensError as exc:
+            raise _final(exc) from exc
 
-    async def _fell_back(self, role: str, provider: Provider, exc: Exception, run: _Run) -> None:
+    async def _fell_back(
+        self, role: str, provider: Provider, to: Provider, exc: Exception, run: _Run
+    ) -> None:
         run.fallbacks.append(f"{role}: {provider.name}: {exc}")
         log.warning(
             "model call fell back",
             role=role,
             model=provider.name,
-            fallback=self._models.fallback.name,
+            fallback=to.name,
             reason=str(exc),
         )
         try:
@@ -422,6 +440,9 @@ class Answerer:
     async def _spent(self, completion: Completion, run: _Run) -> None:
         run.input_tokens += completion.input_tokens
         run.output_tokens += completion.output_tokens
+        run.cost_usd += credits_usd(
+            completion.model, completion.input_tokens, completion.output_tokens
+        )
         try:
             await budget.record(self._redis, completion.input_tokens + completion.output_tokens)
         except RedisError as error:  # the answer already cost the tokens; keep it
@@ -482,7 +503,9 @@ def _final(exc: FilingLensError) -> FilingLensError:
 
 
 def _usage(run: _Run) -> Usage:
-    return Usage(input_tokens=run.input_tokens, output_tokens=run.output_tokens, cost_usd=0.0)
+    return Usage(
+        input_tokens=run.input_tokens, output_tokens=run.output_tokens, cost_usd=run.cost_usd
+    )
 
 
 def _folder(cik: int, accession_number: str) -> str:

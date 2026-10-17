@@ -15,6 +15,103 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-17: Fair Haiku comparison on Gemini's router replies; floors checked; answer limit documented
+
+- Changes (user requests):
+  - **`--router-primary`:** `evals/harness.py` gains `--router-primary=PROVIDER:MODEL`, which keys router calls as that primary's run did, so another answer model reuses its exact router replies. `answer_path` takes a `primary` override; runs without the flag keep their cache keys.
+  - **Fair comparison:** the Haiku comparison was rerun on Gemini's router replies and replaces the earlier one in the README and eval card, which say why.
+  - **Answer limit:** documented in context.md, the eval card and a comment on `MAX_TOKENS`: where it is set, why, and that Claude's thinking is off.
+- Files: evals/harness.py, evals/tests/test_calls.py, packages/llm/src/filinglens_llm/answer.py, README.md, evals/eval-card.md, docs/*
+- Validation:
+  - `make test` 271 passed; ruff and pyright clean. The answer-path test now checks that a router path for another primary equals that primary's path.
+  - **Fair run** (`20261017T084716Z`, `--router-primary=gemini:gemini-3.5-flash-lite --primary-tag=fair`, judge on):
+    - All 30 router replies came from Gemini's run (0 gpt-oss-20b). Exit 0, 0 errors, 0 truncated.
+    - Numeric 1.000, citation precision 0.958, faithfulness 0.944, false refusal 0.130 (the same 3 router calls).
+    - Paired own first token p50 0.72 against 0.85 s.
+    - Spent: $0.0145 in credits and 19.2K gpt-oss-120b.
+    - Findings: n28 hedged over its "fiscal 2025 Q1" fact heading, and c12's comparison conclusion was rated "partly".
+  - **Floors file:** `ttft_p50_ms` is 2428.95 on disk, so the reported 0 was a cut paste. Both TTFT floors follow the rule, so nothing changed.
+  - **Spent today:** about 144K gpt-oss-20b and 75K gpt-oss-120b; Claude credits $0.106 across 4 runs.
+- Outstanding: turning Haiku on in `.env` (user decision); the v2 ideas; step 7.
+
+### 2026-10-17: Haiku thinking off, dev rerun, Haiku test comparison, floors written, api rebuilt
+
+- Changes (user decisions):
+  - **Claude:** thinking off at effort low (`CLAUDE_THINKING`), with the 1,024-token answer cap kept. The eval cache key and the report header carry the setting.
+  - **Floors:** written from Gemini's test report (`--set-floors evals/reports/2026-10-17.json`). `evals/thresholds.json` holds `retrieval:test:full` (3 floors) and `answer:test:full:gemini:gemini-3.5-flash-lite` (13 floors).
+  - **Docs:** the README and eval card carry the official Gemini table with CIs, a Haiku comparison column, every miss explained, and known weaknesses with v2 ideas.
+  - **api:** rebuilt and restarted on this code.
+- Files: packages/llm/src/filinglens_llm/providers.py, packages/llm/tests/test_providers.py, evals/harness.py, evals/thresholds.json (new), evals/eval-card.md, README.md, docs/*
+- Validation:
+  - `make test` 271 passed; ruff and pyright clean.
+  - **Dev rerun** (`20261017T082532Z`, `--primary-tag=nothink`, router replies cached):
+    - 0 truncated, 0 empty replies, 0 errors; false refusal 0.058 (n17, n24, x15).
+    - Claude's own first token p95 1.08 s against 3.03 s with thinking on, paired.
+    - Credits $0.0381; about 1K gpt-oss-20b.
+    - n17 and n24 trace to fact headings that read "fiscal 2025 Q2" for year-end values from 2026 Q2 10-Qs (facts 460279, 557549).
+  - **Haiku test, pinned, judge on** (`20261017T082950Z-answer-test-full`): exit 0, 0 errors.
+    - Numeric 1.000, citation precision 1.000, faithfulness 0.979, false refusal 0.000, TTFT p50 1.58 s and p95 2.71 s.
+    - The router routed x13, x14 and x18 as textual this time.
+    - Credits $0.0177; Groq 33.2K gpt-oss-20b and 28.1K gpt-oss-120b.
+  - **api:** healthy, `/readyz` ok; inside it, anthropic 1.15.0 with thinking disabled. `.env` keeps `AI_ENABLED=false` and no `LLM_ANSWER_FALLBACK`.
+  - **Spent today:** about 144K gpt-oss-20b and 56K gpt-oss-120b; Claude credits $0.0912 across 3 runs.
+- Outstanding: turning Haiku on in `.env` (user decision); the v2 ideas; step 7.
+
+### 2026-10-17: Claude Haiku 5.5 as the answer's first fallback; one pinned dev run
+
+- Changes (user request; decisions in memory.md):
+  - **Provider:** `filinglens_llm.providers.Anthropic` on the official SDK (`anthropic` 1.15.0, which runs on httpx2, so it has its own client):
+    - Adaptive thinking at effort low; text deltas only.
+    - Credits gone (a 402, a 400 naming a spend limit or the credit balance, a 429 without Retry-After) turn it off for the rest of the credit period, with one warning line. The expiry date does too.
+    - A 429 asking for 10 s or less is retried once.
+    - A refusal fails the call.
+    - `credits_usd` prices a call from its usage.
+  - **Settings:**
+    - `LLM_ANSWER_FALLBACK` (empty by default: the free-only chain), `ANTHROPIC_CREDITS_EXPIRE` (2026-11-10) and `ANTHROPIC_API_KEY`.
+    - Claude cannot be `LLM_ROUTER` or `LLM_FALLBACK`, and `LLM_JUDGE` never Claude.
+  - **Answers:** the answer chain is Gemini, Claude while it is on, NVIDIA; the router's chain is unchanged. `Usage.cost_usd` and the answer log carry the credits spent.
+  - **Evals:**
+    - Cost as billed comes from call usage, and Claude's effort joins its cache key.
+    - The billed floor is $0 only on the free setup, and answer floors are keyed per primary model.
+    - Report headers name each primary's real thinking setting.
+    - `providers.json` has Haiku's price and limits.
+  - **Config:** compose passes the three variables to the api; `.env.example` and the README are updated.
+  - **Dependencies:** `anthropic` 1.15.0 (with docstring-parser and jiter), plus httpx2 and structlog declared for filinglens-llm (both already locked).
+- Files: packages/llm (pyproject.toml, providers.py, tests/test_providers.py), packages/core (settings.py, tests/test_settings.py), services/api (answering.py, main.py, tests/test_answering.py), evals (harness.py, metrics.py, providers.json, tests/test_calls.py, eval-card.md), infra/docker-compose.yml, .env.example, uv.lock, README.md, docs/*
+- Validation:
+  - `make test` 271 passed (15 new); ruff and pyright clean; `make test-int` 28 passed (175 s).
+  - `ANTHROPIC_API_KEY` is set in `.env` (checked without printing it).
+  - Dev run with Haiku pinned, once, no tuning, no judge (`20261017T075734Z`, 07:44-07:57 UTC):
+    - Exit 0, 1 error (x11: the Groq router answered 400).
+    - Numeric 0.929, comparison 1.000, coverage 0.987, correct refusal 1.000, false refusal 0.115.
+    - TTFT p50 1.58 s, p95 4.23 s.
+    - Credits $0.0354 (60 calls, 243,295 in, 22,083 out); gpt-oss-20b 76.3K.
+  - Breakage found: thinking uses up the 1,024-token answer cap. 4 answers were cut, and 3 regenerations came back with no text (3 false refusals). Also n17 and n24 answered INSUFFICIENT_EVIDENCE despite their fact.
+- Outstanding (user review):
+  - The cap fix, then a dev rerun with `--primary-tag`, then the Haiku test run.
+  - Whether `.env` sets `LLM_ANSWER_FALLBACK`.
+  - Rebuilding the api image with this code. It still runs `77e59a0`.
+
+### 2026-10-17: 6b test day: follow-up spot check, rebuild, integrity checks, golden v1 test run
+
+- Changes:
+  - **Stack:** no code changes. All six of this project's containers had exited about 13 minutes before the session (exit 255, likely a Docker restart).
+    - Postgres, Redis and RabbitMQ started first; every queue was empty, so the corpus freeze held.
+    - api, ingest and embed were rebuilt from `77e59a0` and started; all healthy, `/readyz` ok.
+  - **Follow-up import** (`make calibrate ARGS="followup import"`) wrote `evals/calibration/v1-followup/result.json`.
+  - **Test run** (`make eval SUITE=all SPLIT=test`) wrote `evals/reports/2026-10-17.json` and `.md` and an `eval_runs` row.
+- Files: evals/calibration/v1-followup/result.json, evals/reports/2026-10-17.json and .md, evals/eval-card.md, README.md, docs/todo.md, docs/memory.md, docs/context.md, docs/activity-log.md
+- Validation:
+  - **Follow-up spot check (07:17 UTC):** the judge failed 3 of the 4 sentences Claude labeled not supported and missed s04 (t07). It passed s06; s03 is unscored. 6 calls, 9.9K gpt-oss-120b.
+  - **Integrity before the run:** commit `77e59a0`, `dirty` false, source sha256 `b238808a…` as expected. Calibration v1's four hashes and the golden manifest hash match. Golden v1 is frozen and the corpus check passed.
+  - **Test run (07:24 UTC):** exit 0, 30 questions, 0 errors, 29 all-live.
+    - Pass: numeric exact match 1.000, coverage 0.971, faithfulness 0.970, correct refusal 1.000, MRR@10 0.833, TTFT p95 1.84 s, answer p95 2.15 s, tokens and cost.
+    - Fail: false refusal 0.130 (the router sent x13, x14 and x18 out of scope), citation precision 0.944 (c02's conclusion), recall@10 0.583 (n 6), TTFT p50 1.55 s.
+    - Not measured: retrieval p95 at about 250k chunks.
+    - Spent: 33.2K gpt-oss-20b, 17.9K gpt-oss-120b, 23 Gemini calls (one Gemini 429 waited 60 s).
+  - **Floors:** the rule's values were computed without writing; `evals/thresholds.json` still does not exist. They are listed in todo.md.
+- Outstanding: the user's review of the results and floors; the router's out-of-scope misses.
+
 ### 2026-10-16: gitleaks findings fixed at the source (cache digests named `key`)
 
 - Changes:

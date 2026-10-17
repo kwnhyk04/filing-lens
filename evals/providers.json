@@ -23,6 +23,14 @@
   "price_source": "https://console.groq.com/docs/model/openai/gpt-oss-120b",
   "price_read_on": "2026-10-16"
  },
+ "anthropic:claude-haiku-5-5": {
+  "limits": {"requests_per_minute": 1000, "input_tokens_per_minute": 2000000, "output_tokens_per_minute": 400000},
+  "limits_source": "https://platform.claude.com/docs/en/api/rate-limits (Start tier; this organization's tier not read)",
+  "limits_read_on": "2026-10-17",
+  "price_per_million": {"input": 0.10, "output": 0.50},
+  "price_source": "user (2026-10-17) and Anthropic's model table: prompts up to 100K tokens ($0.50 / $2.50 above); billed from prepaid credits that expire 2026-11-10",
+  "price_read_on": "2026-10-17"
+ },
  "nvidia:openai/gpt-oss-20b": {
   "limits": {"requests_per_minute": 40},
   "limits_source": "secondary sources; NVIDIA publishes no table",

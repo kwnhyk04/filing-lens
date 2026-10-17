@@ -3,8 +3,9 @@
 Each process loads only the class it needs, so the worker never sees the API key.
 """
 
+from datetime import date
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     AmqpDsn,
@@ -41,9 +42,10 @@ PROVIDER_KEYS = {
     "groq": "groq_api_key",
     "openrouter": "openrouter_api_key",
     "nvidia": "nvidia_api_key",
+    "anthropic": "anthropic_api_key",
     "ollama": None,
 }
-ModelRole = Annotated[str, Field(pattern=r"^(gemini|groq|openrouter|nvidia|ollama):\S+$")]
+ModelRole = Annotated[str, Field(pattern=r"^(gemini|groq|openrouter|nvidia|anthropic|ollama):\S+$")]
 
 
 class DatabaseSettings(BaseSettings):
@@ -79,18 +81,35 @@ class ApiSettings(DatabaseSettings):
     llm_primary: ModelRole = "gemini:gemini-3.5-flash-lite"
     llm_router: ModelRole = "groq:openai/gpt-oss-20b"
     llm_fallback: ModelRole = "nvidia:openai/gpt-oss-20b"  # provisional until the key lists models
+    # Answers only: tried after LLM_PRIMARY, before LLM_FALLBACK. Empty keeps the free-only chain;
+    # anthropic:claude-haiku-5-5 runs on prepaid credits, skipped once they are gone and from the
+    # day ANTHROPIC_CREDITS_EXPIRE (UTC).
+    llm_answer_fallback: ModelRole | None = None
+    anthropic_credits_expire: date = date(2026, 11, 10)
     gemini_api_key: SecretStr | None = None
     groq_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     nvidia_api_key: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = None
     ollama_url: HttpUrl = HttpUrl("http://127.0.0.1:11434/v1")
+
+    @field_validator("llm_answer_fallback", mode="before")
+    @classmethod
+    def _empty_is_off(cls, value: Any) -> Any:
+        return value or None  # compose passes LLM_ANSWER_FALLBACK= when it is unset
 
     @model_validator(mode="after")
     def _keys_for_roles(self) -> Self:
-        """With AI on, every role's provider needs its key; the error names the variable."""
+        """With AI on, every role's provider needs its key; the error names the variable. Claude
+        writes answers only, so it cannot route (LLM_FALLBACK routes when the router fails)."""
+        for role in ("llm_router", "llm_fallback"):
+            if getattr(self, role).startswith("anthropic:"):
+                raise ValueError(f"{role.upper()} cannot be Claude, which writes answers only")
         if self.ai_enabled:
-            for role in ("llm_primary", "llm_router", "llm_fallback"):
-                key = PROVIDER_KEYS[getattr(self, role).partition(":")[0]]
+            for role in ("llm_primary", "llm_router", "llm_fallback", "llm_answer_fallback"):
+                if (value := getattr(self, role)) is None:
+                    continue
+                key = PROVIDER_KEYS[value.partition(":")[0]]
                 secret: SecretStr | None = getattr(self, key) if key else None
                 if key is not None and (secret is None or not secret.get_secret_value()):
                     raise ValueError(f"{role.upper()} needs {key.upper()} while AI_ENABLED=true")

@@ -1,0 +1,48 @@
+{
+ "n": 6,
+ "unscored": 1,
+ "unsupported": 4,
+ "caught": 3,
+ "supported": 2,
+ "supported_yes": 1,
+ "items": [
+  {
+   "id": "s01",
+   "model": "nvidia:nvidia/nemotron-3-super-120b-a12b",
+   "label": false,
+   "verdict": "partly"
+  },
+  {
+   "id": "s02",
+   "model": "nvidia:openai/gpt-oss-20b",
+   "label": false,
+   "verdict": "partly"
+  },
+  {
+   "id": "s03",
+   "model": "nvidia:nvidia/nemotron-3-super-120b-a12b",
+   "label": true,
+   "verdict": null
+  },
+  {
+   "id": "s04",
+   "model": "nvidia:openai/gpt-oss-20b",
+   "label": false,
+   "verdict": "yes"
+  },
+  {
+   "id": "s05",
+   "model": "nvidia:openai/gpt-oss-20b",
+   "label": false,
+   "verdict": "no"
+  },
+  {
+   "id": "s06",
+   "model": "nvidia:openai/gpt-oss-20b",
+   "label": true,
+   "verdict": "yes"
+  }
+ ],
+ "labeler": "claude",
+ "judge": "groq:openai/gpt-oss-120b"
+}

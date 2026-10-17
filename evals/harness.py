@@ -9,8 +9,10 @@ intervals, floors and reports (docs/todo.md, step 6b).
 ARGS: --tag=NAME calls the answer models live once, keyed under NAME, and leaves earlier replies
 as earlier reports read them (the same NAME reuses that run's replies); --primary-tag=NAME does
 that for the primary only, so router replies come from the cache (a repeated latency pass on the
-same routes); --min-relevance=X sets the refusal gate (-100 turns it off); --thinking=default gives
-Gemini its own thinking and 4,096 output tokens; --no-judge skips the judge.
+same routes); --router-primary=PROVIDER:MODEL reuses the router replies of that primary's run, so
+another answer model gets identical inputs; --min-relevance=X sets the refusal gate (-100 turns it
+off); --thinking=default gives Gemini its own thinking and 4,096 output tokens; --no-judge skips the
+judge.
 
 A run checks the floors in evals/thresholds.json and never writes them. --set-floors applies the
 floor rule (metrics.floor) to a saved report's measured values, latency included, and keeps only
@@ -42,6 +44,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from pydantic import field_validator
 from redis.asyncio import Redis
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -88,7 +91,15 @@ from filinglens_db.models import (
 from filinglens_llm import answer as drafting
 from filinglens_llm import router
 from filinglens_llm.local import REVISIONS
-from filinglens_llm.providers import TIMEOUT, Gemini, Provider, provider
+from filinglens_llm.providers import (
+    CLAUDE_EFFORT,
+    CLAUDE_THINKING,
+    TIMEOUT,
+    Gemini,
+    Provider,
+    credits_usd,
+    provider,
+)
 from filinglens_llm.validate import Quoted, citation_error, cited, split_sentences
 from filinglens_retrieval import Ranking, Scope, search
 from filinglens_retrieval.facts import latest_fiscal_year
@@ -171,6 +182,13 @@ class EvalSettings(ApiSettings):
     """The API's settings plus LLM_JUDGE, which only evals read."""
 
     llm_judge: ModelRole = "groq:openai/gpt-oss-120b"
+
+    @field_validator("llm_judge")
+    @classmethod
+    def _not_claude(cls, value: str) -> str:
+        if value.startswith("anthropic:"):
+            raise ValueError("cannot be Claude: the judge's reference labels came from Claude")
+        return value
 
 
 @dataclass(frozen=True)
@@ -418,13 +436,16 @@ def prompt_hashes(as_of: date, tracked: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def answer_path(settings: ApiSettings, index: Mapping[str, Any], tag: str) -> dict[str, Any]:
+def answer_path(
+    settings: ApiSettings, index: Mapping[str, Any], tag: str, primary: str = ""
+) -> dict[str, Any]:
     """What every answer call's cache key holds besides its prompts. A tag joins only when set,
-    so untagged runs keep the keys of every earlier run, and a tagged one calls live once."""
+    so untagged runs keep the keys of every earlier run, and a tagged one calls live once.
+    `primary` replaces LLM_PRIMARY: router calls keyed so reuse that primary's router replies."""
     embedder = EMBEDDING_MODELS[settings.retrieval_embedding_column]
     path = {
         "router": settings.llm_router,
-        "primary": settings.llm_primary,
+        "primary": primary or settings.llm_primary,
         "embedder": f"{embedder}@{REVISIONS[embedder]}",
         "reranker": f"{settings.rerank_model}@{REVISIONS[settings.rerank_model]}",
         "rerank": [settings.rerank_candidates, settings.rerank_max_tokens],
@@ -606,10 +627,15 @@ class AnswerSuite:
         self.tracked: dict[str, str] = {}  # the router's companies, read when the run starts
         gemini = settings.llm_primary.startswith("gemini:")
         self.options = {"thinking": args.thinking} if gemini else {}
+        if settings.llm_primary.startswith("anthropic:"):  # other settings must not reuse replies
+            self.options = {"thinking": CLAUDE_THINKING, "effort": CLAUDE_EFFORT}
         if args.primary_tag:  # a new key for the primary only: router replies stay cached
             self.options |= {"tag": args.primary_tag}
         self.max_tokens = THINKING_MAX_TOKENS if gemini and args.thinking == "default" else None
         self.path = answer_path(settings, index, args.tag)
+        # --router-primary: the router replies another primary's run got, so both models get the
+        # same routes (a fair comparison); without it, the same path as the primary's.
+        self.router_path = answer_path(settings, index, args.tag, args.router_primary)
         run = {
             "files": golden.manifest["files"],
             "split": args.split,
@@ -620,14 +646,16 @@ class AnswerSuite:
             "rerank_timeout_ms": settings.rerank_timeout_ms,
             "min_relevance": args.min_relevance,
             "judge": settings.llm_judge if args.judge else None,
-        }
+        } | ({"router_primary": args.router_primary} if args.router_primary else {})
         self.run_file = CACHE / "runs" / f"{digest(run)[:16]}.jsonl"
 
-    def context(self, qid: str) -> dict[str, Any]:
-        return {"question": qid, "path": self.path}
+    def context(self, qid: str, path: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        return {"question": qid, "path": path or self.path}
 
     def models(self, qid: str, calls: list[Call]) -> Models:
-        route = Recorded(self.router, "router", self.cache, self.context(qid), calls)
+        route = Recorded(
+            self.router, "router", self.cache, self.context(qid, self.router_path), calls
+        )
         primary = Recorded(
             self.primary, "primary", self.cache, self.context(qid), calls,
             options=self.options, max_tokens=self.max_tokens,
@@ -765,7 +793,8 @@ class AnswerSuite:
         system = router.system_prompt(self.as_of, self.tracked)
         schema = router.schema(self.tracked)
         for question in todo:
-            probe = Recorded(self.router, "router", self.cache, self.context(question["id"]), [])
+            context = self.context(question["id"], self.router_path)
+            probe = Recorded(self.router, "router", self.cache, context, [])
             key = probe.key(system, question["question"], router.MAX_TOKENS, schema)
             if self.cache.get(key) is None:
                 add(self.router.name, ESTIMATE["router"])
@@ -818,6 +847,10 @@ def answer_metrics(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals = [r["timings_ms"]["total_ms"] for r in reached]
     prices = json.loads(PROVIDERS.read_text(encoding="utf-8"))
     costs = [paid_cost(r, prices) for r in counted]
+    billed = [  # prepaid credits from each call's usage: Claude's; the free tiers bill nothing
+        sum(credits_usd(c["model"], c["input_tokens"], c["output_tokens"]) for c in r["calls"])
+        for r in counted
+    ]
     metrics = {
         "numeric_exact_match": share(numeric, lambda r: r.get("exact")),
         "comparison_match": share(comparison, lambda r: r.get("both")),
@@ -845,7 +878,7 @@ def answer_metrics(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         "input_tokens": stat([r["input_tokens"] for r in counted], mean),
         "output_tokens": stat([r["output_tokens"] for r in counted], mean),
         "cost_usd": stat(priced, mean),
-        "cost_billed_usd": {"value": 0.0, "low": 0.0, "high": 0.0, "n": len(counted)},
+        "cost_billed_usd": stat(billed, mean),
         "truncated": count(sum(bool(r.get("truncated")) for r in records), len(records)),
         "errors": count(len(records) - len(counted), len(records)),
     }
@@ -920,8 +953,8 @@ def notes(report: Mapping[str, Any]) -> list[str]:
             if result is not None and calibrated(result)
             else "The judge is not calibrated (make calibrate needs kappa 0.7 or more), so"
             " citation precision and faithfulness count as not measured.",
-            "Cost as billed is $0 on the free tiers; the paid-equivalent uses the prices in"
-            " evals/providers.json.",
+            "Cost as billed is the prepaid credits Claude spends, from each call's usage, and $0"
+            " on the free tiers; the paid-equivalent uses the prices in evals/providers.json.",
         ]
         if causes := false_refusals(answers):
             listed = "; ".join(
@@ -1042,13 +1075,20 @@ def write_report(report: Mapping[str, Any]) -> Path:
     return base.with_suffix(".md")
 
 
+def floor_key(report: Mapping[str, Any], suite: str) -> str:
+    """A suite's floors in thresholds.json; answer floors go per primary model, each its own
+    setup, so the free one's $0 billed floor never meets a model that spends credits."""
+    key = f"{suite}:{report['split']}:{report['subset']}"
+    return f"{key}:{report['config']['primary']}" if suite == "answer" else key
+
+
 def apply_floors(report: Mapping[str, Any], set_floors: bool, judge_ok: bool) -> list[str]:
     """Metrics past their floors in thresholds.json; with set_floors, tighten the floors by the
     rule in metrics.floor, never loosening one."""
     floors = json.loads(THRESHOLDS.read_text(encoding="utf-8")) if THRESHOLDS.exists() else {}
     past: list[str] = []
     for suite, metrics in report["metrics"].items():
-        key = f"{suite}:{report['split']}:{report['subset']}"
+        key = floor_key(report, suite)
         limits = floors.setdefault(key, {})
         for name, limit in limits.items():
             value = metrics.get(name, {}).get("value")
@@ -1107,10 +1147,14 @@ async def evaluate(args: argparse.Namespace) -> int:
         await check_corpus(engine, golden)
         index = await index_version(engine, settings.retrieval_embedding_column)
         embedder = EMBEDDING_MODELS[settings.retrieval_embedding_column]
+        thinking = {
+            "gemini": args.thinking,
+            "anthropic": f"{CLAUDE_THINKING}, effort {CLAUDE_EFFORT}",
+        }
         config = {
             "router": settings.llm_router,
             "primary": settings.llm_primary,
-            "thinking": args.thinking,
+            "thinking": thinking.get(settings.llm_primary.partition(":")[0], "model default"),
             "judge": settings.llm_judge if answers and args.judge else None,
             "embedder": f"{embedder}@{REVISIONS[embedder]}",
             "reranker": f"{settings.rerank_model}@{REVISIONS[settings.rerank_model]}",
@@ -1120,6 +1164,7 @@ async def evaluate(args: argparse.Namespace) -> int:
             "min_relevance": args.min_relevance,
             "tag": args.tag or None,
             "primary_tag": args.primary_tag or None,
+            "router_primary": args.router_primary or None,
         }
         print(
             f"Golden set {VERSION}: {len(questions)} {args.split} questions ({args.subset});"
@@ -1316,7 +1361,7 @@ def set_floors(path: Path) -> None:
         print(f"Past an earlier floor, which stays: {line}")
     floors = json.loads(THRESHOLDS.read_text(encoding="utf-8"))
     for suite in report["metrics"]:
-        key = f"{suite}:{report['split']}:{report['subset']}"
+        key = floor_key(report, suite)
         listed = ", ".join(f"{name} {shown(name, v)}" for name, v in sorted(floors[key].items()))
         print(f"{key}: {listed}")
 
@@ -1328,6 +1373,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--subset", choices=("full", "ci"), default="full")
     parser.add_argument("--tag", default="", help="call the answer models live once, under TAG")
     parser.add_argument("--primary-tag", default="", help="call only the primary live, under TAG")
+    parser.add_argument(
+        "--router-primary", default="", metavar="PROVIDER:MODEL",
+        help="reuse the router replies of the run with this primary (a fair model comparison)",
+    )  # fmt: skip
     parser.add_argument("--min-relevance", type=float, default=RELEVANCE_MIN)
     parser.add_argument("--thinking", choices=("minimal", "default"), default="minimal")
     parser.add_argument("--no-judge", dest="judge", action="store_false")

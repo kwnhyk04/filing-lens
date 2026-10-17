@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from filinglens_core.settings import ApiSettings, IngestSettings, load_settings
@@ -80,3 +82,26 @@ def test_ai_is_off_by_default_and_on_needs_every_roles_key(monkeypatch: pytest.M
         monkeypatch, AI_ENABLED="true", GEMINI_API_KEY="k", GROQ_API_KEY="g", NVIDIA_API_KEY="n"
     )
     assert load_settings(ApiSettings).llm_fallback == "nvidia:openai/gpt-oss-20b"
+
+
+def test_the_answer_fallback_is_off_by_default_and_claude_only_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    set_env(monkeypatch)
+    settings = load_settings(ApiSettings)
+    assert settings.llm_answer_fallback is None  # the free-only chain
+    assert settings.anthropic_credits_expire == date(2026, 11, 10)
+    set_env(monkeypatch, LLM_ANSWER_FALLBACK="")  # what compose passes when it is unset
+    assert load_settings(ApiSettings).llm_answer_fallback is None
+    keys = {"AI_ENABLED": "true", "GEMINI_API_KEY": "k", "GROQ_API_KEY": "g", "NVIDIA_API_KEY": "n"}
+    set_env(monkeypatch, **keys, LLM_ANSWER_FALLBACK="anthropic:claude-haiku-5-5")
+    with pytest.raises(SystemExit, match="LLM_ANSWER_FALLBACK needs ANTHROPIC_API_KEY"):
+        load_settings(ApiSettings)
+    set_env(monkeypatch, ANTHROPIC_API_KEY="a")
+    assert load_settings(ApiSettings).llm_answer_fallback == "anthropic:claude-haiku-5-5"
+    set_env(monkeypatch, LLM_ROUTER="anthropic:claude-haiku-5-5")
+    with pytest.raises(SystemExit, match="LLM_ROUTER cannot be Claude"):
+        load_settings(ApiSettings)
+    set_env(monkeypatch, LLM_ROUTER=None, LLM_FALLBACK="anthropic:claude-haiku-5-5")
+    with pytest.raises(SystemExit, match="LLM_FALLBACK cannot be Claude"):  # it also routes
+        load_settings(ApiSettings)

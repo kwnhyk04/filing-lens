@@ -125,7 +125,7 @@ From step 6a (providers, local models, search, answers):
 From step 6b (golden set, judge, evals):
 
 - 2026-10-16: `LLM_JUDGE=groq:openai/gpt-oss-120b` (user decision), used only by evals for citation precision and faithfulness. Different family from the answer model (Gemini). Limits on Groq (rate-limits page, read 2026-10-15): 30 requests/min, 1,000/day, 8K tokens/min, 200K tokens/day. Production status, with no deprecation listed (Groq deprecations page, read 2026-10-16); $0.15 / $0.60 per 1M tokens paid. Its 200K tokens/day are shared with fallback decision 4's gpt-oss-120b run, so the two run on different days. Reason: fast, holds the JSON schema; qwen3.8-27b is a Groq preview (its predecessor was shut down 2026-09-14), and nemotron on NVIDIA was unprobed.
-- 2026-10-16: Eval floors in `evals/thresholds.json` follow the rule of FreightAudit and Triage Copilot (user decision). Accuracy: min(lower 95% bound, target). False refusal, where lower is better: a ceiling of max(upper bound, target). Efficiency (latency, tokens, cost) that meets its target: min(upper x 1.5, target), so a 50% regression fails. Efficiency that already misses its target: upper x 1.5 with no cap, so a known miss doesn't fail every run while the report still marks the target failed. Example: time to first token p95 measured 3.0 s, upper bound 3.5 s, against a 2.0 s target gives a floor of 5.25 s. Cost as billed: floor 0. Floors are written only on request and only tighten; loosening one needs a written reason here.
+- 2026-10-16: Eval floors in `evals/thresholds.json` follow the rule of FreightAudit and Triage Copilot (user decision). Accuracy: min(lower 95% bound, target). False refusal, where lower is better: a ceiling of max(upper bound, target). Efficiency (latency, tokens, cost) that meets its target: min(upper x 1.5, target), so a 50% regression fails. Efficiency that already misses its target: upper x 1.5 with no cap, so a known miss doesn't fail every run while the report still marks the target failed. Example: time to first token p95 measured 3.0 s, upper bound 3.5 s, against a 2.0 s target gives a floor of 5.25 s. Cost as billed: floor 0 (since 2026-10-17, on the free setup only; a setup that spends credits gets the efficiency rule). Floors are written only on request and only tighten; loosening one needs a written reason here.
   - Since 2026-10-16 (user decision): `python -m evals.harness --set-floors REPORT` applies the rule to a saved report's measured values, and a run only checks floors. So every floor, TTFT and full-answer latency included, comes from the run's own live numbers. A rerun from the cache has no live latency and could not set those.
 - 2026-10-16: Passage gold for golden set v1 is AI-labeled, spot-checked by a non-expert (user decision, made after labeling the 19 passages of x01 by hand).
   - Claude labeled every pooled passage with the same guideline (`evals/golden/v1/ai_labels.jsonl`, each with a one-line reason).
@@ -240,6 +240,34 @@ From step 6b (golden set, judge, evals):
 - 2026-10-16: Follow-up judge sample (user decision): natural sentences that fail the validator, from 4b first (nemotron, another family than the judge), topped up from 4a, never from 4c (the judge's own model). It is a second sample in `evals/calibration/v1-followup/`, and v1 stays frozen.
   - Drawn: 6 sentences, not about 10. 4b had 2 failing sentences and 4a 5, of which the 2-per-question cap kept 4.
   - Three of them state figures that look derived from cited ones (72% of $75.0 billion as $54.0 billion; an increase of $55.605 billion), so the labels may hold natural negatives this time.
+  - Result (2026-10-17): the judge failed 3 of the 4 Claude labeled not supported, all computed figures. It said "yes" to s04 (t07): risks to Chevron's climate aspirations presented as risks to its business. So a natural unsupported sentence can pass the judge.
+- 2026-10-17: Test run of golden v1 (numbers in `evals/eval-card.md` and the README). Every miss but TTFT p50 has a named cause:
+  - False refusal 0.130: the router sent 3 textual questions out of scope (Known Issues).
+  - Citation precision 0.944: one comparison conclusion rated "partly" (c02).
+  - Recall@10 0.583 on 6 questions.
+  - Floors were written from this report after the user's review (2026-10-17, `--set-floors`). There are 3 retrieval floors and 13 answer floors, under `answer:test:full:gemini:gemini-3.5-flash-lite`. Nothing is tuned on test results: each miss is a known weakness with a v2 idea (README, eval card).
+- 2026-10-17: Claude Haiku 5.5 is the answer chain's optional first fallback (user decision). It runs on Anthropic API credits that expire 2026-11-10, through the official `anthropic` SDK (1.15.0).
+  - **Chain:** answers go Gemini, then `LLM_ANSWER_FALLBACK` (`anthropic:claude-haiku-5-5`), then NVIDIA. The router falls back to NVIDIA only. The code default (empty) is the free-only chain.
+  - **Credits gone (user rule; Anthropic's errors and rate-limits pages agree, read 2026-10-17):**
+    - Signals: a 402 `billing_error`; a 400 naming a spend limit; a 429 without `retry-after` (the tier spend cap).
+    - The spend-limit 400 reads "You have reached your specified API usage limits", so the match takes "usage limit" too, and also "credit balance".
+    - Claude is then off for the rest of the credit period, with one warning line `claude is off for the rest of the credit period`. It is also off from `ANTHROPIC_CREDITS_EXPIRE` (UTC).
+    - The flag lives in the process, so a restart learns it again from one refused call.
+  - **Rate limits:** a 429 asking for 10 s or less is retried once. A longer one goes to the next model and leaves Claude on.
+  - **Request:** thinking off (`{"type": "disabled"}`) at effort low, no sampling parameters, and the shared 1,024-token answer cap (user decision after the first dev run). It is a fallback, so it should be fast, and the primary runs minimal thinking. A refusal (`stop_reason` refusal) fails the call, so the chain moves on.
+    - The first dev run used adaptive thinking, which used up the cap (Known Issues).
+    - The rerun with thinking off (`--primary-tag=nothink`, router replies cached) had 0 truncated and 0 empty replies.
+    - Paired on 54 questions, Claude's own first token went from p95 3.03 s to 1.08 s (95% CI of the difference −3.35 to −1.46 s).
+  - **Cost:** `credits_usd` prices each call from its usage at $0.10 / $0.50 per 1M tokens for prompts up to 100K ($0.50 / $2.50 above). It feeds `Usage.cost_usd` and the eval's cost as billed.
+  - **Guards at startup:** Claude cannot be `LLM_ROUTER` or `LLM_FALLBACK`; it writes answers only, with no JSON replies, and `LLM_FALLBACK` also routes. It can never be `LLM_JUDGE`, whose reference labels came from Claude.
+  - **Evals:** evals pin one model with no fallback, and credits gone end the run with exit 2.
+  - **Floors:** the $0 billed floor applies to the free setup only. The floor rule gives billed cost 0 when the run billed nothing, and the efficiency rule otherwise. Answer floors are keyed per primary model (`answer:<split>:<subset>:<provider:model>`), so a Claude run never meets the free setup's floors.
+  - Reason: use the credits while they last, without letting a paid model's failure or cost leak into the free setup.
+  - Test comparison (user request, 2026-10-17): run on Gemini's exact router replies, with `--router-primary=gemini:gemini-3.5-flash-lite --primary-tag=fair` (`20261017T084716Z-answer-test-full`).
+    - Results: numeric 1.000, citation precision 0.958, faithfulness 0.944, false refusal 0.130 (the same 3 router calls).
+    - Paired, Haiku's own first token p50 was 0.13 s faster. Credits $0.0145.
+    - Findings: n28 hedged over a fact heading, and c12's conclusion was rated "partly".
+    - A first comparison (`20261017T082950Z`) asked the router again, because the router's cache key includes the primary. The router routed x13, x14 and x18 as textual there, so separate runs mix router variance into an answer-model comparison. `--router-primary` fixes that.
 
 ## Preferences and Instructions
 
@@ -342,6 +370,13 @@ None yet.
   - Every later cache run would then have read the refreshed replies, so earlier reports would no longer reproduce from the cache.
   - `make calibrate ARGS=import` would have rebuilt v1's failing drafts from different text (`new_verdicts` reads them by key) and called the judge live.
   - Fixed before its first use (user approval): `--tag=NAME` replaces `--refresh` and joins the answer path (`answer_path`), so a live run gets its own keys, and the same NAME reuses them. `--primary-tag=NAME` gives only the primary new keys, so router replies come from the cache. `Cache` lost its `refresh` flag, so each key is written once.
+- 2026-10-17: On the test split the router (gpt-oss-20b) sent 3 of 6 textual questions out of scope with no tickers. They were x13 (UnitedHealth's businesses), x14 (Pfizer's patent expiries) and x18 (the Grasberg mine). That is all 3 false refusals; dev's came from the model and validation. It also gave t10 (a time trap) and a03 (absent) no ticker, so they were refused as "nothing relevant enough" rather than by their own rules. Not fixed (user decision pending).
+- 2026-10-17: Claude Haiku 5.5's adaptive thinking counts toward `max_tokens`, and the answer cap (`drafting.MAX_TOKENS`, 1,024) was sized for models that barely reason. On the pinned dev run (effort low) 4 answers hit the cap. Three regenerations (x03, x17, x19), whose prompt lists the draft's problems, spent all 1,024 tokens thinking and returned no text, so validation refused them. Fixed the same day (user decision): Claude's thinking is off, so the cap holds only text; the dev rerun had no truncated or empty reply.
+- 2026-10-17: An XBRL fact's source heading can name the wrong fiscal period. `_fact_source` (answering.py) joins the plan's fiscal year with the period of the filing that reported the value (`fiscal {year} {fact.fiscal_period}`).
+  - Under the latest-filed rule, a year-end balance often comes from the next year's 10-Q comparative. Goldman Sachs' total assets at 2025-12-31 (fact 460279) and Lockheed Martin's cash at 2025-12-31 (fact 557549) come from 2026 Q2 10-Qs, so their headings read "fiscal 2025 Q2".
+  - Claude Haiku took that literally ("fiscal 2025 Q2 rather than the end of fiscal 2025") and answered INSUFFICIENT_EVIDENCE on n17 and n24. Gemini answered from the same heading.
+  - Not fixed (user decision pending): label an instant fact by its date and the period asked for, not the reporting filing's period.
+- 2026-10-17: The `anthropic` SDK 1.x runs on httpx2, not httpx. It takes no shared `httpx.AsyncClient`, respx cannot mock it (tests pass `httpx2.AsyncClient(transport=httpx2.MockTransport(...))`), and errors mid-stream surface as raw `httpx2` exceptions, which the provider maps to `UpstreamError`. A stream's mid-answer error event raises `APIStatusError` with status 200, so its `type` names the error.
 - 2026-10-16: Gemini 3.5 Flash-Lite's own time to first token (free tier) moves with the hour.
   - On the same 46 dev questions, its p50 was 0.97 s at 05:56 UTC and 3.38 s at 09:00 UTC.
   - Prompts of about 330 tokens slowed as much as 5,000-token ones, and the 09:00 run drew two 503s. The router (Groq) moved only from 0.60 to 0.66 s.
