@@ -5,7 +5,7 @@ import asyncio
 import json
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -26,6 +26,7 @@ from filinglens_core.errors import UpstreamError
 from filinglens_llm import budget
 
 QUESTION = {"question": "What was revenue?"}
+type Changes = Callable[[str], dict[str, float]]
 ANSWER_QUERY = {
     "query": "query Ask($q: String!) { answer(question: $q) { answer } }",
     "variables": {"q": QUESTION["question"]},
@@ -128,7 +129,7 @@ def test_answers_take_10_a_minute_per_key_across_both_routes(
 
 @pytest.mark.integration
 def test_graphql_answers_take_the_same_10_a_minute_from_the_same_bucket(
-    limited: TestClient, fake: Any, api_key: str
+    limited: TestClient, fake: Any, api_key: str, metric_changes: Changes
 ) -> None:
     headers = {"X-API-Key": api_key}
     answered, seconds, refused = _answered_until_refused(
@@ -139,11 +140,12 @@ def test_graphql_answers_take_the_same_10_a_minute_from_the_same_bucket(
     assert fake.answered == answered  # the refused answer never reached the backend
     rest = limited.post("/v1/answers", json=QUESTION, headers=headers)
     assert rest.status_code == 429  # REST draws on the bucket GraphQL emptied
+    assert metric_changes("filinglens.answers.rejected") == {"reason=rate_limited": 2}
 
 
 @pytest.mark.integration
 def test_answers_get_503_once_the_daily_ai_token_budget_is_spent(
-    limited: TestClient, fake: Any, redis_url: str, api_key: str
+    limited: TestClient, fake: Any, redis_url: str, api_key: str, metric_changes: Changes
 ) -> None:
     headers = {"X-API-Key": api_key}
     asyncio.run(_spend(redis_url, 999_999))
@@ -164,11 +166,13 @@ def test_answers_get_503_once_the_daily_ai_token_budget_is_spent(
     assert limited.get("/v1/companies", headers=headers).status_code == 200  # only answers stop
     usage = Redis.from_url(redis_url).hgetall(budget.usage_key(datetime.now(UTC).date()))
     assert usage == {b"calls": b"2", b"tokens": b"1000000"}
+    assert metric_changes("filinglens.answers.rejected") == {"reason=budget_exhausted": 3}
+    assert budget.tokens_today(Redis.from_url(redis_url)) == 1_000_000  # the dashboard's gauge
 
 
 @pytest.mark.integration
 def test_ai_enabled_false_turns_answers_off(
-    env: pytest.MonkeyPatch, fake: Any, redis_url: str, api_key: str
+    env: pytest.MonkeyPatch, fake: Any, redis_url: str, api_key: str, metric_changes: Changes
 ) -> None:
     env.setenv("REDIS_URL", redis_url)
     env.setenv("AI_ENABLED", "false")
@@ -183,6 +187,7 @@ def test_ai_enabled_false_turns_answers_off(
     assert graphql[0] == "ai_unavailable"
     assert "AI_ENABLED=false" in graphql[1]
     assert fake.answered == 0
+    assert metric_changes("filinglens.answers.rejected") == {"reason=ai_disabled": 2}
 
 
 def test_bodies_over_64_kb_get_413_with_or_without_a_length(client: TestClient) -> None:
@@ -197,7 +202,7 @@ def test_bodies_over_64_kb_get_413_with_or_without_a_length(client: TestClient) 
 
 
 def test_graphql_answers_fail_closed_while_redis_is_down(
-    env: pytest.MonkeyPatch, fake: Any, api_key: str
+    env: pytest.MonkeyPatch, fake: Any, api_key: str, metric_changes: Changes
 ) -> None:
     for name in ("GEMINI_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
         env.setenv(name, "placeholder")
@@ -213,6 +218,8 @@ def test_graphql_answers_fail_closed_while_redis_is_down(
     assert graphql[0] == "ai_unavailable"
     assert "budget cannot be checked" in graphql[1]
     assert fake.answered == 0
+    assert metric_changes("filinglens.answers.rejected") == {"reason=budget_unavailable": 1}
+    assert budget.tokens_today(Redis.from_url("redis://0.0.0.0:1/0")) is None  # no gauge reading
 
 
 def test_answers_stop_at_the_time_limit(

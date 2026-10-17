@@ -48,9 +48,9 @@ Needs uv, Docker, GNU make, and Node 20.9+ (for `web/` and the TypeScript client
 - Clients: `clients/python` (REST) and `clients/python-graphql` (GraphQL) are installed in the dev environment; `clients/ts` exports `createApiClient` and `executeGraphql` for server-side TypeScript.
 - Web: `cd web && npm ci && npm run dev`, then open `http://127.0.0.1:3100`.
 - Plain `docker compose ...` (for example `docker compose ps`) works from the repo root, because `.env` sets `COMPOSE_FILE`.
-- Monitoring: set `COMPOSE_PROFILES=observability` in `.env` for Grafana (3101), Jaeger (16687) and Prometheus (9091). Toxiproxy runs under the `test` profile.
+- Monitoring: set `COMPOSE_PROFILES=observability` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:${OTEL_HTTP_PORT}` in `.env` for traces in Jaeger (16687), metrics and 13 alert rules in Prometheus (9091), and three dashboards in Grafana (3101). Leave both empty and telemetry is off. What each dashboard and alert is for, and how to find a trace: `docs/monitoring.md`. `make monitoring-check` tests the alert rules. Toxiproxy runs under the `test` profile.
 - Production: `docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up -d` (no published Postgres, RabbitMQ or Redis ports; restart policies; memory limits).
-- Logs are JSON lines with a `request_id` (send `X-Request-ID` to set it). Credential fields and the API key are redacted.
+- Logs are JSON lines with a `request_id` (send `X-Request-ID` to set it) and, inside a trace, its `trace_id`. Credential fields and the API key are redacted, and access lines keep query parameter names only.
 - Ports bind to 127.0.0.1 and can be changed in `.env`.
 
 ## CI

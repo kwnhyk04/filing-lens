@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
@@ -29,13 +30,17 @@ from alembic import command
 from alembic.config import Config
 from amqp.exceptions import NotFound
 from celery import Celery
+from fastapi.testclient import TestClient
 from kombu import Connection, Producer
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from redis import Redis
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 import filinglens_sec_client
+from filinglens_api.main import app
 from filinglens_core import queues
 from filinglens_core.errors import NotFoundError, RateLimitedError, UpstreamError
 from filinglens_core.settings import EMBEDDING_MODELS
@@ -238,6 +243,7 @@ def start_worker(
         "SEC_DATA_URL": fake_sec.url,
         "SEC_CACHE_DIR": str(tmp_path / "sec"),
         "LOG_LEVEL": "INFO",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "",  # no telemetry unless a test asks for it
     }
     workers: list[Worker] = []
 
@@ -825,3 +831,96 @@ def test_an_unparseable_filing_fails_alone_and_a_rerun_downloads_no_document(
     assert all(fake_sec.hits(path) == 1 for path in documents)  # no document downloaded again
     assert redis.hget(REQUESTS_KEY, "document") == b"2"
     assert run(db, partial(count, table=Chunk)) == chunks
+
+
+class OtlpSink:
+    """The collector's OTLP/HTTP receiver on 127.0.0.1: keeps each body by path."""
+
+    def __init__(self) -> None:
+        self.bodies: defaultdict[str, list[bytes]] = defaultdict(list)  # /v1/traces, /v1/metrics
+        sink = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers["Content-Length"])
+                sink.bodies[self.path].append(self.rfile.read(length))
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, format: str, *args: Any) -> None:
+                """Quiet."""
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def spans(self) -> list[Any]:
+        return [
+            span
+            for body in list(self.bodies["/v1/traces"])
+            for resource in ExportTraceServiceRequest.FromString(body).resource_spans
+            for scope in resource.scope_spans
+            for span in scope.spans
+        ]
+
+
+TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"  # the caller's trace
+ADMIN_KEY = "a" * 32
+
+
+def test_an_ingest_job_is_one_trace_from_the_api_through_every_task(
+    db: str,
+    redis_url: str,
+    rabbitmq_url: str,
+    fake_sec: FakeSec,
+    broker: Connection,
+    start_worker: Callable[..., Worker],
+    monkeypatch: pytest.MonkeyPatch,
+    spans: InMemorySpanExporter,
+) -> None:
+    sink = OtlpSink()
+    recent = {
+        "accessionNumber": [ACCESSION],
+        "filingDate": ["2026-02-02"],
+        "reportDate": ["2025-12-31"],
+        "form": ["10-K"],
+        "primaryDocument": ["one-10k.htm"],
+    }
+    main = {"name": "One Corp", "tickers": ["ONE"], "fiscalYearEnd": "1231"}
+    main_body = json.dumps(main | {"filings": {"recent": recent, "files": []}}).encode()
+    fake_sec.routes[f"/submissions/CIK{CIK:010d}.json"] = lambda: (200, main_body)
+    fake_sec.routes[DOCUMENT] = lambda: (200, TEN_K)  # no companyfacts: a 404, so no facts
+    telemetry = {"OTEL_EXPORTER_OTLP_ENDPOINT": sink.url, "OTEL_BSP_SCHEDULE_DELAY": "200"}
+    worker = start_worker("all", f"{queues.DISCOVER},{TO_EMBED},{queues.FACTS}", **telemetry)
+    keys = {"API_KEY": "k" * 32, "ADMIN_API_KEY": ADMIN_KEY}
+    for name, value in {"REDIS_URL": redis_url, "BROKER_URL": rabbitmq_url, **keys}.items():
+        monkeypatch.setenv(name, value)
+    body = {"ciks": [CIK], "form_types": ["10-K"], "since": "2000-01-01"}
+    headers = {"X-API-Key": ADMIN_KEY, "Idempotency-Key": uuid4().hex, "traceparent": TRACEPARENT}
+    with TestClient(app) as api:  # the in-process API, on the session's in-memory providers
+        accepted = api.post("/v1/ingest-jobs", json=body, headers=headers)
+    assert accepted.status_code == 202
+    job_id = UUID(accepted.json()["job_id"])
+    wait_for(finished(db, job_id), 180, worker)
+    assert run(db, partial(job_status, job_id=job_id)) == JobStatus.SUCCEEDED
+
+    def runs() -> dict[str, Any]:
+        return {s.name.removeprefix("run/"): s for s in sink.spans() if s.name.startswith("run/")}
+
+    tasks = {"discover", "fetch", "parse", "chunk", "embed", "facts"}
+    wait_for(lambda: tasks <= runs().keys(), 30, worker)
+    trace_id = bytes.fromhex(TRACEPARENT.split("-")[1])
+    assert {span.trace_id for span in sink.spans()} == {trace_id}  # one trace, nothing else
+    [server] = [span for span in spans.get_finished_spans() if span.name == "POST /v1/ingest-jobs"]
+    assert server.context is not None
+    assert server.context.trace_id == int.from_bytes(trace_id)
+    assert runs()["discover"].parent_span_id == server.context.span_id.to_bytes(8)
+    assert any(span.name == "SEC GET document" for span in sink.spans())
+    wait_for(lambda: bool(sink.bodies["/v1/metrics"]), 30, worker)  # metrics on their own path
+    exported = b"".join(b for bodies in sink.bodies.values() for b in bodies)
+    exported += server.to_json().encode()
+    for secret in ("tests@filinglens.test", db, rabbitmq_url, ADMIN_KEY):
+        assert secret.encode() not in exported
+    sink.server.shutdown()

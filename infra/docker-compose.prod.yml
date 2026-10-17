@@ -46,4 +46,6 @@ services:
 
   grafana:
     restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false" # sign in with GRAFANA_ADMIN_PASSWORD
     deploy: { resources: { limits: { memory: 256M } } }

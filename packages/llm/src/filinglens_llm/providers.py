@@ -8,6 +8,7 @@ retired) and 401/403 AiUnavailableError, which no retry fixes.
 """
 
 import asyncio
+import functools
 import json
 import math
 import re
@@ -15,7 +16,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Final, Protocol
+from typing import Any, Concatenate, Final, Protocol
 
 import anthropic
 import httpx
@@ -24,6 +25,8 @@ import structlog
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind, StatusCode
 
 from filinglens_core.errors import (
     AiUnavailableError,
@@ -32,6 +35,7 @@ from filinglens_core.errors import (
     UpstreamError,
 )
 from filinglens_core.settings import PROVIDER_KEYS, ApiSettings
+from filinglens_telemetry import metrics
 
 TIMEOUT = httpx.Timeout(30.0, connect=5.0)  # read and write 30 s, connect 5 s
 BASE_URLS = {
@@ -52,6 +56,7 @@ CLAUDE_RETRY_MAX_S = 10.0  # a 429 that asks for a longer wait goes to the next 
 # API usage limits", Anthropic's rate-limits page, read 2026-10-17) or an empty credit balance.
 CREDITS_GONE = re.compile(r"spend(ing)? limit|usage limit|credit balance", re.IGNORECASE)
 log = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 @dataclass(frozen=True)
@@ -67,15 +72,114 @@ class Completion:
 class Provider(Protocol):
     name: str  # provider:model, as in LLM_PRIMARY
 
-    async def complete(
+    def complete(
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
-    ) -> Completion:
+    ) -> Awaitable[Completion]:
         """One answer; with `schema`, JSON that the provider holds to that JSON Schema."""
         ...
 
     def stream(self, system: str, user: str, *, max_tokens: int) -> AsyncIterator[str | Completion]:
         """Text as it arrives, then one Completion with the whole text and the usage."""
         ...
+
+
+class _Named(Protocol):
+    name: str  # provider:model
+
+
+def _span(name: str) -> trace.Span:
+    """A model call's span: the GenAI names, never the prompt or the reply. It is not made
+    current: nothing nests under it, and a stream's span lives across yields."""
+    provider, _, model = name.partition(":")
+    attributes = {
+        "gen_ai.provider.name": provider,
+        "gen_ai.request.model": model,
+        "gen_ai.operation.name": "chat",
+    }
+    return tracer.start_span(f"chat {model}", kind=SpanKind.CLIENT, attributes=attributes)
+
+
+def _done(
+    name: str,
+    span: trace.Span,
+    started: float,
+    completion: Completion | None,
+    error: Exception | None,
+) -> None:
+    provider, _, model = name.partition(":")
+    labels = {"gen_ai.provider.name": provider, "gen_ai.request.model": model}
+    if error is not None:
+        kind = error.code if isinstance(error, FilingLensError) else type(error).__qualname__
+        span.set_status(StatusCode.ERROR)  # no description: provider messages can echo input
+        span.set_attribute("error.type", kind)
+        labels["error.type"] = kind
+    if completion is not None:
+        span.set_attributes(
+            {
+                "gen_ai.usage.input_tokens": completion.input_tokens,
+                "gen_ai.usage.output_tokens": completion.output_tokens,
+            }
+        )
+        for token_type, tokens in (
+            ("input", completion.input_tokens),
+            ("output", completion.output_tokens),
+        ):
+            metrics.LLM_TOKENS.record(tokens, {**labels, "gen_ai.token.type": token_type})
+    metrics.LLM_DURATION.record(time.perf_counter() - started, labels)
+    outcome = "error" if error is not None else "ok"
+    metrics.LLM_CALLS.add(1, {"provider": provider, "model": model, "outcome": outcome})
+    span.end()
+
+
+def traced_complete[S: _Named, **P](
+    call: Callable[Concatenate[S, P], Awaitable[Completion]],
+) -> Callable[Concatenate[S, P], Awaitable[Completion]]:
+    """A model call's span and metrics (gen_ai.client.*, filinglens.llm.calls)."""
+
+    @functools.wraps(call)
+    async def complete(self: S, *args: P.args, **kwargs: P.kwargs) -> Completion:
+        span, started = _span(self.name), time.perf_counter()
+        try:
+            completion = await call(self, *args, **kwargs)
+        except Exception as error:
+            _done(self.name, span, started, None, error)
+            raise
+        except BaseException:  # cancelled: not the provider's failure
+            span.end()
+            raise
+        _done(self.name, span, started, completion, None)
+        return completion
+
+    return complete
+
+
+def traced_stream[S: _Named, **P](
+    call: Callable[Concatenate[S, P], AsyncIterator[str | Completion]],
+) -> Callable[Concatenate[S, P], AsyncIterator[str | Completion]]:
+    """traced_complete for streams, with an event at the first text."""
+
+    @functools.wraps(call)
+    async def stream(self: S, *args: P.args, **kwargs: P.kwargs) -> AsyncIterator[str | Completion]:
+        span, started = _span(self.name), time.perf_counter()
+        completion: Completion | None = None
+        first = True
+        try:
+            async for item in call(self, *args, **kwargs):
+                if isinstance(item, Completion):
+                    completion = item
+                elif first:
+                    first = False
+                    span.add_event("first_token")
+                yield item
+        except Exception as error:
+            _done(self.name, span, started, None, error)
+            raise
+        except BaseException:  # cancelled, or closed early by its reader
+            span.end()
+            raise
+        _done(self.name, span, started, completion, None)
+
+    return stream
 
 
 def failure(provider: str, status: int, retry_after: str | None = None) -> FilingLensError:
@@ -118,6 +222,7 @@ class OpenAICompatible:
             body["reasoning_effort"] = "low"  # it reasons first; low keeps the latency down
         return body
 
+    @traced_complete
     async def complete(
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
     ) -> Completion:
@@ -144,6 +249,7 @@ class OpenAICompatible:
             latency_s=time.perf_counter() - started,
         )
 
+    @traced_stream
     async def stream(
         self, system: str, user: str, *, max_tokens: int
     ) -> AsyncIterator[str | Completion]:
@@ -219,6 +325,7 @@ class Gemini:
             response_json_schema=dict(schema) if schema is not None else None,
         )
 
+    @traced_complete
     async def complete(
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
     ) -> Completion:
@@ -236,6 +343,7 @@ class Gemini:
             self.name, response.text or "", prompt, output, time.perf_counter() - started
         )
 
+    @traced_stream
     async def stream(
         self, system: str, user: str, *, max_tokens: int
     ) -> AsyncIterator[str | Completion]:
@@ -320,6 +428,7 @@ class Anthropic:
             timeout=anthropic.Timeout(30.0, connect=5.0),
             max_retries=0,  # only a short 429 is retried (_send); the answer chain covers the rest
             http_client=http_client,
+            open_telemetry=False,  # traced_complete/_stream span every provider the same way
         )
         # ponytail: per process, so a restart learns it again from one refused call; keep it in
         # Redis if restarts get frequent.
@@ -369,6 +478,7 @@ class Anthropic:
         await asyncio.sleep(wait)
         return await self._send(request, retry=False)
 
+    @traced_complete
     async def complete(
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
     ) -> Completion:
@@ -393,6 +503,7 @@ class Anthropic:
             self.name, text, usage.input_tokens, usage.output_tokens, time.perf_counter() - started
         )
 
+    @traced_stream
     async def stream(
         self, system: str, user: str, *, max_tokens: int
     ) -> AsyncIterator[str | Completion]:

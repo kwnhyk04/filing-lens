@@ -394,9 +394,9 @@ def client(env: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
 
 @contextmanager
-def _serve() -> Iterator[str]:
+def _serve(access_log: bool = False) -> Iterator[str]:
     """Run the app with uvicorn on a free 127.0.0.1 port in a background thread."""
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_config=None, access_log=False)
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_config=None, access_log=access_log)
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -447,9 +447,9 @@ def server_url(_served: tuple[str, dict[str, Backend]], fake: FakeBackend) -> st
 
 
 @pytest.fixture
-def serve(env: pytest.MonkeyPatch) -> Iterator[Callable[[], AbstractContextManager[str]]]:
+def serve(env: pytest.MonkeyPatch) -> Iterator[Callable[..., AbstractContextManager[str]]]:
     """Serves the app with its real backend, without the Redis-backed limits, over HTTP on
-    127.0.0.1. Set DATABASE_URL through `env` first."""
+    127.0.0.1 (serve(access_log=True) logs each request). Set DATABASE_URL through `env` first."""
     app.dependency_overrides.update(UNLIMITED)
     try:
         yield _serve

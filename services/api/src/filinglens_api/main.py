@@ -11,6 +11,7 @@ import httpx
 import structlog
 from fastapi import Depends, FastAPI, Request, Response
 from kombu import Connection
+from opentelemetry import trace
 from pydantic.json_schema import models_json_schema
 from redis.asyncio import Redis
 from strawberry.fastapi import GraphQLRouter
@@ -29,6 +30,7 @@ from filinglens_llm.providers import TIMEOUT, provider
 
 CHECK_TIMEOUT_S = 2
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")  # any other incoming id is replaced, not logged
+PROBES = ("/healthz", "/readyz")
 DESCRIPTION = """\
 Answers analyst questions over SEC filings with citations you can check.
 
@@ -83,6 +85,15 @@ app = FastAPI(
     description=DESCRIPTION,
     lifespan=lifespan,
     generate_unique_id_function=lambda route: route.name,  # operationIds name the client functions
+    # Server spans and HTTP metrics once configure_telemetry installed the providers. No logs
+    # (they carry validation inputs), no exporters of FastAPI's own, probes left out, and no
+    # per-operation spans, so the request's span stays current in routes and carries the answer.
+    telemetry={
+        "logs": False,
+        "auto_configure": False,
+        "operation_spans": False,
+        "exclude": lambda scope: scope.get("path") in PROBES,
+    },
 )
 add_problem_handlers(app)
 # Added before the request-id middleware below, so it runs inside it and 413s get an id too.
@@ -121,6 +132,7 @@ async def bind_request_id(
     request_id = incoming if REQUEST_ID.fullmatch(incoming) else uuid.uuid4().hex
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
+    trace.get_current_span().set_attribute("request_id", request_id)  # find a reported request
     try:
         response = await call_next(request)
     except Exception:

@@ -26,21 +26,145 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - latency at scale.
 
   Nothing is tuned on golden v1's test results.
-- [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved. Plan approved with the user's changes on 2026-10-18 (activity log); it starts on a new branch from main once the GraphQL guard fix (In Progress) has merged.
 - [ ] (before step 9) Chunks from a separate financial section (JPM, CVX, NVDA, PLD, XOM) are labeled with the last item (15 or 16). Detect the MD&A and financial-statement headings inside that section and label those chunks Items 7, 7A and 8, so citations show the right section.
 - [ ] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, demo snapshot shown when the backend is offline; Playwright tests pass. The BFF uses `clients/ts` (`createApiClient`, `executeGraphql`) with `API_KEY` only.
 - [ ] 10. Deploy: UI on Vercel, backend on the PC via Tailscale Funnel; phone test passes; 401 without API key; demo mode when the PC is off
 
 ## In Progress
 
-- [ ] GraphQL answer guards and the SSE in-flight cap (user decision, 2026-10-18: found while planning step 8; fixed first, on branch `fix/graphql-answer-guards` from main, with its own PR). Done when GraphQL answers take REST's 10-a-minute bucket, budget and 30 s limit, one stream past `LLM_MAX_INFLIGHT` is refused, and `make test` and `make test-int` stay green.
-  - [x] **Built and checked locally (2026-10-18):**
-    - GraphQL `answer` calls the same `answer_limits` (through the `answer_limits_for` dependency) and `timed_answer` as REST; REST keeps its dependency order.
-    - `Answerer.admit(request)` counts an answer in flight from admission and returns `Admitted`, which frees the slot at its last event, an error, a cancellation or `aclose()`; the stream route closes it after the response.
-    - The entry-point audit is in context.md (Request limits).
-    - `make lint`, `make typecheck` (0 errors), `make test` 289 passed, `make test-int` 29 passed, `make contracts-check` (no drift).
-    - Red check: with the old resolver, the GraphQL bucket and budget tests fail.
-  - [ ] The user commits, pushes and opens the PR; CI green. The answer eval runs, because `services/api/src` is an eval input: about 28K gpt-oss-20b and about 20 Gemini calls.
+- [ ] 8. Instrumentation (branch `step-8-monitoring`, created 2026-10-18 from main at 5af8fcd when the user said to start Part B; all work on it is uncommitted). Done when OpenTelemetry traces span services end to end, the dashboards and alerts are committed with promtool tests, and the screenshots are saved. Plan approved 2026-10-18 with the user's changes, then the design critique's revisions with three user conditions. Nothing is committed (user). Paused on 2026-10-18 at the user's request (context at 75%); a fresh session resumes from this checklist.
+  - **Plan file:** `C:\Users\kwonhyuk\.claude\plans\start-step-8-monitoring-iridescent-sedgewick.md`. It holds the approved Part B plan and, at its end, "Revisions from the design critique".
+  - **The approved Part B plan, with the critique's revisions folded in:**
+    - **What runs where:**
+      - `api`, `ingest` and `embed` export OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (empty means off).
+        - `.env` holds the host URL `http://127.0.0.1:${OTEL_HTTP_PORT}`.
+        - Compose gives the containers `${OTEL_EXPORTER_OTLP_ENDPOINT:+http://otel-collector:4318}`.
+        - `OTEL_SERVICE_NAME` is filinglens-api, filinglens-ingest or filinglens-embed.
+      - The `observability` profile holds:
+        - **otel-collector:** `memory_limiter`; `httpcheck` on `api:/readyz` every 15 s with a timeout; the Prometheus exporter on :8889 with `enable_open_metrics` and `metric_expiration: 1m`; its own metrics on 0.0.0.0:8888.
+        - **jaeger:** in memory, `--set` lowering `max_traces` from 100,000 to fit 512 MB; its metrics on :8888.
+        - **prometheus:**
+          - scrapes the collector :8889 (`honor_labels: true`) and :8888, RabbitMQ `:15692/metrics/detailed?family=queue_coarse_metrics&family=queue_consumer_count` (`celeryev.*` and `*.pidbox` dropped) and Jaeger;
+          - 15 s evaluation, `infra/prometheus-alerts.yml`, a named volume, 15 d or 1 GB retention, exemplar storage.
+        - **grafana:** datasource uids `prometheus` and `jaeger` with exemplar links; 3 provisioned dashboards; anonymous Viewer in dev only, off in the prod override; analytics off.
+      - No new host ports. The monitoring UIs stay on 127.0.0.1.
+    - **Traces:**
+      - **The ingest job is one trace,** carried by our own Celery signal hooks (no contrib package): `before_task_publish` injects `traceparent` into the headers with no producer span; `task_prerun` and `task_postrun` open and close a CONSUMER span `run/<task>`; `task_failure` sets `error.type` with no message.
+      - **The answer** puts stage spans under the request's span, built after each stage from `_Run.lap`, so no span is current across a `yield`. The outcome, refusal code, route and tokens go on the server span. No question text, quotes or prompts are recorded.
+      - **Model calls:** `traced_complete` and `traced_stream` give each one a `chat <model>` span with `gen_ai.*` attributes and a `first_token` event, never made current. The Anthropic SDK's own tracing is off.
+      - **Search:** a `search` span with one child per phase (embed, sql, load, rerank), built from its laps.
+      - **SEC:** one span per request, with kind, status and limiter wait, never the User-Agent.
+      - **Request id:** `request_id` goes on the server span.
+      - **FastAPI:** `FastAPI(telemetry={"logs": False, "auto_configure": False, "exclude": <probes>})`.
+      - **Query strings:** `url.query` keeps parameter names only.
+    - **Metrics:**
+      - One registry, `filinglens_telemetry/metrics.py` (SPECS). Units are only `s`, `{...}` or none. Labels come from fixed sets only.
+      - The alerting counters start at 0 (`start_answer_series`, `start_ingest_series`).
+      - The gauges `tokens_today`, `token_budget` and `inflight_limit` are created once in `__main__`. `tokens_today` reads `ai:usage:<UTC date>` through a sync Redis client with 2 s timeouts, and reports nothing on `RedisError`.
+      - Cut as duplicates: `answer.duration`, `answer.tokens`, `ai.enabled`, `llm.fallbacks`, `ingest.filings`, `ingest.backpressure` and the Flower runtime.
+    - **Dashboards** (`infra/dashboards/*.json`):
+      - Service health: is it up, fast and error-free?
+      - Answers and LLM: are answers good, fast and affordable?
+      - Ingest pipeline: is ingestion moving, against 500 filings in 2 h?
+    - **Alerts** (13, no delivery yet):
+      - ApiNotReady: `min by (http_url) (httpcheck_status{http_status_class="2xx"}) < 1` for 2 m, label names checked live.
+      - WorkerNotConsuming: 0 consumers on a work queue for 5 m.
+      - SecRefused.
+      - AnswersFailing: 2 or more failed answers in 30 m. A cancellation counts as a timeout at 30 s or more, otherwise as `cancelled`.
+      - AiBudgetExhausted: tokens reach the budget and the budget is above 0.
+      - AiBudgetNearlyUsed: a ratio of at least 0.8 and below 1.
+      - LlmProviderErrors: error ratio per provider above 25% over 30 m, with at least 4 calls.
+      - CitationValidationDegraded: 6 h window, at least 8 answered.
+      - SearchDegraded: rerank timeouts against reranks, over 1 h.
+      - DeadLetters.
+      - IngestStalled: ready messages but no succeeded or dead-lettered task in 15 m (`or vector(0)`).
+      - MonitoringTargetDown.
+      - TelemetryMissing: `absent(target_info{job=...})` for api, ingest and embed, for 10 m.
+    - **Robustness:**
+      - `worker_process_init` sets telemetry up and `worker_process_shutdown` flushes it, because children exit through `os._exit`.
+      - Exporter URLs end in `/v1/traces` and `/v1/metrics`, with 10 s timeouts.
+    - **Tests:**
+      - In-memory exporters are installed once per session in the root conftest; `configure_telemetry` never runs with an endpoint inside pytest.
+      - The secrets scan covers span attributes, events, status and resource.
+      - Metric labels are checked against an allowlist.
+      - A drift test checks the dashboards and alerts against SPECS, plus a `/metrics` capture saved during the live check.
+      - Every alert has promtool tests (`make monitoring-check`, run in the CI lint job), alongside `promtool check config` and `otelcol-contrib validate`.
+      - The e2e trace test uses an in-test OTLP sink, `OTEL_BSP_SCHEDULE_DELAY=200`, and a fixed `traceparent` on the POST.
+  - **User decisions:**
+    - No alert delivery yet; step 10 adds Alertmanager.
+    - The live check runs on a throwaway compose project `filinglens-demo`, only after the user's go, never during Triage Copilot's exam (2026-10-18 to 20, after 15:00 Taipei).
+    - It touches nothing outside `filinglens-demo`.
+    - Exactly 10 answers with Claude off, stopping at the first quota error.
+    - Uvicorn's access log drops query values.
+    - Dependencies `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http` 1.45.1 approved (the Celery instrumentation package is dropped).
+  - **User conditions on the revisions (2026-10-18):**
+    - **Celery tracing tests:** the own Celery tracing gets tests. The integration test shows one trace id from `POST /v1/ingest-jobs` through discover, fetch, parse, chunk, embed and facts. A failed publish, such as discover's nack on a full fetch queue, leaves no span open or current.
+    - **LlmProviderErrors** keeps a minimum call count in its window, like the other ratio alerts, so a single error cannot fire it.
+    - **Every alert,** TelemetryMissing included, keeps a firing and a quiet promtool case.
+  - **Live-check conditions (user, 2026-10-18):**
+    - Ask the user before starting the throwaway stack (`docker compose -p filinglens-demo --profile observability`), and never start it during Triage Copilot's exam (2026-10-18 to 20, after 15:00 Taipei).
+    - FreightAudit's prod stack (`freightaudit-prod`) runs on this PC. Touch no container, network or volume outside `filinglens-demo`, the dev `filinglens` stack included. The alert drills stop only `filinglens-demo` containers.
+    - Exactly the planned 10 answers, with Claude off (`LLM_ANSWER_FALLBACK` blank, demo only): no retry loops, and stop at the first quota or rate-limit error.
+    - Teardown:
+      - List the volumes filtered by `com.docker.compose.project=filinglens-demo` before and after.
+      - Remove only that project's volumes, by name. Never prune.
+      - If the safety check blocks it, hand the user the command.
+    - Ports come from 15433-15499 and are checked free first. `corpus-v1.dump` is restored into the demo Postgres, and 3 companies outside the golden set are ingested live (about 10 SEC requests).
+    - Screenshots are taken with headless Chrome, its profile under `H:\.cache`, and checked for keys, the contact email and personal data.
+  - **AGENTS.md log rule (user, 2026-10-18), for the step-8 branch, not Part A's:**
+    - Every entry in `docs/activity-log.md`, and in `docs/memory.md` when it records a problem or decision, includes small events too: a failed command, a skipped check, a tool that behaved unexpectedly, a setting changed.
+    - Each entry states what happened, why it happened ("not confirmed" when it's a guess), and what we did, with the exact steps in order and why that was the best option.
+    - Mistakes are logged the same way and never edited out. Past entries are not rewritten.
+    - **Status:** already added to AGENTS.md's Documentation Rules on `step-8-monitoring` (uncommitted).
+  - **Done on `step-8-monitoring` (uncommitted; ruff and pyright clean; tests not run yet):**
+    - [x] Dependencies:
+      - `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http` 1.45.1 and `celery` in packages/telemetry; `filinglens-telemetry` in llm, retrieval and sec_client.
+      - Everything locked was released at least 7 days before (newest 2026-10-06).
+      - protobuf 7.36.2 loads its native `upb` here, so no fallback is needed.
+    - [x] `filinglens_telemetry`:
+      - `metrics.py` (registry, SPECS, start series, gauges);
+      - `otel.py` (providers, `install`, `configure_telemetry`, `shutdown`, `QueryNames`, `trace_celery`);
+      - `__init__.py`: `query_names`, the `uvicorn.access` filter, trace ids on log lines.
+    - [x] Settings: `TelemetrySettings` (`OTEL_EXPORTER_OTLP_ENDPOINT`, empty means off; `OTEL_SERVICE_NAME`), defaults filinglens-api and filinglens-ingest.
+    - [x] Answers (`answering.py`):
+      - refusal codes (`_plan` returns code and text; `_refusal(code, text, ...)`);
+      - stage spans from `_Run.lap`;
+      - `_record` and `_outcome` in the `events` finally block;
+      - INFLIGHT and the overloaded rejection in `admit`.
+    - [x] Rejections: `rate_limited` in `limits.answer_limits`; `ai_disabled`, `budget_unavailable` and `budget_exhausted` in `budget.check`.
+    - [x] Providers:
+      - `traced_complete` and `traced_stream` on all three classes;
+      - `Provider.complete` is now `def ... -> Awaitable[Completion]`, because the decorated methods' `Awaitable` return did not match the protocol's `async def` (CoroutineType);
+      - the Anthropic client gets `open_telemetry=False`.
+  - **Small events so far (for the activity log, under the new rule):**
+    - The Part B branch was made when the user said to start Part B. The pause answer later said not to create it; it already existed, so it was left as it was and this was reported.
+    - `uv add` wrote a `[tool.uv.sources]` block into the llm, retrieval and sec_client pyprojects. No other member has one, because the root's sources cover it, so they were removed; `uv lock --check` passed.
+    - pyright strict (packages) found no stubs for `celery` in `otel.py`. Fixed with targeted `pyright: ignore` comments on the import and on `signal.connect`.
+    - ruff flagged 2 long lines in `metrics.py`, which `ruff format` wrapped, and an unsorted import in `providers.py`, which `ruff check --fix` fixed.
+    - The edit-gate hook refuses each file's first edit until its callers and the instruction are restated; the same edit then passes. That is expected hook behavior.
+  - **Session 2 (2026-10-18, from 02:07 Taipei):** the uncommitted work above passed `make lint`, `make typecheck`, `make test` (289) and `make test-int` (29) before anything new was added.
+  - [x] Wiring:
+    - **API `__main__`:** `configure_telemetry`, `observe_answer_limits` (`budget.tokens_today` on a sync Redis client with 2 s timeouts), `start_answer_series` with the configured models.
+    - **API `main.py`:** `FastAPI(telemetry={"logs": False, "auto_configure": False, "operation_spans": False, "exclude": <probes>})` and `request_id` on the server span. Operation spans are off so the server span stays current in routes and carries the answer (ruling, memory.md).
+  - [x] Retrieval: a `search` span with one child per phase, built from its laps; `filinglens.search.duration` by phase and total; `RERANK_TIMEOUTS` where `_rerank` times out. Neither the query nor exception messages go on the span.
+  - [x] Ingest: `worker_process_init` (telemetry and zero series per process) and `worker_process_shutdown` (flush), `_attempt` outcomes and duration plus `filinglens.ingest.outcome` on the run span, a `fetch queue full` event, embed chunks, SEC client spans (`SEC GET <kind>`) and counters (requests, cool-offs, refusals).
+  - [x] Infra:
+    - collector (`memory_limiter`, `httpcheck` with a 10 s timeout, `enable_open_metrics`, `metric_expiration: 1m`, its own metrics on 0.0.0.0:8888);
+    - Prometheus (scrapes with `honor_labels`, RabbitMQ's detailed endpoint, rules, 15 s evaluation, volume `prometheus-data`, 15 d or 1 GB, exemplar storage);
+    - Grafana (uids, exemplar links, 3 dashboards in a FilingLens folder, anonymous Viewer in dev only, analytics off);
+    - compose (`${OTEL_EXPORTER_OTLP_ENDPOINT:+http://otel-collector:4318}`, `OTEL_SERVICE_NAME=filinglens-embed`) and prod override; Jaeger `max_traces` 20,000; `.env.example`.
+  - [x] Alerts (13) and promtool tests (a firing case each, one quiet group for all 13); `make monitoring-check`; CI lint step.
+  - [x] Tests: unit (setup, query names, access log, trace ids in logs, answers for every outcome, providers, SEC, `_attempt`, Celery propagation with a failed publish, secrets in spans, label allowlist, drift), integration (end-to-end trace from the API through every task to an OTLP sink, search spans and metrics, rejection counters). Red checks: each new group fails when its code is broken.
+  - [x] Checks (2026-10-18): lint, typecheck (0 errors), test (323 passed, 1 skipped until the live capture), test-int (31 passed), actionlint, monitoring-check, contracts-check (no drift), secrets-scan (no leaks; the new files too).
+  - [x] Final review (fresh subagent): approved; 4 findings fixed test-first (query names, session-wide label check, promtool cases, the citation alert's denominator) and the plan's `run/<task>` names and fallback events added. One minor deferred: the e2e secrets scan checks whole connection URLs, since their bare password `test` occurs legitimately.
+  - [x] Live check on `filinglens-demo` (2026-10-18, 19:41-19:58 UTC; results in the activity log): corpus restored, 3 companies ingested live (9 SEC requests, job succeeded), exactly 10 answers (6 answered, 4 refused, 0 errors, no quota stop), both drills fired and cleared, every assumed label name confirmed (none corrected), 5 screenshots in `docs/screenshots/`, the capture in `packages/telemetry/tests/fixtures/metrics-capture.txt`, teardown by label and name (no volume left). The images `filinglens-demo-{api,ingest,embed}` remain (outside the teardown rules; the user decides).
+    - **User go: 2026-10-18 03:35 Taipei, with these additions:**
+      - If the conversation is summarized during the run, re-read these live-check rules (above and here) before continuing, the teardown rules above all.
+      - If Claude Code's safety check refuses a delete, stop and give the user the exact commands; never work around it. Leaving the stack up until the user is back is fine.
+      - If any step would touch anything outside `filinglens-demo`, stop and ask first.
+      - The final report gives: the 10 answers (provider, tokens, any refusal or error), both drills (alert fired and cleared, with times), the screenshots and the `/metrics` capture saved, any label names corrected, and the volume lists before and after teardown.
+      - Docs as AGENTS.md describes; no commit. It also saves `packages/telemetry/tests/fixtures/metrics-capture.txt` (names and label names only) for the drift test's third-party check, and confirms the httpcheck label names.
+  - [x] Docs: `docs/monitoring.md`, README, context, memory, activity log (2026-10-18). After the live check: the screenshots, the capture, and any label name it corrects.
 
 - [ ] 7. CI/CD (design doc prompt 7). **Plan approved 2026-10-17 with all 8 recommendations and five user additions; built and checked locally the same day.** Done when actionlint passes and a test PR shows every job green, with `make contracts-check` and `make contracts-breaking` (against main) among the jobs.
   - **Manual (user, on GitHub):**
@@ -118,6 +242,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Completed
 
+- [x] GraphQL answer guards and the SSE in-flight cap (2026-10-18, merged as #5): GraphQL answers take REST's 10-a-minute bucket, budget and 30 s limit through the same code, and an answer counts in flight from admission. `make test` 289 passed, `make test-int` 29 passed.
 - [x] 6b (2026-10-17). Golden set v1, judge calibration, eval harness and the full eval (plan approved 2026-10-16).
   - Done 2026-10-17:
     - Labeling and calibration are complete. The full eval ran on the test split, its report lists every target with pass, fail or not measured, and the floors are written.

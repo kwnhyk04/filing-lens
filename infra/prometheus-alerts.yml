@@ -1,0 +1,145 @@
+# The 13 alert rules (docs/monitoring.md: what each means and the first steps). No delivery yet:
+# they show in Prometheus and Grafana, and step 10 adds Alertmanager. Each rule has a firing and a
+# quiet case in prometheus-alerts.test.yml (make monitoring-check). Ratio rules also need a minimum
+# count in their window, so a single event at low traffic cannot fire them.
+groups:
+  - name: filinglens
+    rules:
+      # A refused connection shows only as httpcheck_error; the last status lingers until the
+      # collector's metric_expiration (1 m), so both are read.
+      - alert: ApiNotReady
+        expr: |
+          min by (http_url) (httpcheck_status{http_status_class="2xx"}) < 1
+          or max by (http_url) (httpcheck_error) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: The API's /readyz has failed for 2 minutes.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#apinotready
+
+      - alert: WorkerNotConsuming
+        expr: |
+          rabbitmq_detailed_queue_consumers{queue=~"discover|fetch|fetch\\.retry|parse|chunk|facts|embed|reembed"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Queue {{ $labels.queue }} has had no consumer for 5 minutes."
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#workernotconsuming
+
+      - alert: SecRefused
+        expr: sum(increase(filinglens_sec_refusals_total[15m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: SEC refuses our requests; every fetch fails until SEC_USER_AGENT is fixed.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#secrefused
+
+      # Failed: provider errors and credits gone, time-outs, 500s. AI off and the budget are
+      # rejections (filinglens_answers_rejected_total), not failures.
+      - alert: AnswersFailing
+        expr: sum(increase(filinglens_answers_total{outcome="failed"}[30m])) >= 2
+        labels:
+          severity: critical
+        annotations:
+          summary: Two or more answers failed in the last 30 minutes.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#answersfailing
+
+      - alert: AiBudgetExhausted
+        expr: |
+          max(filinglens_ai_tokens_today) >= max(filinglens_ai_token_budget)
+          and max(filinglens_ai_token_budget) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Today's AI token budget is used up; answers get 503 until 00:00 UTC.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#aibudgetexhausted
+
+      - alert: AiBudgetNearlyUsed
+        expr: |
+          max(filinglens_ai_tokens_today) / max(filinglens_ai_token_budget) >= 0.8
+          and max(filinglens_ai_tokens_today) / max(filinglens_ai_token_budget) < 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 80% of today's AI token budget is used.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#aibudgetnearlyused
+
+      - alert: LlmProviderErrors
+        expr: |
+          sum by (provider) (increase(filinglens_llm_calls_total{outcome="error"}[30m]))
+            / sum by (provider) (increase(filinglens_llm_calls_total[30m])) > 0.25
+          and sum by (provider) (increase(filinglens_llm_calls_total[30m])) >= 4
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 25% of {{ $labels.provider }} calls failed in the last 30 minutes."
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#llmprovidererrors
+
+      # The production proxy for citation precision: the share of drafts (generate stages) whose
+      # citations or amounts failed, whatever the answer's outcome.
+      - alert: CitationValidationDegraded
+        expr: |
+          sum(increase(filinglens_answer_regenerations_total[6h]))
+            / sum(increase(filinglens_answer_stage_duration_seconds_count{stage="generate"}[6h])) > 0.25
+          and sum(increase(filinglens_answer_stage_duration_seconds_count{stage="generate"}[6h])) >= 8
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 25% of drafts were written again in the last 6 hours.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#citationvalidationdegraded
+
+      - alert: SearchDegraded
+        expr: |
+          sum(increase(filinglens_search_rerank_timeouts_total[1h]))
+            / sum(increase(filinglens_search_duration_seconds_count{phase="rerank"}[1h])) > 0.1
+          and sum(increase(filinglens_search_duration_seconds_count{phase="rerank"}[1h])) >= 10
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 10% of reranks timed out in the last hour.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#searchdegraded
+
+      - alert: DeadLetters
+        expr: rabbitmq_detailed_queue_messages_ready{queue=~".+\\.dlq"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.queue }} holds a message that failed for good."
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#deadletters
+
+      - alert: IngestStalled
+        expr: |
+          sum(rabbitmq_detailed_queue_messages_ready{queue=~"discover|fetch|fetch\\.retry|parse|chunk|facts|embed"}) > 0
+          and on () (sum(increase(filinglens_ingest_tasks_total{outcome=~"succeeded|dead_lettered"}[15m])) or vector(0)) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ingest queues hold work, but no task has finished for 15 minutes.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#ingeststalled
+
+      - alert: MonitoringTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus has not scraped {{ $labels.job }} for 5 minutes."
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#monitoringtargetdown
+
+      # Without it, every alert on the services' metrics would quietly resolve when they stop.
+      - alert: TelemetryMissing
+        expr: |
+          absent(target_info{job="filinglens-api"})
+          or absent(target_info{job="filinglens-ingest"})
+          or absent(target_info{job="filinglens-embed"})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} has sent no telemetry for 10 minutes."
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#telemetrymissing

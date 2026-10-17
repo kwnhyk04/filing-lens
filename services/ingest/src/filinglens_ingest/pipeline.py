@@ -30,6 +30,7 @@ from amqp.exceptions import MessageNacked
 from celery import Task, shared_task
 from celery.exceptions import Reject
 from kombu.exceptions import OperationalError
+from opentelemetry import trace
 from redis import Redis
 from sqlalchemy import (
     String,
@@ -78,6 +79,7 @@ from filinglens_db.models import (
 from filinglens_ingest import chunking, companyfacts, parsing
 from filinglens_llm import embed as embed_texts
 from filinglens_sec_client import ACCESSION, FILE_NAME, LimiterUnavailableError, SecClient
+from filinglens_telemetry import metrics
 
 MAX_RETRIES = 6
 QUEUE_FULL_BACKOFF_MAX_S = 60
@@ -246,6 +248,7 @@ def _discover(task: Task, job: UUID, cik: int, files: list[str] | None, backoffs
             waiting=len(pending) - len(queued),
             delay_s=round(delay, 1),
         )
+        trace.get_current_span().add_event("fetch queue full", {"delay_s": round(delay, 1)})
         task.apply_async((str(job), cik, files), {"backoffs": backoffs + 1}, countdown=delay)
         return
     # Older files whose newest filing predates the job's start date hold nothing it wants.
@@ -280,16 +283,25 @@ def _queue(task: Task, *args: object) -> None:
 
 def _attempt(task: Task, work: Callable[[], None], settle: Settle, queue: str) -> None:
     """Run a task's work: pause without Redis, retry transient errors, dead-letter the rest."""
+    name, started, outcome = str(task.name).rsplit(".", 1)[-1], time.perf_counter(), "succeeded"
     try:
         work()
     except LimiterUnavailableError:
+        outcome = "paused"
         _pause(task, queue)
     except TransientError as exc:
         if task.request.retries < MAX_RETRIES:
+            outcome = "retried"
             raise  # autoretry_for queues the next attempt with backoff
+        outcome = "dead_lettered"
         _give_up(task, exc, settle)
     except Exception as exc:
+        outcome = "dead_lettered"
         _give_up(task, exc, settle)
+    finally:
+        metrics.INGEST_TASKS.add(1, {"task": name, "outcome": outcome})
+        metrics.INGEST_TASK_DURATION.record(time.perf_counter() - started, {"task": name})
+        trace.get_current_span().set_attribute("filinglens.ingest.outcome", outcome)
 
 
 def _pause(task: Task, queue: str) -> None:
@@ -608,6 +620,7 @@ async def _embed(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
         ]
         async with engine.begin() as connection:
             await connection.execute(statement, params)
+        metrics.EMBEDDED.add(len(batch))
     if rows:
         log.info(
             "chunks embedded",

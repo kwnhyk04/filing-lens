@@ -9,7 +9,13 @@ from typing import Any
 
 import structlog
 from celery import Celery
-from celery.signals import setup_logging, worker_init, worker_ready
+from celery.signals import (
+    setup_logging,
+    worker_init,
+    worker_process_init,
+    worker_process_shutdown,
+    worker_ready,
+)
 from redis import Redis
 
 from filinglens_core import queues
@@ -17,7 +23,7 @@ from filinglens_core.settings import IngestSettings, load_settings
 from filinglens_db import make_engine, ping
 from filinglens_ingest import topology
 from filinglens_sec_client import REFUSED_KEY, STRIKE_KEY
-from filinglens_telemetry import configure_logging
+from filinglens_telemetry import configure_logging, metrics, otel
 
 CHECK_TIMEOUT_S = 2.0
 log = structlog.get_logger(__name__)
@@ -79,6 +85,20 @@ def declare_dead_letter_queues(**_: Any) -> None:
 @setup_logging.connect
 def _setup_logging(**_: Any) -> None:
     configure_logging("ingest", settings.log_level)
+
+
+@worker_process_init.connect
+def _start_telemetry(**_: Any) -> None:
+    """After the fork, so each pool process exports as its own instance (prefork and solo)."""
+    endpoint = settings.otel_exporter_otlp_endpoint
+    otel.configure_telemetry(settings.otel_service_name, str(endpoint) if endpoint else None)
+    metrics.start_ingest_series()
+
+
+@worker_process_shutdown.connect
+def _flush_telemetry(**_: Any) -> None:
+    """Prefork children leave through os._exit, which skips the SDK's flush at exit."""
+    otel.shutdown()
 
 
 def _ping_worker(worker: str) -> None:

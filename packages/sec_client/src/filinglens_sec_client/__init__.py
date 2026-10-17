@@ -21,11 +21,14 @@ from pathlib import Path
 from typing import Any, NoReturn, cast
 
 import httpx
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind, StatusCode
 from redis import Redis
 from redis.exceptions import RedisError
 
 from filinglens_core.errors import FilingLensError, NotFoundError, RateLimitedError, UpstreamError
 from filinglens_core.ratelimit import BUCKET_SCRIPT
+from filinglens_telemetry import metrics
 
 RATE_PER_SECOND = 8  # SEC allows 10; with a capacity of 1, no burst goes past the rate
 BUCKET_KEY = "sec:bucket"
@@ -43,6 +46,7 @@ FILE_NAME = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}"
 )  # one path segment: keeps the cache safe
 OLDER_FILE = re.compile(r"CIK\d{10}-submissions-\d{3}\.json")
+tracer = trace.get_tracer(__name__)
 
 
 class LimiterUnavailableError(UpstreamError):
@@ -106,11 +110,25 @@ class SecClient:
 
     def _get(self, base: str, path: str, kind: str, max_age: timedelta | None = None) -> bytes:
         cached = self._cache_dir / f"{path}.gz"
-        if cached.exists() and (
-            max_age is None or time.time() - cached.stat().st_mtime < max_age.total_seconds()
-        ):
-            return gzip.decompress(cached.read_bytes())
-        body = self._download(f"{base}/{path}", kind)
+        with tracer.start_as_current_span(
+            f"SEC GET {kind}",
+            kind=SpanKind.CLIENT,
+            attributes={"filinglens.sec.kind": kind},
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
+            fresh = cached.exists() and (
+                max_age is None or time.time() - cached.stat().st_mtime < max_age.total_seconds()
+            )
+            span.set_attribute("filinglens.sec.cache_hit", fresh)
+            if fresh:
+                return gzip.decompress(cached.read_bytes())
+            try:
+                body = self._download(f"{base}/{path}", kind)
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR)  # the type only: messages carry SEC's reply
+                span.set_attribute("error.type", type(exc).__name__)
+                raise
         cached.parent.mkdir(parents=True, exist_ok=True)
         partial = cached.with_name(f"{cached.name}.{uuid.uuid4().hex}.part")
         partial.write_bytes(gzip.compress(body))
@@ -118,14 +136,22 @@ class SecClient:
         return body
 
     def _download(self, url: str, kind: str) -> bytes:
+        started = time.perf_counter()
         self._acquire()
+        span = trace.get_current_span()  # _get's; never the User-Agent, which holds a contact
+        span.set_attributes(
+            {"url.full": url, "filinglens.sec.limiter_wait_s": time.perf_counter() - started}
+        )
         with suppress(RedisError):  # a lost count must not cost the request
             self._redis.hincrby(REQUESTS_KEY, kind, 1)
         try:
             response = self._http.get(url)
         except httpx.HTTPError as exc:  # timeouts and connection errors
+            metrics.SEC_REQUESTS.add(1, {"kind": kind, "status": "error"})
             raise UpstreamError(f"SEC request failed ({type(exc).__name__}): {url}") from exc
         status = response.status_code
+        span.set_attribute("http.response.status_code", status)
+        metrics.SEC_REQUESTS.add(1, {"kind": kind, "status": str(status)})
         if status == 200:
             with suppress(RedisError):  # left alone, the strike only expires later
                 self._redis.delete(STRIKE_KEY)  # any throttling is over
@@ -156,6 +182,7 @@ class SecClient:
             message = "Redis is unavailable, so no SEC request can be rate limited."
             raise LimiterUnavailableError(message) from exc
         if refused is not None:
+            metrics.SEC_REFUSALS.add(1)
             raise SecRefusedError(refused.decode())
 
     def _refused(self, url: str, status: int, response: httpx.Response) -> NoReturn:
@@ -169,6 +196,7 @@ class SecClient:
                     " email. Fix it, restart the workers, then replay the dead letters."
                 )
                 self._redis.set(REFUSED_KEY, reason)
+                metrics.SEC_REFUSALS.add(1)
                 raise SecRefusedError(reason)
             retry_after = response.headers.get("Retry-After", "")
             seconds = int(retry_after) if retry_after.isdigit() else COOL_OFF_S
@@ -178,6 +206,7 @@ class SecClient:
                 self._redis.set(STRIKE_KEY, 1, ex=seconds + STRIKE_GRACE_S)
         except RedisError as exc:
             raise LimiterUnavailableError("Redis is unavailable for the SEC cool-off.") from exc
+        metrics.SEC_COOLOFFS.add(1, {"status": str(status)})
         hint = " Check SEC_USER_AGENT." if b"Undeclared Automated Tool" in response.content else ""
         raise RateLimitedError(
             f"SEC refused {url} ({status}); every worker pauses {seconds} s.{hint}",

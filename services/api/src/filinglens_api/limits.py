@@ -18,6 +18,7 @@ from filinglens_api.problems import http_problem
 from filinglens_api.schemas import Answer, AnswerRequest
 from filinglens_core.errors import RateLimitedError, UpstreamError
 from filinglens_llm import budget
+from filinglens_telemetry import metrics
 
 PER_MINUTE = 60  # every route that takes a key, per key
 ANSWERS_PER_MINUTE = 10  # POST /v1/answers and its stream, per key
@@ -52,7 +53,11 @@ async def rate_limit(request: Request) -> None:
 
 async def answer_limits(request: Request) -> None:
     """Answers: 10 a minute per API key, only while AI is on and today's budget lasts."""
-    await _take(request, "answers", ANSWERS_PER_MINUTE)
+    try:
+        await _take(request, "answers", ANSWERS_PER_MINUTE)
+    except RateLimitedError:
+        metrics.REJECTED.add(1, {"reason": "rate_limited"})
+        raise
     settings = request.app.state.settings
     await budget.check(
         request.app.state.redis,

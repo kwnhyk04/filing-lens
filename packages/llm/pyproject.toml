@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.15.0",
     "filinglens-core",
+    "filinglens-telemetry",
     "google-genai>=2.31.0",
     "httpx>=0.28.1",
     "httpx2>=2.13.1",
