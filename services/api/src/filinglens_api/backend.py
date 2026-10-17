@@ -2,7 +2,8 @@
 
 import asyncio
 import base64
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import aclosing
 from datetime import date
 from typing import Annotated, Any, Protocol
 from uuid import UUID
@@ -190,11 +191,20 @@ class Backend(Protocol):
 
     async def answer(self, request: AnswerRequest) -> Answer: ...
 
-    async def stream_answer(
-        self, request: AnswerRequest
-    ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
+    async def stream_answer(self, request: AnswerRequest) -> "AnswerEvents":
         """Admit the request first, so errors here still get a status code; then return events."""
         ...
+
+
+class AnswerEvents(Protocol):
+    """An answer's events. aclose() ends them early and frees the answer's in-flight slot, even
+    before the first event."""
+
+    def __aiter__(self) -> AsyncIterator[AnswerDelta | AnswerCompleted]: ...
+
+    def __anext__(self) -> Awaitable[AnswerDelta | AnswerCompleted]: ...
+
+    def aclose(self) -> Awaitable[None]: ...
 
 
 def get_backend(request: Request) -> Backend:
@@ -506,18 +516,16 @@ class LiveBackend:
         return SearchPage(items=items, next_cursor=next_cursor, degraded=ranking.degraded)
 
     async def answer(self, request: AnswerRequest) -> Answer:
-        async for event in await self.stream_answer(request):
-            if isinstance(event, AnswerCompleted):
-                return event.answer
+        async with aclosing(await self.stream_answer(request)) as events:
+            async for event in events:
+                if isinstance(event, AnswerCompleted):
+                    return event.answer
         raise UpstreamError("The answer ended without a result.")
 
-    async def stream_answer(
-        self, request: AnswerRequest
-    ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
+    async def stream_answer(self, request: AnswerRequest) -> AnswerEvents:
         if self._answerer is None:
             raise AiUnavailableError("AI is switched off on this server (AI_ENABLED=false).")
-        self._answerer.admit()
-        return self._answerer.events(request)
+        return self._answerer.admit(request)
 
 
 def _search_hit(hit: Hit) -> SearchHit:

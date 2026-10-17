@@ -26,12 +26,21 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - latency at scale.
 
   Nothing is tuned on golden v1's test results.
-- [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved
+- [ ] 8. Instrumentation: OpenTelemetry traces span services end to end; dashboard and alerts committed; screenshots saved. Plan approved with the user's changes on 2026-10-18 (activity log); it starts on a new branch from main once the GraphQL guard fix (In Progress) has merged.
 - [ ] (before step 9) Chunks from a separate financial section (JPM, CVX, NVDA, PLD, XOM) are labeled with the last item (15 or 16). Detect the MD&A and financial-statement headings inside that section and label those chunks Items 7, 7A and 8, so citations show the right section.
 - [ ] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, demo snapshot shown when the backend is offline; Playwright tests pass. The BFF uses `clients/ts` (`createApiClient`, `executeGraphql`) with `API_KEY` only.
 - [ ] 10. Deploy: UI on Vercel, backend on the PC via Tailscale Funnel; phone test passes; 401 without API key; demo mode when the PC is off
 
 ## In Progress
+
+- [ ] GraphQL answer guards and the SSE in-flight cap (user decision, 2026-10-18: found while planning step 8; fixed first, on branch `fix/graphql-answer-guards` from main, with its own PR). Done when GraphQL answers take REST's 10-a-minute bucket, budget and 30 s limit, one stream past `LLM_MAX_INFLIGHT` is refused, and `make test` and `make test-int` stay green.
+  - [x] **Built and checked locally (2026-10-18):**
+    - GraphQL `answer` calls the same `answer_limits` (through the `answer_limits_for` dependency) and `timed_answer` as REST; REST keeps its dependency order.
+    - `Answerer.admit(request)` counts an answer in flight from admission and returns `Admitted`, which frees the slot at its last event, an error, a cancellation or `aclose()`; the stream route closes it after the response.
+    - The entry-point audit is in context.md (Request limits).
+    - `make lint`, `make typecheck` (0 errors), `make test` 289 passed, `make test-int` 29 passed, `make contracts-check` (no drift).
+    - Red check: with the old resolver, the GraphQL bucket and budget tests fail.
+  - [ ] The user commits, pushes and opens the PR; CI green. The answer eval runs, because `services/api/src` is an eval input: about 28K gpt-oss-20b and about 20 Gemini calls.
 
 - [ ] 7. CI/CD (design doc prompt 7). **Plan approved 2026-10-17 with all 8 recommendations and five user additions; built and checked locally the same day.** Done when actionlint passes and a test PR shows every job green, with `make contracts-check` and `make contracts-breaking` (against main) among the jobs.
   - **Manual (user, on GitHub):**

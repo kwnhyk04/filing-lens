@@ -1,6 +1,6 @@
 """GraphQL contract (Strawberry). Resolvers read through the same Backend as the REST routes."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import date
 from typing import Annotated, Any
 
@@ -20,6 +20,7 @@ from filinglens_api.backend import (
     encode_cursor,
     get_backend,
 )
+from filinglens_api.limits import answer_limits_for, timed_answer
 from filinglens_api.schemas import FiscalPeriod, FormType
 from filinglens_core.errors import FilingLensError, InvalidInputError
 
@@ -290,7 +291,8 @@ class Query:
             raise InvalidInputError(
                 "; ".join(f"{e['loc'][0]}: {e['msg']}" for e in problems)
             ) from None
-        return Answer.of(await _backend(info).answer(request))
+        await info.context["answer_limits"]()  # REST's: 10 a minute per key, the AI budget
+        return Answer.of(await timed_answer(_backend(info), request))
 
 
 class ErrorCodes(MaskErrors):
@@ -321,8 +323,11 @@ class ErrorCodes(MaskErrors):
         )
 
 
-async def get_context(backend: Annotated[Backend, Depends(get_backend)]) -> dict[str, Any]:
-    return {"backend": backend}
+async def get_context(
+    backend: Annotated[Backend, Depends(get_backend)],
+    answer_limits: Annotated[Callable[[], Awaitable[None]], Depends(answer_limits_for)],
+) -> dict[str, Any]:
+    return {"backend": backend, "answer_limits": answer_limits}
 
 
 schema = strawberry.Schema(query=Query, extensions=[ErrorCodes])

@@ -15,6 +15,34 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-18: GraphQL answer guards and the SSE in-flight cap fixed (before step 8); step 8 planned
+
+- Changes:
+  - **GraphQL answer guards (user decision: fixed first, branch `fix/graphql-answer-guards` from main, own PR).** GraphQL `answer` skipped the 10-a-minute answer bucket, the daily AI budget and the 30 s limit. It now runs the same code as REST: `answer_limits`, bound to the request by the `answer_limits_for` dependency, and `timed_answer`. REST and GraphQL share one answers bucket per key. REST behavior and the contracts are unchanged.
+  - **In-flight cap (user addition):** an answer counts from admission (`Answerer.admit(request)` returns `Admitted`), not from its first event. The slot comes back at the last event, on an error or a cancellation, or on `aclose()`, which the stream route's request-scoped dependency calls after the response.
+  - **Audit:** every entry point that reaches a model, with its guards, in context.md (Request limits).
+  - **Step 8 plan approved with the user's changes:**
+    - No alert delivery yet; step 10 adds Alertmanager.
+    - The live check runs on a throwaway compose project `filinglens-demo`, only after the user's go and outside Triage Copilot's exam window.
+    - That check touches nothing outside its own project, sends exactly 10 answers with Claude off, and stops at the first quota error.
+    - Uvicorn's access log drops query values.
+    - Dependencies approved; nothing committed.
+  - **Design critique after approval (pending the user's OK):**
+    - Own Celery trace propagation instead of `opentelemetry-instrumentation-celery`, whose 0.66b1 leaves the `send_task` and failed-publish producer spans open.
+    - Corrected alert expressions, plus TelemetryMissing.
+    - Duplicate metrics cut, and stricter tests.
+- Files: services/api/src/filinglens_api/{answering,backend,graph,limits,routes}.py, services/api/tests/{conftest,test_answering,test_limits}.py, README.md, docs/*
+- Validation:
+  - `make lint`; `make typecheck` (0 errors); `make test` 289 passed; `make test-int` 29 passed; `make contracts-check` with no drift.
+  - New tests:
+    - GraphQL shares the 10-a-minute bucket with REST.
+    - The spent budget, AI off, and Redis down (fails closed) all refuse GraphQL answers before the backend.
+    - The 30 s limit applies over GraphQL.
+    - With 2 streams held at a cap of 2, a third gets 503 `overloaded`, and a stream whose client leaves frees its slot.
+    - An admitted answer that is closed unread frees its slot.
+  - Red check: with the old resolver, the GraphQL bucket and budget tests fail.
+- Outstanding: the user commits, pushes and opens the PR (the CI answer eval runs: about 28K gpt-oss-20b and about 20 Gemini calls). Step 8 then starts on a new branch from main.
+
 ### 2026-10-17: Test floors recomputed under the fixed rule; v2 time-trap idea; CI limits documented
 
 - Changes (user decisions):

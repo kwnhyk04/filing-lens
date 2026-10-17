@@ -6,11 +6,11 @@ failure paths use the same bodies doctored, or the providers' documented error s
 
 import json
 from collections import defaultdict
-from collections.abc import AsyncGenerator, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import httpx2
@@ -498,17 +498,19 @@ async def test_gemini_sends_its_key_only_in_the_header(
     assert "key" not in request.url.params
 
 
-async def test_answers_past_the_in_flight_cap_are_shed(mocked: respx.MockRouter) -> None:
+async def test_an_answer_is_in_flight_from_admission_until_it_ends(
+    mocked: respx.MockRouter,
+) -> None:
     recorded = fixture("numeric")
     replay(mocked, recorded["exchanges"])
+    request = AnswerRequest(question=recorded["question"])
     async with httpx.AsyncClient() as http:
         pipeline = answerer(recorded, http, max_inflight=1)
-        events = cast(
-            AsyncGenerator[Any], pipeline.events(AnswerRequest(question=recorded["question"]))
-        )
-        await anext(events)  # the first delta: this answer is in flight
+        unread = pipeline.admit(request)  # in flight before its first event
         with pytest.raises(OverloadedError) as shed:
-            pipeline.admit()
+            pipeline.admit(request)
         assert shed.value.retry_after_s == 2
-        await events.aclose()
-        pipeline.admit()  # the slot is free again
+        await unread.aclose()  # closed before its first event: the slot comes back
+        events = [event async for event in pipeline.admit(request)]  # an answer run to its end
+        assert isinstance(events[-1], AnswerCompleted)
+        await pipeline.admit(request).aclose()  # it gave its slot back too

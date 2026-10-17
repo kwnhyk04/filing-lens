@@ -111,9 +111,28 @@ Evals (`evals/`):
 - Errors: RFC 9457 problems (`application/problem+json`, `type: about:blank`, `code` from the taxonomy). Validation is 422 `validation_failed` with `errors[{detail, pointer}]`; a bad cursor is 400; 429 sends `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`; 503 sends `Retry-After`. Unexpected errors are 500 with no detail, logged with the request id.
 - Data behind the routes: `LiveBackend` serves companies, filings, sections, chunks and facts from Postgres. It also creates and reports ingest jobs: creation is idempotent per Idempotency-Key, stores the job and one `ingest_job_companies` row per CIK, then queues one discover per company with publisher confirms (503 if RabbitMQ refuses). A retry queues again while the job is still `queued`. The job view counts items by status and pages failures by accession number. Search and answers are live (see Search and answers below).
 - Request limits:
-  - Per API key, a Redis token bucket of 60 a minute on every route (GraphQL included), and 10 a minute shared by `/v1/answers` and its stream; 429 carries `Retry-After` and `RateLimit-*`. The limiter fails open while Redis is down.
-  - Answers return 503 `ai_unavailable` when `AI_ENABLED=false` or once the UTC day's LLM tokens (`filinglens_llm.budget`, Redis hash `ai:usage:<date>`) reach `DAILY_AI_TOKEN_BUDGET`. That check fails closed. Every model call adds its tokens (`budget.record`).
-  - Bodies over 64 KB get 413 (`request_entity_too_large`), chunked ones included. An answer, streamed or not, gets 30 s, then 502 (a `failed` event in a stream).
+  - Per API key, a Redis token bucket of 60 a minute on every route (GraphQL included), and 10 a minute shared by every answer: `/v1/answers`, its stream and GraphQL `answer`. 429 carries `Retry-After` and `RateLimit-*`; GraphQL refuses an answer with an error whose `extensions.code` is `rate_limited`. The limiter fails open while Redis is down.
+  - Answers return 503 `ai_unavailable` (GraphQL: an `ai_unavailable` error) when `AI_ENABLED=false` or once the UTC day's LLM tokens (`filinglens_llm.budget`, Redis hash `ai:usage:<date>`) reach `DAILY_AI_TOKEN_BUDGET`. That check fails closed. Every model call adds its tokens (`budget.record`).
+  - Bodies over 64 KB get 413 (`request_entity_too_large`), chunked ones included. An answer, streamed or not, REST or GraphQL, gets 30 s, then 502 (a `failed` event in a stream, an `upstream_error` error over GraphQL).
+  - GraphQL `answer` runs the same guard code as REST: `answer_limits`, which `answer_limits_for` binds to the request so it applies to `answer` only, and `timed_answer`. Fixed on 2026-10-18; before that, GraphQL answers skipped the answer bucket, the budget and the time limit.
+  - In-flight cap:
+    - An answer counts against `LLM_MAX_INFLIGHT` from its admission (`Answerer.admit`), not from its first event, so streams opened together cannot pass the cap.
+    - Its `Admitted` events give the slot back at the last event, on an error or a cancellation, or on `aclose()`. The stream route's request-scoped dependency calls `aclose()` after the response, so a client gone before the first event frees it too.
+    - Evals and scripts call `Answerer.events` directly, one answer at a time, and are not counted.
+  - Entry points that reach a model, and their guards (audited 2026-10-18):
+
+    | Entry point | Key | 60/min | 10/min answers | Budget and AI switch | In-flight cap | 30 s | 64 KB body |
+    | --- | --- | --- | --- | --- | --- | --- | --- |
+    | `POST /v1/answers` | API or admin | yes | yes | yes | yes | yes | yes |
+    | `POST /v1/answers/stream` | API or admin | yes | yes | yes | yes | yes (deadline) | yes |
+    | GraphQL `answer` | API or admin | yes | yes (the same bucket) | yes | yes | yes | yes |
+    | `GET /v1/search` (local embedder and reranker, no LLM) | API or admin | yes | n/a | n/a | n/a | n/a | n/a |
+    | `POST /v1/ingest-jobs` (workers, local embedder, no LLM) | admin | yes | n/a | n/a | n/a | n/a | yes |
+
+    The catalog routes, the GraphQL catalog fields and the probes reach no model. The operator tools run outside the API with no API guards by design:
+    - `make eval`: one pinned answer model, no fallback, tokens counted in Redis db 15, 30 s per question.
+    - `make calibrate`: judge calls only.
+    - `make smoke` and `make record-fixtures`: the Answerer directly, with per-call HTTP timeouts only.
 - Ingest pipeline:
   - The API's job queues `discover`. It walks one page of the company's submissions JSON per run, from the main file through the older files, and skips files whose newest filing predates the job's `since`.
   - Discover upserts the company (if new) and the 10-K and 10-Q filings, and adds job items: `skipped` when already parsed, otherwise `pending`. It then queues a `fetch` per pending filing, with confirms, and marks it `running`. When RabbitMQ nacks because `fetch` holds 10,000 messages, discover queues itself again after a jittered backoff of up to 60 s. After its last page it queues `facts` for the company.

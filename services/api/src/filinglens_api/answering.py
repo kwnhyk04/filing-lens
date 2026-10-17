@@ -18,10 +18,10 @@ instead of a model answer.
 import asyncio
 import itertools
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Protocol
+from typing import Any, Protocol, Self
 
 import structlog
 from redis.asyncio import Redis
@@ -117,6 +117,37 @@ class _Run:
         return round((time.perf_counter() - self.started) * 1000, 1)
 
 
+class Admitted:
+    """An admitted answer's events. It holds an in-flight slot from admission until its last
+    event, an error, a cancellation or aclose(), so a stream whose client left before the first
+    event gives its slot back too."""
+
+    def __init__(
+        self, events: AsyncGenerator[AnswerDelta | AnswerCompleted, None], leave: Callable[[], None]
+    ) -> None:
+        self._events = events
+        self._leave: Callable[[], None] | None = leave
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> AnswerDelta | AnswerCompleted:
+        try:
+            return await anext(self._events)
+        except BaseException:  # the end of the answer, an error or a cancellation
+            self._release()
+            raise
+
+    async def aclose(self) -> None:
+        self._release()
+        await self._events.aclose()
+
+    def _release(self) -> None:
+        leave, self._leave = self._leave, None
+        if leave is not None:
+            leave()
+
+
 class Answerer:
     def __init__(
         self,
@@ -138,20 +169,27 @@ class Answerer:
         self._min_relevance = min_relevance
         self._inflight = 0
 
-    def admit(self) -> None:
-        """Shed load before any work: OverloadedError (503) past the in-flight cap."""
+    def admit(self, request: AnswerRequest) -> Admitted:
+        """Shed load before any work: OverloadedError (503) past the in-flight cap. The answer
+        counts as in flight from here, not from its first event, so streams opened together
+        cannot pass the cap."""
         if self._inflight >= self._max_inflight:
             raise OverloadedError("Too many answers in progress; retry shortly.", retry_after_s=2)
+        self._inflight += 1
+        return Admitted(self.events(request), self._leave)
+
+    def _leave(self) -> None:
+        self._inflight -= 1
 
     async def events(
         self, request: AnswerRequest, stats: dict[str, Any] | None = None
-    ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
+    ) -> AsyncGenerator[AnswerDelta | AnswerCompleted, None]:
         """Deltas of the draft as it is written, then the validated answer.
 
         The completed answer equals the joined deltas unless validation changed the draft; its
-        warnings say so. `stats`, when given, receives the route, tokens and stage times.
+        warnings say so. `stats`, when given, receives the route, tokens and stage times. Only
+        admit() counts answers in flight; evals and scripts call this directly, one at a time.
         """
-        self._inflight += 1
         run = _Run()
         outcome: Answer | None = None
         routing: router.Routing | None = None
@@ -179,7 +217,6 @@ class Answerer:
         finally:
             if early is not None:
                 early.task.cancel()  # a search the plan did not use; no-op once it was awaited
-            self._inflight -= 1
             run.timings_ms["total_ms"] = run.since_start_ms()
             log.info(
                 "answer",
