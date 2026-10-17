@@ -15,6 +15,94 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-17: Test floors recomputed under the fixed rule; v2 time-trap idea; CI limits documented
+
+- Changes (user decisions):
+  - `--set-floors evals/reports/2026-10-17.json --replace` from the saved exam report, with no new run: numeric 0.92 to 0.758, correct refusal 0.90 to 0.646, false refusal 0.261 to 0.321, retrieval recall@10 0.314 to 0.416, MRR@10 0.500 to 0.667.
+  - `retrieval:dev:full` was re-derived from its own report, unchanged. The four keys are all the floors; there is no Haiku key.
+  - The todo's v2 list gains a time-trap check in code for a fiscal year the router leaves out (t07).
+  - The eval docs now say CI is a tripwire (6 of 8 numeric still pass 0.676) and record the Groq budget: about 28K gpt-oss-20b per live CI run, on the account shared with FreightAudit's CI.
+- Files: evals/thresholds.json, evals/eval-card.md, README.md, docs/*
+- Validation: the exam, dev retrieval and fresh dev ci reports pass their floors (16, 3 and 11 checked, none broken).
+- Outstanding: the user commits and pushes; step 7 merges once the PR is green; step 8 starts in a fresh session.
+
+### 2026-10-17: First PR's CI eval failure diagnosed; Wilson intervals; wider ci subset; dev ci floors replaced
+
+- Changes (user requests):
+  - **Diagnosis:** the eval-reports artifact of run 39045222529 was downloaded by the user and read from the scratchpad; no token was used.
+    - The miss was t07, a time trap: Chevron's "fiscal 2026 annual report". The router gave no fiscal year, in CI and in the cached 10:41:30 run alike.
+    - Cached, Gemini refused; live, it answered with risks from the FY2025 10-K. Model variation; not answerable. No label changed.
+  - **Answer path unchanged:** prompt hashes, models, settings, index sha256 and manifest are identical. The only answer-path code diff is `evals/calls.py`'s stop text and codes.
+  - **Floor rule:** `metrics.wilson` gives the pass/fail metrics (`harness.BINARY`) Wilson score intervals, in reports and in `--set-floors`, recomputed from value and n. The rule stays min(low, target). `--set-floors --replace` may loosen floors.
+  - **ci subset:** `harness.CI_EXTRA` adds a04, a07, a09, t04 and t08, in the seeded rank order, which reproduces the frozen flags. That makes 25 questions, 10 should-refuse. Golden v1 is unchanged.
+  - **Floors:** a fresh live dev ci run (`20261017T154912Z`, `--tag=ci-floors-1017 --no-judge`) with every question answered or refused as expected: correct refusal 10 of 10, numeric 8 of 8, false refusal 2 of 15, 0 errors. `--set-floors --replace` from it then set:
+    - numeric 0.92 to 0.676, correct refusal 0.90 to 0.722, false refusal 0.333 to 0.379;
+    - input tokens 7,393, output tokens 312, cost $0.0023;
+    - TTFT p50 2,990 ms, TTFT p95 3,157 ms, answer p95 5,831 ms.
+  - Test floors unchanged (user decision pending).
+- Files: evals/metrics.py, evals/harness.py, evals/tests/test_metrics.py, evals/tests/test_ci.py, evals/tests/test_calls.py, evals/thresholds.json, evals/reports/runs/20261017T154912Z-answer-dev-ci.*, evals/eval-card.md, README.md, docs/*
+- Validation: `make test` 287 passed (Wilson 5 of 5, 0 of 5 and 3 of 5; replace; ci subset), ruff and pyright clean, gitleaks clean on evals, docs and README. Spent 27.7K gpt-oss-20b, 0 gpt-oss-120b and 20 Gemini calls.
+- Outstanding: the test-floor decision; the user's commit and push; CI on the new commit.
+
+### 2026-10-17: Dev floors for CI written; throwaway volume removed; GitHub repo and secrets ready
+
+- Changes (user requests):
+  - **Floors:** `--set-floors` on `20261017T103956Z-retrieval-dev-full` and `20261017T104130Z-answer-dev-ci`, by the usual rule, except retrieval accuracy.
+    - The new rule, `metrics.deterministic_floor`, is the measured value less one question's share, capped at the target. Reason: retrieval calls no model and repeats exactly, so a floor at the bootstrap lower bound would let a real drop pass.
+    - `retrieval:dev:full`: recall@10 ≥ 0.542, MRR@10 ≥ 0.577, retrieval p95 ≤ 478 ms.
+    - `answer:dev:ci:gemini:gemini-3.5-flash-lite`: numeric ≥ 0.920, coverage ≥ 0.950, correct refusal ≥ 0.900, false refusal ≤ 0.333, input tokens ≤ 8,000, output tokens ≤ 474, cost ≤ $0.0029, billed $0.
+  - **Volume:** the throwaway `filinglens-corpus-check_postgres-data` (compose project `filinglens-corpus-check`, no container using it) was removed.
+  - **GitHub (user):** the repo `kwnhyk04/filing-lens` (public, empty) requires actions pinned to full-length commit SHAs, and both Actions secrets are CI-only keys.
+- Files: evals/metrics.py, evals/harness.py, evals/tests/test_metrics.py, evals/tests/test_calls.py, evals/thresholds.json, evals/eval-card.md, README.md, docs/*
+- Validation:
+  - Eval unit tests 33 passed; pyright 0 errors; ruff clean.
+  - `test_set_floors_applies_the_rule_to_a_saved_reports_values` now expects the retrieval rule (0.60 − 1/20 = 0.55).
+  - Both reports pass their new floors: retrieval checks 3 floors locally and 2 under `--ci`; answer checks 8.
+  - All 32 remote `uses:` in `.github/` are pinned to 40-character SHAs.
+- Outstanding: the `corpus-v1` release, the user's commit and push (with `make secrets-scan` first), the test PR, and the `ci-ok` ruleset.
+
+### 2026-10-17: Step 7 (CI/CD) built and checked locally; corpus dump; dev reports for the floors
+
+- Changes (plan approved with all 8 recommendations and five user additions):
+  - **Workflows:** `ci.yml` (required check `ci-ok`), `nightly-eval.yml`, the shared setup action and `dependabot.yml`. Actions are pinned to commits and tools to image digests, each release at least 7 days old. Secrets go only to the answer eval step, and CI never calls Claude.
+  - **Harness:** `--ci` adds latency marked "not gated", verdict files, and error annotations. Exit 2 now means only a quota or rate limit. A refused key, credits gone, a retired model, an errored question, a setup error or a setup without floors exits 4 with its reason.
+  - **Corpus:** `evals/corpus.py` dumps rows of an allowlist of public SEC tables, scans the dump's SQL for secret values, and restores with a sha256 check.
+  - **Dockerfile:** base images pinned by digest and a `HEALTHCHECK`.
+  - **Makefile:** six targets (corpus, actionlint, secrets, vulnerabilities, images). Trivy runs from 0.75.0 by digest, with no token, secret or Docker socket.
+  - **Dependency fix:** `@graphql-codegen/cli` 7.4.6 and `client-preset` 6.2.3 fix CVE-2026-104852 (HIGH, `@graphql-tools/utils` 11.2.2). Generated clients unchanged.
+- Files: .github/, evals/harness.py, evals/calls.py, evals/corpus.py, evals/tests/test_ci.py, evals/tests/test_corpus.py, evals/tests/test_calls.py, services/api/tests/test_answering.py, infra/Dockerfile, Makefile, clients/ts/package.json, clients/ts/package-lock.json, README.md, docs/*
+- Validation:
+  - `make lint`, `make typecheck` (0 errors), `make test` (283 passed), `make test-int` (28 passed), `make actionlint` (shellcheck 0.11.0).
+  - `make secrets-scan`: 12 commits, no leaks; the new files are clean too.
+  - `make vuln-scan`: 0 findings in uv.lock and both npm lockfiles.
+  - `make image-scan`, api and ingest: 0 critical; 44 HIGH Debian packages without a fix.
+  - The healthcheck command passed in the running api, ingest and embed containers.
+  - **Corpus dump** (46.5 MB, sha256 `50faa04aa39bc16b622235ebc33f223d86a9dba870d38365870bf057bc6a52c0`):
+    - Rows: companies 30, filings 30, sections 677, chunks 11,263, financial_facts 856,438 and alembic_version 1, plus the filings, financial_facts and sections id sequences.
+    - Schema only: dead_letters, eval_runs, ingest_jobs, ingest_job_companies and ingest_job_items, and their id sequences.
+    - No value of 10 secret-named variables or of SEC_USER_AGENT in its SQL. gitleaks over the SQL (257.6 MB): no leaks.
+    - A first dump also carried the private tables' id counters. Redone without them.
+  - **Restore** (throwaway compose project `filinglens-corpus-check`, port 15433): 11 s.
+    - `--ci` without floors exits 4 before any call.
+    - `--ci` on the test split's retrieval: PASS, 2 gated floors, latency not gated. It reproduced the official numbers. Its report was deleted.
+    - The CI migration steps passed: 0008, down to 0007, up to 0008.
+    - Two restores gave identical top 10s on all 70 dev questions. The dev database differs on o03 and u02, both unanswerable.
+  - **Dev reports** (shown to the user; no floors written):
+    - Retrieval, dev full: recall@10 0.613, MRR@10 0.649, nDCG@10 0.585.
+    - Answer, dev ci, no judge: every call cached, 0 tokens. Numeric 1.000, coverage 1.000, correct refusal 1.000, false refusal 0.133, 0 errors.
+- Outstanding: the dev floors after the user's review; the manual GitHub steps; the test PR; removing the throwaway volume `filinglens-corpus-check_postgres-data` (user's call).
+
+### 2026-10-17: Step 7 (CI/CD) planned; full-history secret scan
+
+- Changes: the step 7 plan in `docs/todo.md` (In Progress), from the design doc's prompt 7 and the user's conditions: the manual GitHub steps, the two Actions secrets by name, eval gating and quota-stop handling, tokens per run, and the decisions for the user. Nothing is built until the user approves. The todo also notes that `LLM_ANSWER_FALLBACK` is set in `.env` and that `AI_ENABLED` stays false until step 10.
+- Files: docs/todo.md, docs/memory.md, docs/activity-log.md
+- Validation:
+  - gitleaks v8.30.1 (the pre-commit hook's build), `gitleaks git --log-opts=--all --redact`: 12 commits, about 7.9 MB, no leaks. One branch, no tags or stashes, and no gitleaks allowlist or ignore file.
+  - Commit authors and committers use the GitHub noreply address; no personal email is in a tracked file.
+  - Dev database: no facts that would break 0008's downgrade key, so a downgrade one step on the corpus can run.
+  - `uv run --env-file` leaves variables already set in the environment alone (memory.md).
+- Outstanding: the user's approval of the plan; the manual GitHub steps; `PRE_COMMIT_HOME` on C: (todo).
+
 ### 2026-10-17: Fair Haiku comparison on Gemini's router replies; floors checked; answer limit documented
 
 - Changes (user requests):

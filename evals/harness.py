@@ -12,7 +12,9 @@ that for the primary only, so router replies come from the cache (a repeated lat
 same routes); --router-primary=PROVIDER:MODEL reuses the router replies of that primary's run, so
 another answer model gets identical inputs; --min-relevance=X sets the refusal gate (-100 turns it
 off); --thinking=default gives Gemini its own thinking and 4,096 output tokens; --no-judge skips the
-judge.
+judge; --ci is for CI runs (step 7): it stops before any call when this setup has no floors,
+reports latency without gating it (runners are not the production PC), fails on any errored
+question, and writes the run's verdict to .cache/evals/ci/ for the job summary and the PR comment.
 
 A run checks the floors in evals/thresholds.json and never writes them. --set-floors applies the
 floor rule (metrics.floor) to a saved report's measured values, latency included, and keeps only
@@ -21,8 +23,10 @@ tighter floors: a rerun from the cache could not, since cached replies carry no 
 Model replies are cached in .cache/evals/calls.jsonl (evals/calls.py), and an answer run keeps
 its progress in .cache/evals/runs/, so a stopped run resumes where it stopped. Today is pinned to
 the golden set's as_of date, and eval tokens count in Redis db 15, never against the dev API's
-daily budget. Exit codes: 0 ok, 1 a floor broken, 2 a quota or a refused key stopped the run
-(rerun later to resume), 3 the golden set or the corpus changed since the freeze (needs v2).
+daily budget. Exit codes: 0 ok; 1 a floor broken; 2 a quota or rate limit stopped the run, the
+only stop that says to rerun after the quota resets (the run resumes); 3 the golden set or the
+corpus changed since the freeze (needs v2); 4 any other failure, with its reason: a refused key,
+credits gone or a retired model, and with --ci an errored question or a setup without floors.
 """
 
 import argparse
@@ -55,6 +59,7 @@ from evals.golden import ROOT, VERSION, companies, final_labels, read_jsonl, rea
 from evals.metrics import (
     bootstrap,
     broken,
+    deterministic_floor,
     floor,
     judged_at,
     mean,
@@ -65,6 +70,7 @@ from evals.metrics import (
     recall_at,
     states_amount,
     tighter,
+    wilson,
 )
 from filinglens_api.answering import RELEVANCE_MIN, Answerer, Models, PostgresEvidence
 from filinglens_api.limits import ANSWER_TIMEOUT_S
@@ -139,6 +145,15 @@ TARGETS: dict[str, tuple[float, str]] = {
     "cost_billed_usd": (0.015, "billed"),
 }
 JUDGED = ("citation_precision", "faithfulness")
+# Pass/fail per question: their 95% range is a Wilson score interval, which never collapses.
+BINARY = (
+    "numeric_exact_match", "comparison_match", "correct_refusal", "false_refusal",
+    "router_accuracy", "route_accuracy",
+)  # fmt: skip
+# Should-refuse questions added to the ci subset (2026-10-17) so it holds 10 of them, not 5: the
+# next dev questions in golden.assign_splits' seeded rank order, each kind in proportion to dev's
+# mix. Golden v1 stays frozen; this widens only what --subset=ci runs.
+CI_EXTRA = ("a04", "a07", "a09", "t04", "t08")
 STAGES = ("route", "facts", "retrieve", "generate", "regenerate")
 LABELS = {
     "recall@10": "Retrieval recall@10",
@@ -709,7 +724,7 @@ class AnswerSuite:
             except TimeoutError:
                 error = f"no answer within {ANSWER_TIMEOUT_S} s"
             except AiUnavailableError as exc:  # a refused key or no credits: no use going on
-                raise Stop(2, f"{qid}: {exc}") from exc
+                raise Stop(4, f"{qid}: {exc}") from exc
             except FilingLensError as exc:
                 error = f"{type(exc).__name__}: {exc}"
             return answer, stats, calls, error or (None if answer else "no answer")
@@ -767,7 +782,7 @@ class AnswerSuite:
             )
             verdict = judge.parse(completion.text, answer.answer)
         except AiUnavailableError as exc:
-            raise Stop(2, f"judge: {exc}") from exc
+            raise Stop(4, f"judge: {exc}") from exc
         except (FilingLensError, judge.JudgeError) as exc:
             return {"error": str(exc), "calls": [call.saved() for call in calls]}
         return {
@@ -830,7 +845,11 @@ def paid_cost(record: Mapping[str, Any], prices: Mapping[str, Any]) -> float | N
 
 def answer_metrics(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     def share(rows: list[dict[str, Any]], hit: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
-        return stat([float(bool(hit(r))) for r in rows], mean)
+        hits, n = sum(bool(hit(r)) for r in rows), len(rows)
+        if not n:
+            return stat([], mean)
+        low, high = wilson(hits, n)
+        return {"value": hits / n, "low": low, "high": high, "n": n}
 
     def pairs(rows: list[dict[str, Any]], field: str) -> list[tuple[int, int]]:
         return [(r[field][0], r[field][1]) for r in rows if r.get(field) and r[field][1]]
@@ -1009,9 +1028,12 @@ def markdown(report: Mapping[str, Any]) -> str:
                 else "-"
             )
             label = LABELS.get(name, name.removesuffix("_ms").replace("_", " ").capitalize())
+            status = entry.get("status", "")
+            if report.get("ci") and name.endswith("_ms"):  # shown for trends, never a gate in CI
+                status = f"{status}, not gated" if status else "not gated"
             lines.append(
                 f"| {label} | {target} | {shown(name, entry['value'])} | {interval} |"
-                f" {entry['n']} | {entry.get('status', '')} |"
+                f" {entry['n']} | {status} |"
             )
     lines += ["", "Notes:", "", *(f"- {note}" for note in report["notes"])]
     if report["calls"]:
@@ -1082,30 +1104,121 @@ def floor_key(report: Mapping[str, Any], suite: str) -> str:
     return f"{key}:{report['config']['primary']}" if suite == "answer" else key
 
 
-def apply_floors(report: Mapping[str, Any], set_floors: bool, judge_ok: bool) -> list[str]:
-    """Metrics past their floors in thresholds.json; with set_floors, tighten the floors by the
-    rule in metrics.floor, never loosening one."""
+def apply_floors(
+    report: Mapping[str, Any],
+    set_floors: bool,
+    judge_ok: bool,
+    latency: bool = True,
+    replace: bool = False,
+) -> tuple[list[str], int, int]:
+    """Metrics past their floors in thresholds.json, with how many floors were checked and how
+    many were not (no value in this run, or latency when latency is not gated); with set_floors,
+    tighten the floors by the rule in metrics.floor, never loosening one. With replace, the
+    report's keys get fresh floors from it alone, which may loosen them: only on request, with
+    the reason in docs/memory.md."""
     floors = json.loads(THRESHOLDS.read_text(encoding="utf-8")) if THRESHOLDS.exists() else {}
     past: list[str] = []
+    checked = unchecked = 0
     for suite, metrics in report["metrics"].items():
         key = floor_key(report, suite)
         limits = floors.setdefault(key, {})
         for name, limit in limits.items():
             value = metrics.get(name, {}).get("value")
-            if value is not None and broken(TARGETS[name][1], value, limit):
+            if value is None or (not latency and name.endswith("_ms")):
+                unchecked += 1
+                continue
+            checked += 1
+            if broken(TARGETS[name][1], value, limit):
                 past.append(f"{key} {name}: {shown(name, value)} is past {shown(name, limit)}")
         if not set_floors:
             continue
+        if replace:
+            limits = floors[key] = {}
         for name, (target, kind) in TARGETS.items():
             entry = metrics.get(name)
             if entry is None or entry["value"] is None or (name in JUDGED and not judge_ok):
                 continue
-            new = floor(kind, entry["value"], entry["low"], entry["high"], target)
+            low, high = entry["low"], entry["high"]
+            if name in BINARY:  # from the counts, so a report from before Wilson gets it too
+                low, high = wilson(round(entry["value"] * entry["n"]), entry["n"])
+            if suite == "retrieval" and kind == "accuracy":  # no model call: exact, not sampled
+                new = deterministic_floor(entry["value"], entry["n"], target)
+            else:
+                new = floor(kind, entry["value"], low, high, target)
             limits[name] = round(tighter(kind, limits.get(name), new), 6)
     if set_floors:
         body = json.dumps(floors, indent=1, sort_keys=True) + "\n"
         THRESHOLDS.write_text(body, encoding="utf-8", newline="\n")
-    return past
+    return past, checked, unchecked
+
+
+def unfloored(args: argparse.Namespace, primary: str) -> list[str]:
+    """The floor keys this run would check that hold no floors: with --ci it would gate nothing."""
+    floors = json.loads(THRESHOLDS.read_text(encoding="utf-8")) if THRESHOLDS.exists() else {}
+    run = {"split": args.split, "subset": args.subset, "config": {"primary": primary}}
+    suites = ("retrieval", "answer") if args.suite == "all" else (args.suite,)
+    return [key for suite in suites if not floors.get(key := floor_key(run, suite))]
+
+
+def errored(records: Mapping[str, list[dict[str, Any]]]) -> list[str]:
+    """Each question whose answer or verdict failed, with its reason; a 429 never lands here,
+    since it waits or stops the run (exit 2)."""
+    failed: list[str] = []
+    for record in records.get("answer", []):
+        if record["outcome"] == "error":
+            failed.append(f"{record['id']}: {record['error']}")
+        elif error := (record.get("judge") or {}).get("error"):
+            failed.append(f"{record['id']} (judge): {error}")
+    return failed
+
+
+def verdict(
+    run: str, past: Sequence[str], failed: Sequence[str], checked: int, unchecked: int
+) -> tuple[int, str]:
+    """A --ci run's exit code and the header line for the job summary and the PR comment."""
+    if failed:
+        return 4, (
+            f"**FAILED** {run}: {len(failed)} questions errored, so the run is incomplete; this"
+            f" is not a quota stop. {'; '.join(failed)}."
+        )
+    if past:
+        return 1, f"**FAILED** {run}: {len(past)} floors broken. {'; '.join(past)}."
+    if not checked:
+        return 4, f"**FAILED** {run}: no floor could be checked, so nothing was gated."
+    skipped = (
+        f" {unchecked} not checked: no value in this run, or latency, which CI reports but"
+        " does not gate."
+        if unchecked
+        else ""
+    )
+    return 0, f"**PASS** {run}: {checked} gated floors hold.{skipped}"
+
+
+def stopped(run: str, stop: Stop) -> str:
+    """The header for a run that stopped early: only a quota or rate limit says to rerun later."""
+    if stop.code == 2:
+        return (
+            f"**INCOMPLETE** {run}: {stop} This is not a pass. Rerun this job after the quota"
+            " resets; calls already made come from the cache."
+        )
+    return f"**FAILED** {run}: {stop}"
+
+
+def ci_status(args: argparse.Namespace, header: str, report: Mapping[str, Any] | None) -> None:
+    """The run's verdict for CI (--ci): the header, an error annotation unless it passed, and the
+    report, in .cache/evals/ci/<suite>-<split>-<subset>.md."""
+    if not header.startswith("**PASS**"):
+        title = (
+            "Eval incomplete (quota or rate limit)" if "**INCOMPLETE**" in header else "Eval failed"
+        )
+        text = (
+            header.replace("**", "").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        )
+        print(f"::error title={title}::{text}", flush=True)
+    path = CACHE / "ci" / f"{args.suite}-{args.split}-{args.subset}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = f"{header}\n\n{markdown(report)}" if report else f"{header}\n"
+    path.write_text(body, encoding="utf-8", newline="\n")
 
 
 async def save_run(engine: AsyncEngine, report: Mapping[str, Any]) -> None:
@@ -1128,6 +1241,12 @@ async def evaluate(args: argparse.Namespace) -> int:
     os.environ.setdefault("HF_HUB_OFFLINE", "1")  # pinned local models load from HF_HOME
     settings = load_settings(EvalSettings)
     configure_logging("eval", "WARNING")
+    if args.ci and (missing := unfloored(args, settings.llm_primary)):  # before any call
+        raise Stop(
+            4,
+            f"No floors for {', '.join(missing)}, so --ci would gate nothing. Write them with"
+            " --set-floors from a reviewed report.",
+        )
     if answers and args.judge:
         field = PROVIDER_KEYS[settings.llm_judge.partition(":")[0]]
         secret = getattr(settings, field) if field else None
@@ -1137,7 +1256,7 @@ async def evaluate(args: argparse.Namespace) -> int:
     questions = [
         q
         for q in golden.questions
-        if q["split"] == args.split and (args.subset == "full" or q["ci"])
+        if q["split"] == args.split and (args.subset == "full" or q["ci"] or q["id"] in CI_EXTRA)
     ]
     if not questions:
         raise SystemExit(f"No {args.subset} questions in {args.split}: the ci subset is in dev.")
@@ -1201,6 +1320,7 @@ async def evaluate(args: argparse.Namespace) -> int:
             "code": code,
             "prompts": prompt_hashes(suite.as_of, suite.tracked) if suite else None,
             "judge_calibration": result,
+            "ci": args.ci,
             "metrics": metrics,
             "calls": call_totals(records),
             "records": records,
@@ -1213,10 +1333,17 @@ async def evaluate(args: argparse.Namespace) -> int:
             suite.run_file.unlink(missing_ok=True)  # complete: a rerun starts over, from the cache
         print(f"Report: {path}")
         print_deltas(report, before)
-        past = apply_floors(report, False, calibrated(result))  # floors come from --set-floors
+        past, checked, unchecked = apply_floors(  # floors come from --set-floors
+            report, False, calibrated(result), latency=not args.ci
+        )
         for line in past:
             print(f"Floor broken: {line}")
-        return 1 if past else 0
+        if not args.ci:
+            return 1 if past else 0
+        run = f"{args.suite} eval ({args.split} {args.subset})"
+        code, header = verdict(run, past, errored(records), checked, unchecked)
+        ci_status(args, header, report)
+        return code
     finally:
         await engine.dispose()
 
@@ -1353,11 +1480,14 @@ def sweep(path: Path) -> None:
         )
 
 
-def set_floors(path: Path) -> None:
+def set_floors(path: Path, replace: bool = False) -> None:
     """Write to thresholds.json the floors the rule gives a saved report's measured values, for
-    every metric with a target (quality, tokens, cost and latency), keeping only tighter ones."""
+    every metric with a target (quality, tokens, cost and latency), keeping only tighter ones;
+    with replace, the report's keys get these floors whether tighter or not."""
     report = json.loads(path.read_text(encoding="utf-8"))
-    for line in apply_floors(report, True, calibrated(report.get("judge_calibration"))):
+    judge_ok = calibrated(report.get("judge_calibration"))
+    past, _, _ = apply_floors(report, True, judge_ok, replace=replace)
+    for line in past:
         print(f"Past an earlier floor, which stays: {line}")
     floors = json.loads(THRESHOLDS.read_text(encoding="utf-8"))
     for suite in report["metrics"]:
@@ -1380,8 +1510,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--min-relevance", type=float, default=RELEVANCE_MIN)
     parser.add_argument("--thinking", choices=("minimal", "default"), default="minimal")
     parser.add_argument("--no-judge", dest="judge", action="store_false")
+    parser.add_argument("--ci", action="store_true", help="CI run: see the module docstring")
     parser.add_argument(
         "--set-floors", type=Path, metavar="REPORT", help="floors from a saved report's values"
+    )
+    parser.add_argument(
+        "--replace", action="store_true", help="with --set-floors: replace, even if looser"
     )
     parser.add_argument("--compare", nargs=2, type=Path, metavar="REPORT")
     parser.add_argument("--sweep", type=Path, metavar="REPORT", help="refusal threshold sweep")
@@ -1397,13 +1531,26 @@ def main() -> None:
         sweep(args.sweep)
         return
     if args.set_floors:
-        set_floors(args.set_floors)
+        set_floors(args.set_floors, replace=args.replace)
         return
+    run = f"{args.suite} eval ({args.split} {args.subset})"
     try:
         code = asyncio.run(evaluate(args))
     except Stop as stop:
         print(stop, file=sys.stderr)
+        if stop.code == 2:
+            print(
+                "The run is incomplete. Rerun after the quota resets: it resumes.", file=sys.stderr
+            )
+        if args.ci:
+            ci_status(args, stopped(run, stop), None)
         code = stop.code
+    except SystemExit as exc:  # a setup error, such as a missing key: under --ci, exit 4 with it
+        if not (args.ci and isinstance(exc.code, str)):
+            raise
+        print(exc.code, file=sys.stderr)
+        ci_status(args, f"**FAILED** {run}: {exc.code}", None)
+        code = 4
     sys.exit(code)
 
 

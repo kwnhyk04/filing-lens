@@ -33,7 +33,10 @@ Needs uv, Docker, GNU make, and Node 20.9+ (for `web/` and the TypeScript client
 | `make codegen` | Export `contracts/` from the app, then regenerate `clients/python`, `clients/python-graphql` and `clients/ts` |
 | `make contracts-check` | Run codegen and fail if `contracts/` or `clients/` changed (commit or stage the output first) |
 | `make contracts-breaking` | oasdiff (Docker): fail on breaking OpenAPI changes against `BASE` (default `main`) |
-| `make eval` | Golden-set eval, needs `make dev`: `SUITE=retrieval\|answer\|all SPLIT=dev\|test SUBSET=full\|ci`. `ARGS` takes `--tag=NAME` (calls the answer models live once under NAME; earlier replies stay cached), `--primary-tag=NAME` (the same for the answer model only, with router replies from the cache), `--router-primary=PROVIDER:MODEL` (reuse the router replies of that answer model's run, so two answer models get identical inputs), `--min-relevance=X`, `--thinking=default` and `--no-judge`. Runs check the floors in `evals/thresholds.json` but never write them; `uv run python -m evals.harness --set-floors REPORT` writes the floors the rule gives a saved report's measured values, latency included, keeping only tighter ones. The answer suite calls the live models and prints a quota estimate first. Replies are cached, so a run stopped by a quota (exit 2) resumes when rerun. Reports go to `evals/reports/`. Exits 1 on a broken floor and 3 when the golden set or the corpus changed since the freeze |
+| `make eval` | Golden-set eval, needs `make dev`: `SUITE=retrieval\|answer\|all SPLIT=dev\|test SUBSET=full\|ci`. `ARGS` takes `--tag=NAME` (calls the answer models live once under NAME; earlier replies stay cached), `--primary-tag=NAME` (the same for the answer model only, with router replies from the cache), `--router-primary=PROVIDER:MODEL` (reuse the router replies of that answer model's run, so two answer models get identical inputs), `--min-relevance=X`, `--thinking=default`, `--no-judge` and `--ci` (CI runs: see CI below). Runs check the floors in `evals/thresholds.json` but never write them; `uv run python -m evals.harness --set-floors REPORT` writes the floors the rule gives a saved report's measured values, latency included, keeping only tighter ones; add `--replace` to replace that report's floors even when looser (only on request, with a reason). Pass/fail metrics use Wilson intervals. The answer suite calls the live models and prints a quota estimate first. Replies are cached, so a run stopped by a quota or rate limit (exit 2, the only stop that says to rerun after the quota resets) resumes when rerun. Reports go to `evals/reports/`. Exits 1 on a broken floor, 3 when the golden set or the corpus changed since the freeze, and 4 on any other failure with its reason (a refused key, credits gone, a retired model). The harness's own exit code shows when it runs directly; through make every failure is make's exit 2 |
+| `make corpus-dump` / `make corpus-restore` | Dev stack: golden v1's corpus for CI as `.cache/corpus/corpus-v1.dump`, with rows of the public SEC tables only, checked for secrets / an empty Postgres (CI): fetch the `corpus-v1` release asset if missing, check its sha256 and restore it (`evals/corpus.py`) |
+| `make actionlint` / `make secrets-scan` | Lint the GitHub Actions workflows / gitleaks over every commit (run it before a push) |
+| `make vuln-scan` / `make image-scan` | Trivy on each lockfile, dev dependencies included, failing on a high or critical with a fix / on an image (`IMAGE`, default `filinglens-api`), failing on a critical with a fix |
 | `make audit` / `make label` | Interactive passage labeling for the golden set (resumable). Both refuse once the set is frozen |
 | `make calibrate` | Judge calibration. On screen you label sampled answer sentences against their cited sources. `ARGS=export` writes the sample for an outside labeler, and `ARGS=import` scores its labels from `claude_labels.jsonl`. The judge then scores the same sentences, Cohen's kappa goes to `evals/calibration/v1/result.json` with the labeler named, and judge metrics count only at 0.7 or more. A first argument `followup` (`ARGS="followup export"`) works on the second sample in `evals/calibration/v1-followup/`: natural sentences that fail the validator, from the fallback-model runs |
 
@@ -50,6 +53,29 @@ Needs uv, Docker, GNU make, and Node 20.9+ (for `web/` and the TypeScript client
 - Logs are JSON lines with a `request_id` (send `X-Request-ID` to set it). Credential fields and the API key are redacted.
 - Ports bind to 127.0.0.1 and can be changed in `.env`.
 
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests, pushes to main and manual runs; the required check is `ci-ok`, which fails when any job failed or was cancelled.
+
+- Jobs: lint (ruff, pyright, actionlint, and guards against an Anthropic secret or model and against steps that cannot fail), unit and integration tests, contracts (`make contracts-check`, `make contracts-breaking` against the base), security (gitleaks over the full history, Trivy on the lockfiles), migrations, eval, images (build api and ingest, Trivy), and on main only, publish to GHCR (`sha-<short>` and `latest`, with provenance) after migrations and every check.
+- Pinning: actions are pinned to commits and tools to image digests, each release at least 7 days old. Trivy runs from 0.75.0 by digest with no token, no secret and no Docker socket; its GitHub Actions and the hijacked releases (binary 0.69.4, images 0.69.5 and 0.69.6) are never used.
+- Secrets: Actions secrets `GEMINI_API_KEY` and `GROQ_API_KEY` only, read by the answer eval step alone. CI never calls Claude: there is no Anthropic secret, and `LLM_ANSWER_FALLBACK` is empty.
+- Eval: it runs only when an eval input changed (`packages/{core,db,llm,retrieval,telemetry}/src`, `services/api/src`, `evals` without its reports, tests and Markdown, or `uv.lock`). It restores the frozen corpus from the `corpus-v1` release asset.
+  - The retrieval suite runs on all 70 dev questions, with local models and no LLM call.
+  - The answer suite runs on the 20-question dev ci subset without the judge.
+  - The verdicts go to the PR comment and the job summary, and the reports to an artifact.
+- `--ci` verdicts: the answer and retrieval verdicts head the PR comment.
+  - PASS: the gated floors hold.
+  - FAILED: the real reason, such as a broken floor, an errored question or a refused key.
+  - INCOMPLETE: only for a quota or rate limit stop, which says to rerun after the quota resets.
+  - NOT RUN: a Dependabot or fork PR gets no secrets, so no answer is measured. It is shown at the top, never as a pass, and the nightly eval measures main after the merge.
+  - Latency is reported, marked "not gated": runners are not the production PC.
+- Nightly (`nightly-eval.yml`, 19:00 UTC): the test split with the judge, only when the eval inputs changed since the last complete nightly run. It uploads the report and opens an issue when a floor breaks.
+- Tokens per run, uncached (cached replies cost nothing):
+  - PR answer eval (25 questions, 10 of them should-refuse): about 28K gpt-oss-20b, 0 gpt-oss-120b and about 20 Gemini requests (measured 2026-10-17). The Groq account is shared with FreightAudit's CI. Its daily allowance is per model, about 200K tokens each. FreightAudit keeps about 25K a day of gpt-oss-120b, which only the nightly's judge uses here.
+  - CI floors are a tripwire for large drops, not a precise measure: with 8 numeric questions, the floor of 0.676 still lets 6 of 8 pass. The nightly run and the exam give the precise numbers.
+  - Nightly: about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit's Groq account) and about 25 Gemini requests.
+
 ## Evaluation
 
 Golden set v1 (`evals/golden/v1`, frozen 2026-10-16) holds 100 questions over the 30 companies' latest 10-Ks. How it was built and labeled is in `evals/eval-card.md`.
@@ -64,7 +90,7 @@ Golden set v1 (`evals/golden/v1`, frozen 2026-10-16) holds 100 questions over th
 
 ### Official results: test split, 2026-10-17
 
-The run covers 30 questions on the free tiers. Gemini 3.5 Flash-Lite answers, gpt-oss-20b routes and gpt-oss-120b judges (report `evals/reports/2026-10-17.md`). The floors in `evals/thresholds.json` come from this run.
+The run covers 30 questions on the free tiers. Gemini 3.5 Flash-Lite answers, gpt-oss-20b routes and gpt-oss-120b judges (report `evals/reports/2026-10-17.md`). The test floors in `evals/thresholds.json` come from this run. The dev floors that CI gates come from the dev reports of 2026-10-17. Retrieval accuracy floors sit one question's share below the measured value, because retrieval calls no model and repeats exactly (`evals/eval-card.md`).
 
 The Haiku column is a comparison with Claude Haiku 5.5 pinned as the answer model: thinking off, judge on, nothing tuned (`evals/reports/runs/20261017T084716Z-answer-test-full.md`).
 - It reuses the exact router replies of Gemini's run (`--router-primary=gemini:gemini-3.5-flash-lite --primary-tag=fair`), so both models answer identical inputs.

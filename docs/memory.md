@@ -269,11 +269,71 @@ From step 6b (golden set, judge, evals):
     - Findings: n28 hedged over a fact heading, and c12's conclusion was rated "partly".
     - A first comparison (`20261017T082950Z`) asked the router again, because the router's cache key includes the primary. The router routed x13, x14 and x18 as textual there, so separate runs mix router variance into an answer-model comparison. `--router-primary` fixes that.
 
+From step 7 (CI/CD):
+
+- 2026-10-17: The plan was approved with all 8 recommendations plus five user additions (user decision).
+  - **Layout:**
+    - One `ci.yml` for pull requests, main and manual runs, with publish on main only. Reason: a separate `release.yml` would repeat every job.
+    - The required check is `ci-ok`, which fails on any failed or cancelled job. Reason: GitHub counts a skipped job as a passing required check, so an upstream failure must not pass as a skip.
+  - **Eval gating:**
+    - Evals run only when an eval input changes.
+    - Retrieval runs on dev full instead of the ci subset. Reason: it is free, and tighter.
+    - The answer suite runs on dev ci with `--no-judge`, so there are 0 gpt-oss-120b tokens on PRs.
+    - There is no second answer eval on main. Reason: main cannot read a PR's cache, so it would spend the same quota again.
+    - The nightly runs the test split with the judge at 19:00 UTC, only when the inputs' hash moved since the last complete run.
+  - **Floors:** CI gates quality, tokens and cost, never latency. Latency stays in the report, marked "not gated" (user addition). Reason: runners are not the production PC.
+  - **Exit codes:**
+    - Exit 2 is only for a quota or rate limit, and only it says to rerun after the quota resets (user addition).
+    - A refused key, credits gone or a retired model exit 4; under `--ci`, so do errored questions, judge errors, setup errors and a setup without floors, each with its reason. Reason: a failure must never pass for a quota problem, FreightAudit's merged-incomplete-exam lesson.
+  - **NOT RUN:** a PR without secrets (Dependabot or a fork) shows NOT RUN for the answer eval at the top of the PR comment and the job summary, never as a pass (user addition). There are no Dependabot secrets. Reason: unreviewed dependency code would see them.
+  - **Secrets:** only `GEMINI_API_KEY` and `GROQ_API_KEY`, in the answer eval step alone. There is never an Anthropic secret or model, and a lint guard fails on one. `LLM_FALLBACK` points at the router's Groq model in CI only for startup validation.
+  - **Trivy (user rule):**
+    - Its GitHub Actions and setup-trivy tags, binary 0.69.4 and Docker Hub images 0.69.5 and 0.69.6 were hijacked in March 2026 to steal CI secrets.
+    - So it runs from an image pinned by digest, at a version at least 7 days old: 0.75.0, released 2026-10-01. Its digest is the same on Docker Hub, GHCR and ECR, and the tag was never re-pushed.
+    - It runs with no token, no secret and no Docker socket; images are scanned from a saved tarball.
+    - Trivy replaces pip-audit, which has no severity filter. `--ignore-unfixed` applies.
+  - **Corpus asset (user addition):**
+    - Its tables are an allowlist: rows only for companies, filings, sections, chunks, financial_facts and alembic_version, plus those tables' own id sequences.
+    - Its SQL is scanned for every secret-named value and the SEC contact before it is saved, and its sha256 is pinned in `evals/corpus.py`.
+    - The user uploads it publicly as the `corpus-v1` release after reviewing its table list.
+  - **Pins:** actions are pinned by commit and tools by digest, each release at least 7 days old when pinned; Dependabot has a 7-day cooldown.
+- 2026-10-17: Trivy with dev dependencies found CVE-2026-104852 (HIGH, `@graphql-tools/utils` 11.2.2) in the TS client's codegen. Fixed at the source: `@graphql-codegen/cli` 7.4.3 to 7.4.6 and `client-preset` 6.2.0 to 6.2.3, both released 8 days before, installed with `npm install --before=2026-10-10`. The hoisted utils is now 12.0.3, and the generated clients are unchanged.
+- 2026-10-17: The dev floors for CI were written after the user's review. `retrieval:dev:full` comes from `20261017T103956Z`, and `answer:dev:ci:gemini:gemini-3.5-flash-lite` from `20261017T104130Z` (values in the eval card). Answer floors follow the usual rule.
+  - Retrieval accuracy floors follow their own rule (user decision): the measured value less one question's share (1/n, n the scored questions), capped at the target. For dev: recall@10 0.613 − 1/14 = 0.542, MRR@10 0.649 − 1/14 = 0.577.
+  - Reason:
+    - Retrieval calls no model, so the same code on the same corpus gives the same numbers.
+    - Its bootstrap interval reflects only which 14 questions the set holds. A floor at the lower bound (recall 0.402) would let a real drop from 0.613 pass.
+    - One share still tolerates one near-tie flipping on GitHub's CPUs.
+  - Code: `metrics.deterministic_floor`, used by `--set-floors` for the retrieval suite's accuracy metrics. The test-split retrieval floors (0.314 and 0.500) predate it and stay until `--set-floors` runs on a test report again.
+- 2026-10-17: The first PR's CI eval failed: correct_refusal 0.800 (4 of 5) against a floor of 0.900. The miss was t07, a time trap: "What risks did Chevron describe in its fiscal 2026 annual report?"
+  - Both runs routed it textual for CVX with no fiscal year: the cached 2026-10-16 reply behind the 10:41:30 report, and the live CI run. So the code's time-trap check never fired.
+  - In 10:41:30, Gemini's own reply refused. Live in CI, Gemini answered with risks from the FY2025 10-K (`cvx-20251231.htm`, 3 chunk citations), at the same top score (4.026).
+  - So it is model variation behind a known router miss (t07's missing year, 2026-10-16). The question is not answerable: no FY2026 10-K exists as of 2026-10-16. No label was changed.
+  - The answer path did not change in step 7. Prompt hashes, models, reranker settings, refusal gate, index sha256 and golden manifest are identical. The only answer-path diff (70057d9..bbc9b99) is `evals/calls.py`'s stop message and two stop codes (2 to 4).
+- 2026-10-17: Pass/fail metrics take a Wilson score interval, not the percentile bootstrap (user decision): numeric and comparison match, correct and false refusal, router and route accuracy (`harness.BINARY`, `metrics.wilson`).
+  - Reason: a bootstrap of n identical results can only resample that result. 5 of 5 gave 1.0 to 1.0, so `floor()` returned min(1.0, 0.9) = 0.9, and any single miss failed.
+  - The rule stays min(low, target). `--set-floors` recomputes Wilson from each metric's value and n, so older reports get it too.
+  - Pooled pair metrics (coverage, citation precision, faithfulness) keep the cluster bootstrap. Dev ci's coverage range (1.0 to 1.0 over 14 answers) is still collapsed, and its floor stays 0.95.
+- 2026-10-17: The ci subset gained 5 should-refuse dev questions, so it holds 10 of 25 (user decision): `harness.CI_EXTRA` = a04, a07, a09, t04, t08.
+  - They are the next dev questions in `golden.assign_splits`' seeded rank order (the ranks reproduce the frozen flags exactly), each kind in proportion to dev's should-refuse mix.
+  - Golden v1's files are unchanged and still frozen; the test split is untouched.
+  - Extra per uncached CI run: about 5.5K gpt-oss-20b and 2 to 4 Gemini calls, with no judge.
+- 2026-10-17: Dev ci floors were replaced, which loosens some (user decision). Reason: their ranges had collapsed.
+  - They come from one fresh live run of the new subset (`20261017T154912Z`, `--tag=ci-floors-1017 --no-judge`), with `--set-floors ... --replace`, the new code path that may loosen.
+  - Numeric 0.92 to 0.676, correct refusal 0.90 to 0.722 (10 of 10), false-refusal ceiling 0.333 to 0.379. Tokens and cost tightened, and live latency floors were added (PC only).
+  - Test floors replaced the same day (user decision): computed by code from the saved exam report, with no new run (`--set-floors evals/reports/2026-10-17.json --replace`).
+    - Numeric 0.92 to 0.758, correct refusal 0.90 to 0.646, false refusal 0.261 to 0.321.
+    - Retrieval recall@10 0.314 to 0.416 and MRR@10 0.500 to 0.667, under the retrieval rule.
+    - Reason: one rule applies everywhere, and floors are guards derived from measured results, so this is not tuning.
+    - `retrieval:dev:full` was re-derived from its own report, unchanged. No other floor keys exist.
+  - The CI floors are a tripwire for large drops, not a precise measure: the numeric floor of 0.676 still lets 6 of 8 pass. The nightly run and the exam give the precise numbers.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
 - 2026-10-13: General coding rules live in `AGENTS.md`. `CLAUDE.md` imports it so Claude Code loads the rules.
 - 2026-10-13: Markdown filenames use kebab-case (for example `docs/migrations.md`).
+- 2026-10-17: Never read the user's GitHub token or Git Credential Manager, even for a read-only call (user). Artifact and job-log downloads need authentication (401 and 403 without it), so the user downloads such files and gives a path. Runs, jobs and PR comments are public.
 
 ## Solved Problems
 
@@ -381,6 +441,13 @@ None yet.
   - On the same 46 dev questions, its p50 was 0.97 s at 05:56 UTC and 3.38 s at 09:00 UTC.
   - Prompts of about 330 tokens slowed as much as 5,000-token ones, and the 09:00 run drew two 503s. The router (Groq) moved only from 0.60 to 0.66 s.
   - So compare latency configurations within one sitting, in interleaved passes; decision 3 runs minimal, default, minimal.
+- 2026-10-17: `uv run --env-file FILE` (uv 0.12.23) never overrides a variable already set in the environment: a set value beat the file's, and an empty value in the file did not blank a set one. So a process's environment, such as a CI job's secrets, wins over a copied `.env.example`.
+- 2026-10-17: GNU make exits 2 whenever a recipe fails, whatever the command's own code, so `make eval` hides the harness's exit 1, 2, 3 or 4. The nightly therefore calls `python -m evals.harness` directly. The PR eval reads the verdict files, not exit codes.
+- 2026-10-17: `trivy fs` over the whole repo through the Windows bind mount took 11 minutes, almost all of it the walk, even with `--skip-dirs`. One lockfile per run takes seconds, so `make vuln-scan` names each one. `--include-dev-deps` exists only for `fs`; `trivy image` refuses it.
+- 2026-10-17: git inside the oasdiff and gitleaks images refuses a checkout owned by another user, as on a Linux runner. The Makefile passes `safe.directory=/repo` through `GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0`, which counts as command-line config. It is untested on GitHub until the test PR.
+- 2026-10-17: A restore rebuilds the HNSW index. Two restores of `corpus-v1.dump` gave identical top 10s on all 70 dev questions. The dev database, whose index was built as chunks were embedded, differs on o03 and u02 (unanswerable, one chunk each); scored metrics are identical.
+- 2026-10-17: `pg_dump --exclude-table-data` also drops a sequence's value when it names the sequence. Without that, the dump carried the private tables' id counters.
+- 2026-10-17: Git Bash rewrites a `/tmp/...` argument to `docker compose exec` into a Windows path; set `MSYS_NO_PATHCONV=1`. Python's subprocess calls are not affected.
 
 ## Rejected Approaches
 
@@ -397,6 +464,10 @@ None yet.
   - FreightAudit uses gpt-oss-120b and qwen3.8-27b, not gpt-oss-20b, and Groq's limits are per model, so FilingLens's router model (gpt-oss-20b) has its own 200K a day.
   - Before an eval run that spends quota, show its Groq tokens per model and whether it needs the judge. Run the judge only where the decision depends on it, and spread runs over days when needed.
   - Groq shows no daily token level (see Known Issues), so schedules come from refill arithmetic.
+  - CI (2026-10-17):
+    - A live PR answer eval uses about 28K gpt-oss-20b, out of that model's 200K a day, which FreightAudit does not use.
+    - The nightly's judge uses 18-28K gpt-oss-120b, from the allowance shared with FreightAudit's CI and its 25K reserve.
+    - A PR eval with unchanged prompts that hits the cache uses none.
 - 2026-10-16: Gemini's daily quota resets at midnight Pacific, which is 15:00 Taipei (07:00 UTC) during daylight time (user). Runs that need a fresh Gemini allowance start after that; the test day starts at 15:07 Taipei.
 
 ## Unresolved Questions

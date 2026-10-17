@@ -1,0 +1,369 @@
+# CI for pull requests, main and manual runs (step 7); the required check is ci-ok. Actions are
+# pinned to commits and every job gets only the permissions it needs. Secrets reach one step, the
+# answer eval, and CI never calls Claude. Scans run from pinned images with no token or secret.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # What the eval measures; it runs only when one of these changed. nightly-eval.yml has the same list.
+  EVAL_INPUTS: >-
+    packages/core/src packages/db/src packages/llm/src packages/retrieval/src
+    packages/telemetry/src services/api/src evals uv.lock
+    :!evals/reports :!evals/tests :!*.md
+  HF_HOME: ${{ github.workspace }}/.cache/huggingface
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      eval: ${{ steps.diff.outputs.eval }}
+      base: ${{ steps.diff.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request's merge commit has the base as its first parent; a push compares with
+          # the commit before it; a manual run measures everything.
+          set -f
+          base=
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) ;;
+            push) if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; fi ;;
+          esac
+          eval=true
+          # shellcheck disable=SC2086 # a list of pathspecs
+          if [ -n "$base" ] && git diff --quiet "$base" HEAD -- $EVAL_INPUTS; then eval=false; fi
+          {
+            echo "base=${base:-$(git rev-parse HEAD)}"
+            echo "eval=$eval"
+          } >> "$GITHUB_OUTPUT"
+          echo "Eval inputs changed since ${base:-no base}: $eval"
+
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: make lint
+      - run: make typecheck
+      - run: make actionlint
+      - name: Guards
+        run: |
+          # The brackets keep each pattern from matching this step.
+          if grep -rnE 'secrets[.]ANTHROPIC|anthropic[:]' .github; then
+            echo "::error title=Claude in CI::CI must never call Claude: no Anthropic secret or model."
+            exit 1
+          fi
+          if grep -rn 'continue-on[-]error' .github; then
+            echo "::error title=A step that cannot fail::Every failing step must fail its job."
+            exit 1
+          fi
+
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          models: "true"
+      - run: make test
+
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          models: "true"
+      - run: make test-int
+
+  contracts:
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: clients/ts/package-lock.json
+      - run: make contracts-check
+      - run: make contracts-breaking BASE="$BASE"
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: make secrets-scan
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: 0.12.23
+      - id: day
+        run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/trivy
+          key: trivy-${{ steps.day.outputs.today }}
+          restore-keys: trivy-
+      - run: make vuln-scan
+
+  migrations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: cp .env.example .env
+      - run: docker compose --env-file .env -f infra/docker-compose.yml up -d --wait postgres
+      - run: make corpus-restore
+      - name: From the deployed revision with real data, upgrade, down one step, up again
+        run: |
+          # Until the live embedding swap, the deployed revision is the last before 0004 (docs/migrations.md).
+          target=$(uv run --env-file .env python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; print(ScriptDirectory.from_config(Config(toml_file='pyproject.toml')).get_revision('0004').down_revision)")
+          uv run --env-file .env python -m alembic upgrade "$target"
+          uv run --env-file .env python -m alembic downgrade -1
+          uv run --env-file .env python -m alembic upgrade "$target"
+
+  eval:
+    needs: changes
+    if: needs.changes.outputs.eval == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      LLM_PRIMARY: gemini:gemini-3.5-flash-lite
+      LLM_ROUTER: groq:openai/gpt-oss-20b
+      LLM_JUDGE: groq:openai/gpt-oss-120b
+      LLM_FALLBACK: groq:openai/gpt-oss-20b # startup checks only: evals never call a fallback
+      LLM_ANSWER_FALLBACK: "" # never Claude in CI
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Repository secrets for the answer eval
+        id: keys
+        env:
+          HAS_KEYS: ${{ secrets.GEMINI_API_KEY != '' && secrets.GROQ_API_KEY != '' }}
+        run: |
+          echo "ok=$HAS_KEYS" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_KEYS" != true ]; then
+            mkdir -p .cache/evals/ci
+            echo "**NOT RUN** answer eval (dev ci): this PR gets no repository secrets (Dependabot or a fork), so no answer was measured. This is not a pass for answers; the nightly eval measures main after the merge." > .cache/evals/ci/answer-dev-ci.md
+            echo "::warning title=Answer eval NOT RUN::No repository secrets (Dependabot or a fork), so no answer was measured."
+          fi
+      - uses: ./.github/actions/setup
+        with:
+          models: "true"
+      - run: cp .env.example .env
+      - run: docker compose --env-file .env -f infra/docker-compose.yml up -d --wait postgres redis
+      - run: make corpus-restore
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .cache/evals/calls.jsonl
+            .cache/evals/runs
+          key: eval-calls-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: eval-calls-
+      - name: Retrieval eval (dev, every question; local models, no LLM call)
+        id: retrieval
+        run: make eval SUITE=retrieval SPLIT=dev SUBSET=full ARGS=--ci
+      - name: Answer eval (dev ci, no judge)
+        id: answer
+        if: steps.keys.outputs.ok == 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: make eval SUITE=answer SPLIT=dev SUBSET=ci ARGS="--ci --no-judge"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always()
+        with:
+          path: |
+            .cache/evals/calls.jsonl
+            .cache/evals/runs
+          key: eval-calls-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verdicts for the job summary and the PR comment
+        if: always()
+        env:
+          ANSWER: ${{ steps.answer.outcome }}
+          RETRIEVAL: ${{ steps.retrieval.outcome }}
+        run: |
+          dir=.cache/evals/ci
+          mkdir -p "$dir/reports"
+          verdict() { # the eval's own verdict, or why there is none
+            if [ -s "$1" ]; then cat "$1"
+            elif [ "$2" = skipped ]; then echo "**NOT RUN** $3: an earlier step failed, so nothing was measured."
+            else echo "**FAILED** $3: the eval wrote no verdict (step $2); see the job log."
+            fi
+            echo
+          }
+          {
+            verdict "$dir/answer-dev-ci.md" "$ANSWER" "answer eval (dev ci)"
+            verdict "$dir/retrieval-dev-full.md" "$RETRIEVAL" "retrieval eval (dev full)"
+          } > "$dir/comment.md"
+          cat "$dir/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          git ls-files -z --others --exclude-standard -- evals/reports | xargs -0 -r cp -t "$dir/reports/"
+      - name: PR comment
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR" --edit-last --body-file .cache/evals/ci/comment.md 2>/dev/null ||
+            gh pr comment "$PR" --body-file .cache/evals/ci/comment.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: eval-reports
+          path: .cache/evals/ci/
+          if-no-files-found: ignore
+
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [api, ingest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: 0.12.23
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infra/Dockerfile
+          build-args: PACKAGE=filinglens-${{ matrix.package }}
+          tags: filinglens-${{ matrix.package }}:ci
+          load: true
+          cache-from: type=gha,scope=${{ matrix.package }}
+          cache-to: type=gha,scope=${{ matrix.package }},mode=max
+      - id: day
+        run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/trivy
+          key: trivy-${{ steps.day.outputs.today }}
+          restore-keys: trivy-
+      - run: make image-scan IMAGE=filinglens-${{ matrix.package }}:ci
+
+  # Runs only on main, after migrations and every check; the build reuses the scanned layers.
+  publish:
+    if: github.event_name == 'push' && !cancelled() && !failure()
+    needs: [lint, unit, integration, contracts, security, migrations, eval, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        package: [api, ingest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: tag
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infra/Dockerfile
+          build-args: PACKAGE=filinglens-${{ matrix.package }}
+          push: true
+          provenance: mode=max
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/filinglens-${{ matrix.package }}:sha-${{ steps.tag.outputs.short }}
+            ghcr.io/${{ github.repository_owner }}/filinglens-${{ matrix.package }}:latest
+          cache-from: type=gha,scope=${{ matrix.package }}
+
+  ci-ok:
+    if: always()
+    needs: [changes, lint, unit, integration, contracts, security, migrations, eval, images, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          # A skipped eval means no eval input changed; any failure or cancellation fails CI.
+          # shellcheck disable=SC2086 # one word per job
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *) echo "::error title=CI failed::A job ended $result."; exit 1 ;;
+            esac
+          done

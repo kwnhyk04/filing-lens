@@ -7,6 +7,7 @@ from evals.metrics import (
     bootstrap,
     broken,
     cohen_kappa,
+    deterministic_floor,
     floor,
     mrr_at,
     ndcg_at,
@@ -14,6 +15,7 @@ from evals.metrics import (
     recall_at,
     states_amount,
     tighter,
+    wilson,
 )
 
 
@@ -43,6 +45,18 @@ def test_ranking_metrics_cap_at_the_gold_count() -> None:
     twelve = {str(n) for n in range(12)}  # 10 of 12 gold passages fill a perfect top 10
     assert recall_at([str(n) for n in range(10)], twelve) == 1.0
     assert ndcg_at([str(n) for n in range(10)], twelve) == pytest.approx(1.0)
+
+
+def test_the_wilson_interval_never_collapses_on_identical_results() -> None:
+    assert wilson(5, 5) == pytest.approx((0.5655, 1.0), abs=1e-4)  # a bootstrap gives 1.0 to 1.0
+    assert wilson(0, 5) == pytest.approx((0.0, 0.4345), abs=1e-4)
+    assert wilson(3, 5) == pytest.approx((0.2307, 0.8824), abs=1e-4)
+    assert floor("accuracy", 1.0, *wilson(5, 5), 0.90) == pytest.approx(0.5655, abs=1e-4)
+
+
+def test_a_retrieval_floor_allows_one_question_less_than_measured() -> None:
+    assert deterministic_floor(0.613, 14, 0.90) == pytest.approx(0.613 - 1 / 14)
+    assert deterministic_floor(0.98, 14, 0.90) == 0.90  # capped at the target
 
 
 def test_the_floor_rule() -> None:
