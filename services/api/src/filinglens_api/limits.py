@@ -1,7 +1,10 @@
 """Request limits: per-key rate limits in Redis, the AI switch and budget, body size and time."""
 
+import asyncio
 import hashlib
 import math
+from collections.abc import Awaitable, Callable
+from functools import partial
 
 import structlog
 from fastapi import Request
@@ -10,8 +13,10 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from filinglens_api.backend import Backend
 from filinglens_api.problems import http_problem
-from filinglens_core.errors import RateLimitedError
+from filinglens_api.schemas import Answer, AnswerRequest
+from filinglens_core.errors import RateLimitedError, UpstreamError
 from filinglens_llm import budget
 
 PER_MINUTE = 60  # every route that takes a key, per key
@@ -54,6 +59,21 @@ async def answer_limits(request: Request) -> None:
         enabled=settings.ai_enabled,
         daily_tokens=settings.daily_ai_token_budget,
     )
+
+
+def answer_limits_for(request: Request) -> Callable[[], Awaitable[None]]:
+    """answer_limits bound to this request, for GraphQL: it applies them to `answer` only, and
+    tests swap this dependency as they swap answer_limits."""
+    return partial(answer_limits, request)
+
+
+async def timed_answer(backend: Backend, request: AnswerRequest) -> Answer:
+    """The answer within ANSWER_TIMEOUT_S, else UpstreamError (502); REST and GraphQL share it."""
+    try:
+        async with asyncio.timeout(ANSWER_TIMEOUT_S):
+            return await backend.answer(request)
+    except TimeoutError:
+        raise UpstreamError(f"No answer within {ANSWER_TIMEOUT_S} s.") from None
 
 
 class BodyLimit:

@@ -3,7 +3,7 @@
 import asyncio
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -19,6 +19,7 @@ from filing_lens_graphql_client import Client as GraphqlClient
 from pydantic import BaseModel
 
 from filinglens_api.backend import (
+    AnswerEvents,
     Backend,
     CompanyKey,
     FailureKey,
@@ -29,7 +30,7 @@ from filinglens_api.backend import (
     encode_cursor,
     get_backend,
 )
-from filinglens_api.limits import answer_limits, rate_limit
+from filinglens_api.limits import answer_limits, answer_limits_for, rate_limit
 from filinglens_api.main import app
 from filinglens_api.schemas import (
     Answer,
@@ -211,6 +212,7 @@ class FakeBackend:
         self.fail_with: Exception | None = None
         self.fail_mid_stream: Exception | None = None
         self.delay_s = 0.0  # answers wait this long before each part
+        self.answered = 0  # answers that passed the limits and reached the backend
         self.jobs: dict[UUID, IngestJobRequest] = {}
         self.job_ids: dict[str, UUID] = {}  # by Idempotency-Key
 
@@ -318,16 +320,16 @@ class FakeBackend:
 
     async def answer(self, request: AnswerRequest) -> Answer:
         self._admit()
+        self.answered += 1
         await asyncio.sleep(self.delay_s)
         return ANSWER
 
-    async def stream_answer(
-        self, request: AnswerRequest
-    ) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
+    async def stream_answer(self, request: AnswerRequest) -> AnswerEvents:
         self._admit()  # before the stream, so the route can still answer with a status code
+        self.answered += 1
         failure, delay_s = self.fail_mid_stream, self.delay_s
 
-        async def events() -> AsyncIterator[AnswerDelta | AnswerCompleted]:
+        async def events() -> AsyncGenerator[AnswerDelta | AnswerCompleted, None]:
             text = ANSWER.answer
             for start in range(0, len(text), 20):
                 await asyncio.sleep(delay_s)
@@ -369,9 +371,14 @@ async def _no_limit() -> None:
     """Stands in for the Redis-backed limits, which test_limits.py covers against real Redis."""
 
 
+def _no_limit_for() -> Callable[[], Awaitable[None]]:
+    return _no_limit
+
+
 UNLIMITED: dict[Callable[..., object], Callable[..., object]] = {
     rate_limit: _no_limit,
     answer_limits: _no_limit,
+    answer_limits_for: _no_limit_for,  # GraphQL's answer limits
 }
 
 

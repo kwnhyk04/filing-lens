@@ -328,6 +328,11 @@ From step 7 (CI/CD):
     - `retrieval:dev:full` was re-derived from its own report, unchanged. No other floor keys exist.
   - The CI floors are a tripwire for large drops, not a precise measure: the numeric floor of 0.676 still lets 6 of 8 pass. The nightly run and the exam give the precise numbers.
 
+From the GraphQL guard fix (before step 8):
+
+- 2026-10-18: GraphQL `answer` takes REST's answer guards through the same code (user decision: fixed first, on its own branch and PR from main, before step 8 builds). `answer_limits_for` hands the resolver `answer_limits` bound to its request, as a dependency, so tests swap it the way they swap `answer_limits`. `timed_answer` holds the 30 s limit for REST and GraphQL. REST keeps its dependency order. Reason: GraphQL answers skipped the 10-a-minute bucket, the daily budget (which fails closed) and the time limit, so with AI on they could spend past `DAILY_AI_TOKEN_BUDGET`.
+- 2026-10-18: An answer is in flight from its admission (user decision, same fix). `Answerer.admit(request)` takes the slot and returns `Admitted`, which gives it back at the last event, an error, a cancellation or `aclose()`. The stream route's request-scoped yield dependency closes it after the response. Reason: a stream counted itself only at its first event, so streams opened together could pass `LLM_MAX_INFLIGHT`; and an async generator that never starts never runs its `finally`, so the slot needs an owner outside the generator.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -448,6 +453,8 @@ None yet.
 - 2026-10-17: A restore rebuilds the HNSW index. Two restores of `corpus-v1.dump` gave identical top 10s on all 70 dev questions. The dev database, whose index was built as chunks were embedded, differs on o03 and u02 (unanswerable, one chunk each); scored metrics are identical.
 - 2026-10-17: `pg_dump --exclude-table-data` also drops a sequence's value when it names the sequence. Without that, the dump carried the private tables' id counters.
 - 2026-10-17: Git Bash rewrites a `/tmp/...` argument to `docker compose exec` into a Windows path; set `MSYS_NO_PATHCONV=1`. Python's subprocess calls are not affected.
+- 2026-10-18: `app.dependency_overrides` reach only code that FastAPI calls through `Depends`. A GraphQL resolver that called `answer_limits` directly would skip the tests' `UNLIMITED` override, so the resolver gets its limits from the `answer_limits_for` dependency of the context getter.
+- 2026-10-18: typeshed's `AsyncGenerator.__aiter__` returns a plain `AsyncIterator`, so a protocol that an async generator must satisfy (`AnswerEvents`) declares `__aiter__` as returning `AsyncIterator`, with `__anext__` and `aclose` returning `Awaitable`.
 
 ## Rejected Approaches
 

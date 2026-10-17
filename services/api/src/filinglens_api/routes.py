@@ -11,13 +11,12 @@ from fastapi.security import APIKeyHeader
 from fastapi.sse import EventSourceResponse
 from pydantic import SecretStr
 
-from filinglens_api.backend import BackendDep
-from filinglens_api.limits import ANSWER_TIMEOUT_S, answer_limits, rate_limit
+from filinglens_api import limits
+from filinglens_api.backend import AnswerEvents, BackendDep
+from filinglens_api.limits import answer_limits, rate_limit, timed_answer
 from filinglens_api.problems import problem_doc, problem_for, problems
 from filinglens_api.schemas import (
     Answer,
-    AnswerCompleted,
-    AnswerDelta,
     AnswerEvent,
     AnswerFailed,
     AnswerRequest,
@@ -197,18 +196,18 @@ async def create_answer(body: AnswerRequest, backend: BackendDep) -> Answer:
 
     At most 10 a minute per key, and 30 s each (then 502).
     """
-    try:
-        async with asyncio.timeout(ANSWER_TIMEOUT_S):
-            return await backend.answer(body)
-    except TimeoutError:
-        raise UpstreamError(f"No answer within {ANSWER_TIMEOUT_S} s.") from None
+    return await timed_answer(backend, body)
 
 
-async def _answer_events(
-    body: AnswerRequest, backend: BackendDep
-) -> AsyncIterator[AnswerDelta | AnswerCompleted]:
+async def _answer_events(body: AnswerRequest, backend: BackendDep) -> AsyncIterator[AnswerEvents]:
     # A dependency runs before the response starts, so admission errors keep their status code.
-    return await backend.stream_answer(body)
+    # Its teardown runs after the response, so the answer's in-flight slot comes back even when
+    # the client leaves before the first event.
+    events = await backend.stream_answer(body)
+    try:
+        yield events
+    finally:
+        await events.aclose()
 
 
 # FastAPI reads a stream's item model from the return annotation, not from response_model.
@@ -221,7 +220,7 @@ async def _answer_events(
     responses=problems(413, 502),
 )
 async def stream_answer(
-    events: Annotated[AsyncIterator[AnswerDelta | AnswerCompleted], Depends(_answer_events)],
+    events: Annotated[AnswerEvents, Depends(_answer_events, scope="request")],
 ) -> AsyncIterator[AnswerEvent]:
     """POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
@@ -231,7 +230,7 @@ async def stream_answer(
     stream has started arrives as a `failed` event with a problem, and so does a stream still
     running after 30 s.
     """
-    deadline = asyncio.get_running_loop().time() + ANSWER_TIMEOUT_S
+    deadline = asyncio.get_running_loop().time() + limits.ANSWER_TIMEOUT_S
     try:
         while True:
             async with asyncio.timeout_at(deadline):  # never around a yield
@@ -240,7 +239,7 @@ async def stream_answer(
     except StopAsyncIteration:
         return
     except TimeoutError:
-        timeout = UpstreamError(f"No answer within {ANSWER_TIMEOUT_S} s.")
+        timeout = UpstreamError(f"No answer within {limits.ANSWER_TIMEOUT_S} s.")
         yield AnswerFailed(problem=problem_for(timeout))
     except FilingLensError as exc:
         yield AnswerFailed(problem=problem_for(exc))
