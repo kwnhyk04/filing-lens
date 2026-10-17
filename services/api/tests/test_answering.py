@@ -4,23 +4,27 @@ The real provider adapters run against respx, which replays the recorded respons
 failure paths use the same bodies doctored, or the providers' documented error shapes.
 """
 
+import asyncio
 import json
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import httpx2
 import pytest
 import respx
+from opentelemetry import trace
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from redis.asyncio import Redis
 
-from filinglens_api.answering import Answerer, Models
+from filinglens_api import limits
+from filinglens_api.answering import Answerer, Evidence, Models
 from filinglens_api.schemas import Answer, AnswerCompleted, AnswerDelta, AnswerRequest
-from filinglens_core.errors import AiUnavailableError, OverloadedError
+from filinglens_core.errors import AiUnavailableError, OverloadedError, UpstreamError
 from filinglens_llm.providers import (
     BASE_URLS,
     Anthropic,
@@ -46,6 +50,9 @@ NO_CREDITS = httpx.Response(402, json={"detail": "Payment required: no credits l
 RETIRED = httpx.Response(410, json={"detail": "The model has reached its end of life"})
 TRACKED = {"AAPL": "Apple Inc.", "NVDA": "NVIDIA Corporation"}
 GROQ = "api.groq.com"
+TRACER = trace.get_tracer("tests")
+SERVER = "POST /v1/answers"  # the request's span, which FastAPI starts in the app
+type Changes = Callable[[str], dict[str, float]]
 
 
 def fixture(name: str) -> dict[str, Any]:
@@ -499,7 +506,7 @@ async def test_gemini_sends_its_key_only_in_the_header(
 
 
 async def test_an_answer_is_in_flight_from_admission_until_it_ends(
-    mocked: respx.MockRouter,
+    mocked: respx.MockRouter, metric_changes: Changes
 ) -> None:
     recorded = fixture("numeric")
     replay(mocked, recorded["exchanges"])
@@ -507,10 +514,165 @@ async def test_an_answer_is_in_flight_from_admission_until_it_ends(
     async with httpx.AsyncClient() as http:
         pipeline = answerer(recorded, http, max_inflight=1)
         unread = pipeline.admit(request)  # in flight before its first event
+        assert metric_changes("filinglens.answers.inflight") == {"": 1}
         with pytest.raises(OverloadedError) as shed:
             pipeline.admit(request)
         assert shed.value.retry_after_s == 2
+        assert metric_changes("filinglens.answers.rejected") == {"reason=overloaded": 1}
         await unread.aclose()  # closed before its first event: the slot comes back
         events = [event async for event in pipeline.admit(request)]  # an answer run to its end
         assert isinstance(events[-1], AnswerCompleted)
         await pipeline.admit(request).aclose()  # it gave its slot back too
+    assert metric_changes("filinglens.answers.inflight") == {}  # every slot came back
+
+
+async def test_an_answer_records_its_outcome_stages_and_model_calls(
+    mocked: respx.MockRouter, spans: InMemorySpanExporter, metric_changes: Changes
+) -> None:
+    replay(mocked, fixture("numeric")["exchanges"])
+    with TRACER.start_as_current_span(SERVER):
+        await run("numeric")
+    assert metric_changes("filinglens.answers") == {"outcome=answered,reason=none": 1}
+    assert metric_changes("filinglens.answer.stage.duration") == {
+        f"route=numeric,stage={stage}": 1 for stage in ("route", "facts", "generate", "total")
+    }
+    assert metric_changes("filinglens.answer.ttft") == {"route=numeric": 1}
+    assert metric_changes("filinglens.llm.calls") == {
+        "model=openai/gpt-oss-20b,outcome=ok,provider=groq": 1,
+        "model=gemini-3.5-flash-lite,outcome=ok,provider=gemini": 1,
+    }
+    finished = {span.name: span for span in spans.get_finished_spans()}
+    server = finished[SERVER]
+    assert server.context is not None
+    for name in ("route", "facts", "generate", "chat openai/gpt-oss-20b"):
+        parent = finished[name].parent
+        assert parent is not None and parent.span_id == server.context.span_id
+    gemini = finished["chat gemini-3.5-flash-lite"]
+    assert [event.name for event in gemini.events] == ["first_token"]
+    attributes = server.attributes or {}
+    assert attributes["filinglens.answer.outcome"] == "answered"
+    assert attributes["filinglens.answer.route"] == "numeric"
+    assert cast(int, attributes["gen_ai.usage.input_tokens"]) > 0
+    exported = "".join(span.to_json() for span in finished.values())
+    assert fixture("numeric")["question"] not in exported  # no question, prompt or quote
+    assert KEY not in exported
+
+
+def _gemini_writes(mocked: respx.MockRouter, text: str) -> None:
+    """The textual fixture's routing, then Gemini writing `text` over that answer's sources."""
+    recorded = fixture("textual")
+    replay(mocked, recorded["exchanges"][:1])
+    sources = reply_text(recorded["exchanges"][1]["body"]).split("Sources:", 1)[1]
+    reply = f"{text}\n\nSources:{sources}"
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=gemini_stream(reply))
+    path = STREAM.replace("streamGenerateContent", "generateContent")
+    mocked.post(host=GEMINI, path=path).mock(return_value=gemini_json(reply))
+
+
+@pytest.mark.parametrize(
+    ("code", "name", "options"),
+    [
+        ("out_of_scope", "out_of_scope", {}),
+        ("time_trap", "time_trap", {}),
+        ("untracked_company", "numeric", {}),
+        ("no_relevant_passages", "textual", {"min_relevance": 0.0}),
+        ("insufficient_evidence", "textual", {}),
+        ("validation_failed", "textual", {}),
+    ],
+)
+async def test_each_refusal_is_counted_under_its_code(
+    mocked: respx.MockRouter,
+    spans: InMemorySpanExporter,
+    metric_changes: Changes,
+    code: str,
+    name: str,
+    options: dict[str, Any],
+) -> None:
+    if code == "untracked_company":
+        reply = router_reply(tickers=[], other_companies=["Netflix"])
+        mocked.post(host=GROQ).mock(return_value=reply)
+    elif code == "insufficient_evidence":
+        _gemini_writes(mocked, "INSUFFICIENT_EVIDENCE")
+    elif code == "validation_failed":  # the regenerated answer fails too, so nothing is left
+        _gemini_writes(mocked, "Apple paid its suppliers $999.9 billion [C1].")
+    else:
+        replay(mocked, fixture(name)["exchanges"])
+    with TRACER.start_as_current_span(SERVER):
+        answer, _, _ = await run(name, **options)
+    assert answer.refused
+    assert metric_changes("filinglens.answers") == {f"outcome=refused,reason={code}": 1}
+    [server] = [span for span in spans.get_finished_spans() if span.name == SERVER]
+    assert (server.attributes or {})["filinglens.answer.reason"] == code
+
+
+class _Failing:
+    """Evidence that fails, or stalls, at the answer's first read."""
+
+    def __init__(self, error: Exception | None) -> None:
+        self.error = error
+
+    async def tracked(self) -> dict[str, str]:
+        if self.error is None:
+            await asyncio.sleep(10)
+        raise self.error or AssertionError("unreachable")
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [(UpstreamError("SEC is down."), "upstream_error"), (RuntimeError("bug"), "internal")],
+)
+async def test_a_failed_answer_is_counted_under_its_error_code(
+    metric_changes: Changes, error: Exception, reason: str
+) -> None:
+    redis = Redis.from_url("redis://0.0.0.0:1/0")
+    pipeline = Answerer(cast(Evidence, _Failing(error)), cast(Models, None), redis, max_inflight=1)
+    with pytest.raises(type(error)):
+        async for _ in pipeline.events(AnswerRequest(question="What was revenue?")):
+            pass
+    assert metric_changes("filinglens.answers") == {f"outcome=failed,reason={reason}": 1}
+
+
+async def test_a_provider_without_credits_fails_the_answer_as_ai_unavailable(
+    mocked: respx.MockRouter, spans: InMemorySpanExporter, metric_changes: Changes
+) -> None:
+    replay(mocked, fixture("numeric")["exchanges"][:1])
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=RATE_LIMITED)
+    mocked.post(host="integrate.api.nvidia.com", path=NVIDIA_CHAT).mock(return_value=NO_CREDITS)
+    with TRACER.start_as_current_span(SERVER), pytest.raises(AiUnavailableError):
+        await run("numeric")
+    assert metric_changes("filinglens.answers") == {"outcome=failed,reason=ai_unavailable": 1}
+    [server] = [span for span in spans.get_finished_spans() if span.name == SERVER]
+    assert [(event.name, dict(event.attributes or {})) for event in server.events] == [
+        (
+            "fallback",
+            {
+                "role": "primary",
+                "from": "gemini:gemini-3.5-flash-lite",
+                "to": "nvidia:openai/gpt-oss-20b",
+                "error.type": "rate_limited",
+            },
+        )
+    ]
+    assert metric_changes("filinglens.llm.calls") == {
+        "model=openai/gpt-oss-20b,outcome=ok,provider=groq": 1,
+        "model=gemini-3.5-flash-lite,outcome=error,provider=gemini": 1,
+        "model=openai/gpt-oss-20b,outcome=error,provider=nvidia": 1,
+    }
+    gemini = next(s for s in spans.get_finished_spans() if s.name == "chat gemini-3.5-flash-lite")
+    assert (gemini.attributes or {})["error.type"] == "rate_limited"
+    assert gemini.status.description is None  # provider messages can echo the prompt
+
+
+@pytest.mark.parametrize(("limit_s", "outcome"), [(30, "cancelled"), (0.05, "failed")])
+async def test_an_answer_cut_off_at_the_time_limit_is_a_timeout_and_earlier_a_cancellation(
+    metric_changes: Changes, monkeypatch: pytest.MonkeyPatch, limit_s: float, outcome: str
+) -> None:
+    monkeypatch.setattr(limits, "ANSWER_TIMEOUT_S", limit_s)
+    redis = Redis.from_url("redis://0.0.0.0:1/0")
+    pipeline = Answerer(cast(Evidence, _Failing(None)), cast(Models, None), redis, max_inflight=1)
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.05):  # the route's limit, or a client that left
+            async for _ in pipeline.events(AnswerRequest(question="What was revenue?")):
+                pass
+    reason = "timeout" if outcome == "failed" else "none"
+    assert metric_changes("filinglens.answers") == {f"outcome={outcome},reason={reason}": 1}

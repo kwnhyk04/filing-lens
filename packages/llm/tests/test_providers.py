@@ -3,10 +3,13 @@ cost. No request leaves the process."""
 
 import asyncio
 import json
+from collections.abc import Callable
 from datetime import date, timedelta
 
 import httpx2
 import pytest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind, StatusCode
 from structlog.testing import capture_logs
 
 from filinglens_core.errors import AiUnavailableError, RateLimitedError, UpstreamError
@@ -179,6 +182,52 @@ async def test_a_streamed_answer_gives_its_text_usage_and_credit_cost() -> None:
     assert credits_usd(done.model, 4000, 300) == pytest.approx(0.00055)  # $0.10 / $0.50 per 1M
     assert credits_usd(done.model, 200_000, 1000) == pytest.approx(0.1025)  # past 100K tokens
     assert credits_usd("gemini:gemini-3.5-flash-lite", 4000, 300) == 0.0
+
+
+async def test_each_call_gets_a_span_and_metrics_but_never_its_text(
+    spans: InMemorySpanExporter, metric_changes: Callable[[str], dict[str, float]]
+) -> None:
+    prompt = "Which risks did the 10-K name?"
+    model, _ = claude(message())
+    await model.complete("system", prompt, max_tokens=1024)
+    model, _ = claude(error(400, "invalid_request_error", f"Bad request: {prompt}"))
+    with pytest.raises(UpstreamError):
+        await model.complete("system", prompt, max_tokens=1024)
+    ok, failed = spans.get_finished_spans()
+    assert ok.name == failed.name == "chat claude-haiku-5-5" and ok.kind == SpanKind.CLIENT
+    assert dict(ok.attributes or {}) == {
+        "gen_ai.provider.name": "anthropic",
+        "gen_ai.request.model": "claude-haiku-5-5",
+        "gen_ai.operation.name": "chat",
+        "gen_ai.usage.input_tokens": 4000,
+        "gen_ai.usage.output_tokens": 300,
+    }
+    assert failed.status.status_code == StatusCode.ERROR and failed.status.description is None
+    assert (failed.attributes or {})["error.type"] == "upstream_error"
+    model_labels = "model=claude-haiku-5-5"
+    assert metric_changes("filinglens.llm.calls") == {
+        f"{model_labels},outcome=ok,provider=anthropic": 1,
+        f"{model_labels},outcome=error,provider=anthropic": 1,
+    }
+    labels = "gen_ai.provider.name=anthropic,gen_ai.request.model=claude-haiku-5-5"
+    assert metric_changes("gen_ai.client.token.usage") == {
+        f"{labels},gen_ai.token.type=input": 1,
+        f"{labels},gen_ai.token.type=output": 1,
+    }
+    assert metric_changes("gen_ai.client.operation.duration") == {
+        labels: 1,
+        f"error.type=upstream_error,{labels}": 1,
+    }
+    exported = ok.to_json() + failed.to_json()
+    assert prompt not in exported and "Revenue rose" not in exported
+
+
+async def test_a_streamed_call_marks_its_first_text_once(spans: InMemorySpanExporter) -> None:
+    model, _ = claude(streamed("Revenue ", "rose [F1]."))
+    _ = [item async for item in model.stream("system", "question", max_tokens=1024)]
+    [span] = spans.get_finished_spans()
+    assert [event.name for event in span.events] == ["first_token"]
+    assert (span.attributes or {})["gen_ai.usage.output_tokens"] == 300
 
 
 async def test_a_refusal_fails_the_call_so_the_chain_moves_on() -> None:

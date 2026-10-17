@@ -1,0 +1,10 @@
+# The dashboards in infra/dashboards, read-only in a FilingLens folder: edit the JSON in the repo.
+apiVersion: 1
+providers:
+  - name: filinglens
+    folder: FilingLens
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

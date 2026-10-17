@@ -58,7 +58,25 @@ class DatabaseSettings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
 
-class ApiSettings(DatabaseSettings):
+SERVICE_NAME = r"^[a-z][a-z0-9-]{0,62}$"  # OTEL_SERVICE_NAME, the Prometheus job label
+
+
+class TelemetrySettings(BaseSettings):
+    """Traces and metrics over OTLP/HTTP (docs/monitoring.md); no endpoint, no telemetry."""
+
+    model_config = SettingsConfigDict(hide_input_in_errors=True)
+
+    otel_exporter_otlp_endpoint: HttpUrl | None = None
+    otel_service_name: str = Field(default="filinglens", pattern=SERVICE_NAME)
+
+    @field_validator("otel_exporter_otlp_endpoint", mode="before")
+    @classmethod
+    def _empty_endpoint_is_off(cls, value: Any) -> Any:
+        return value or None  # compose passes OTEL_EXPORTER_OTLP_ENDPOINT= when it is off
+
+
+class ApiSettings(DatabaseSettings, TelemetrySettings):
+    otel_service_name: str = Field(default="filinglens-api", pattern=SERVICE_NAME)
     redis_url: Secret[RedisDsn]
     broker_url: Secret[AmqpDsn]
     api_key: SecretStr = Field(min_length=32)
@@ -95,7 +113,7 @@ class ApiSettings(DatabaseSettings):
 
     @field_validator("llm_answer_fallback", mode="before")
     @classmethod
-    def _empty_is_off(cls, value: Any) -> Any:
+    def _empty_fallback_is_off(cls, value: Any) -> Any:
         return value or None  # compose passes LLM_ANSWER_FALLBACK= when it is unset
 
     @model_validator(mode="after")
@@ -127,7 +145,8 @@ class ApiSettings(DatabaseSettings):
         return value
 
 
-class IngestSettings(DatabaseSettings):
+class IngestSettings(DatabaseSettings, TelemetrySettings):
+    otel_service_name: str = Field(default="filinglens-ingest", pattern=SERVICE_NAME)
     redis_url: Secret[RedisDsn]
     broker_url: Secret[AmqpDsn]
     health_port: int = Field(default=8001, ge=1, le=65535)

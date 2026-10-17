@@ -1,12 +1,17 @@
-"""Structured logging with structlog: one JSON object per line on stdout, credentials redacted."""
+"""Structured logging with structlog: one JSON object per line on stdout, credentials redacted.
+
+OpenTelemetry lives in filinglens_telemetry.otel (setup) and .metrics (instruments).
+"""
 
 import logging
 import re
 import sys
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
+from urllib.parse import unquote_plus
 
 import structlog
+from opentelemetry import trace
 from structlog.types import EventDict, Processor, WrappedLogger
 
 REDACTED = "[REDACTED]"
@@ -14,6 +19,7 @@ REDACTED = "[REDACTED]"
 SENSITIVE_KEY = re.compile(
     r"(^|[-_])(authorization|cookie|api[-_]?key|password|secret|token)$", re.I
 )
+PARAMETER = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,23}")  # a query parameter's name
 
 
 def _scrub_fields(fields: Mapping[Any, object], secrets: tuple[str, ...]) -> dict[Any, object]:
@@ -34,12 +40,50 @@ def _scrub(value: object, secrets: tuple[str, ...]) -> object:
     return value
 
 
+def query_names(query: str) -> str:
+    """A query string with its values dropped: `q=supply+chain&cursor=x` becomes `q&cursor`.
+
+    A part without `=`, or a name that is not short and plain, becomes `_`: it may be a value,
+    such as search words or a key pasted into the URL (keys are at least 32 characters).
+    """
+    names = (
+        name if mark and PARAMETER.fullmatch(name := unquote_plus(raw)) else "_"
+        for raw, mark, _ in (part.partition("=") for part in query.split("&") if part)
+    )
+    return "&".join(names)
+
+
+class _QueryNames(logging.Filter):
+    """Keeps only parameter names in uvicorn's access lines, so search text is never logged."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
+            path, mark, query = args[2].partition("?")
+            if mark:
+                record.args = (args[0], args[1], f"{path}?{query_names(query)}", *args[3:])
+        return True
+
+
+def _add_trace_ids(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDict:
+    """Lines written inside a span carry its trace and span ids, so a log line finds its trace."""
+    span = trace.get_current_span().get_span_context()
+    if span.is_valid:
+        event_dict["trace_id"] = format(span.trace_id, "032x")
+        event_dict["span_id"] = format(span.span_id, "016x")
+    return event_dict
+
+
 def configure_logging(service: str, level: str = "INFO", secrets: Iterable[str] = ()) -> None:
     """Send every logger (ours, uvicorn, celery, alembic) to stdout as JSON.
 
     Credential-named fields are redacted, and so is any occurrence of a value in `secrets`.
+    Uvicorn's access lines keep only the names of query parameters.
     """
     known = tuple(secret for secret in secrets if secret)
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _QueryNames) for f in access.filters):
+        access.addFilter(_QueryNames())
 
     def add_service(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDict:
         event_dict["service"] = service
@@ -54,6 +98,7 @@ def configure_logging(service: str, level: str = "INFO", secrets: Iterable[str] 
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         add_service,
+        _add_trace_ids,
     ]
     structlog.configure(
         processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],

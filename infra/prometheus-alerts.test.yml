@@ -1,0 +1,364 @@
+# promtool tests for prometheus-alerts.yml (make monitoring-check): each alert has a firing case,
+# and the last group is a quiet case for all 13, at low traffic where a rule has a minimum count.
+rule_files:
+  - prometheus-alerts.yml
+evaluation_interval: 15s
+
+tests:
+  # ApiNotReady: /readyz answers 503 from 75 s.
+  - interval: 15s
+    input_series:
+      - series: 'httpcheck_status{http_url="http://api:4100/readyz",http_status_class="2xx"}'
+        values: "1x4 0x16"
+    alert_rule_test:
+      - eval_time: 2m # pending only
+        alertname: ApiNotReady
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: ApiNotReady
+        exp_alerts:
+          - exp_labels: { severity: critical, http_url: "http://api:4100/readyz" }
+            exp_annotations: &api-not-ready
+              summary: The API's /readyz has failed for 2 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#apinotready
+
+  # ApiNotReady: the connection is refused from 75 s, so only httpcheck_error goes on, and the
+  # last status goes stale once the collector expires it.
+  - interval: 15s
+    input_series:
+      - series: 'httpcheck_status{http_url="http://api:4100/readyz",http_status_class="2xx"}'
+        values: "1x8 stale"
+      - series: 'httpcheck_error{http_url="http://api:4100/readyz",error_message="connection refused"}'
+        values: "_x5 1x16"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ApiNotReady
+        exp_alerts:
+          - exp_labels: { severity: critical, http_url: "http://api:4100/readyz" }
+            exp_annotations: *api-not-ready
+
+  # WorkerNotConsuming: embed loses its consumer at 75 s; dead-letter queues never have one.
+  - interval: 15s
+    input_series:
+      - series: 'rabbitmq_detailed_queue_consumers{queue="embed",vhost="/"}'
+        values: "1x4 0x30"
+      - series: 'rabbitmq_detailed_queue_consumers{queue="embed.dlq",vhost="/"}'
+        values: "0x34"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: WorkerNotConsuming
+        exp_alerts:
+          - exp_labels: { severity: critical, queue: embed, vhost: / }
+            exp_annotations:
+              summary: Queue embed has had no consumer for 5 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#workernotconsuming
+
+  # SecRefused: one refusal.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_sec_refusals_total{job="filinglens-ingest",instance="p1"}'
+        values: "0x10 1x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SecRefused
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: SEC refuses our requests; every fetch fails until SEC_USER_AGENT is fixed.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#secrefused
+
+  # AnswersFailing: two failed answers.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_answers_total{outcome="failed",reason="upstream_error",job="filinglens-api",instance="p1"}'
+        values: "0x10 1x10 2x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AnswersFailing
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: Two or more answers failed in the last 30 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#answersfailing
+
+  # AiBudgetExhausted: today's tokens reach the budget; AiBudgetNearlyUsed stops at 100%.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_ai_tokens_today{job="filinglens-api",instance="p1"}'
+        values: "1000000x30"
+      - series: 'filinglens_ai_token_budget{job="filinglens-api",instance="p1"}'
+        values: "1000000x30"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AiBudgetExhausted
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: Today's AI token budget is used up; answers get 503 until 00:00 UTC.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#aibudgetexhausted
+      - eval_time: 6m
+        alertname: AiBudgetNearlyUsed
+        exp_alerts: []
+
+  # AiBudgetNearlyUsed: 85% used.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_ai_tokens_today{job="filinglens-api",instance="p1"}'
+        values: "850000x30"
+      - series: 'filinglens_ai_token_budget{job="filinglens-api",instance="p1"}'
+        values: "1000000x30"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AiBudgetNearlyUsed
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 80% of today's AI token budget is used.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#aibudgetnearlyused
+
+  # A budget of 0: neither budget alert.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_ai_tokens_today{job="filinglens-api",instance="p1"}'
+        values: "0x30"
+      - series: 'filinglens_ai_token_budget{job="filinglens-api",instance="p1"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AiBudgetExhausted
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: AiBudgetNearlyUsed
+        exp_alerts: []
+
+  # LlmProviderErrors: 3 of Gemini's 5 calls fail; Groq stays healthy beside it.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_llm_calls_total{provider="gemini",model="gemini-3.5-flash-lite",outcome="error",job="filinglens-api",instance="p1"}'
+        values: "0x20 3x100"
+      - series: 'filinglens_llm_calls_total{provider="gemini",model="gemini-3.5-flash-lite",outcome="ok",job="filinglens-api",instance="p1"}'
+        values: "0x20 2x100"
+      - series: 'filinglens_llm_calls_total{provider="groq",model="openai/gpt-oss-20b",outcome="ok",job="filinglens-api",instance="p1"}'
+        values: "0x20 6x100"
+      - series: 'filinglens_llm_calls_total{provider="groq",model="openai/gpt-oss-20b",outcome="error",job="filinglens-api",instance="p1"}'
+        values: "0x120"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LlmProviderErrors
+        exp_alerts:
+          - exp_labels: { severity: warning, provider: gemini }
+            exp_annotations:
+              summary: More than 25% of gemini calls failed in the last 30 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#llmprovidererrors
+
+  # CitationValidationDegraded: 4 of 10 drafts written again. The share is of drafts, not of
+  # answers: 20 answers include numeric ones from facts that never drafted.
+  - interval: 1m
+    input_series:
+      - series: 'filinglens_answer_regenerations_total{job="filinglens-api",instance="p1"}'
+        values: "0x10 4x60"
+      - series: 'filinglens_answer_stage_duration_seconds_count{stage="generate",route="textual",job="filinglens-api",instance="p1"}'
+        values: "0x10 10x60"
+      - series: 'filinglens_answers_total{outcome="answered",reason="none",job="filinglens-api",instance="p1"}'
+        values: "0x10 20x60"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: CitationValidationDegraded
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: More than 25% of drafts were written again in the last 6 hours.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#citationvalidationdegraded
+
+  # SearchDegraded: 3 of 20 reranks time out.
+  - interval: 1m
+    input_series:
+      - series: 'filinglens_search_rerank_timeouts_total{job="filinglens-api",instance="p1"}'
+        values: "0x10 3x60"
+      - series: 'filinglens_search_duration_seconds_count{phase="rerank",job="filinglens-api",instance="p1"}'
+        values: "0x10 20x60"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: SearchDegraded
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: More than 10% of reranks timed out in the last hour.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#searchdegraded
+
+  # DeadLetters: a message lands in fetch.dlq at 75 s.
+  - interval: 15s
+    input_series:
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch.dlq",vhost="/"}'
+        values: "0x4 1x12"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DeadLetters
+        exp_alerts:
+          - exp_labels: { severity: warning, queue: fetch.dlq, vhost: / }
+            exp_annotations:
+              summary: fetch.dlq holds a message that failed for good.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#deadletters
+
+  # IngestStalled: fetch holds work, and the only task counter never moves.
+  - interval: 15s
+    input_series:
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch",vhost="/"}'
+        values: "5x60"
+      - series: 'filinglens_ingest_tasks_total{task="fetch",outcome="succeeded",job="filinglens-ingest",instance="p1"}'
+        values: "3x60"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: IngestStalled
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: Ingest queues hold work, but no task has finished for 15 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#ingeststalled
+
+  # MonitoringTargetDown: Jaeger's scrape fails from 75 s.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="jaeger",instance="jaeger:8888"}'
+        values: "1x4 0x30"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: MonitoringTargetDown
+        exp_alerts:
+          - exp_labels: { severity: warning, job: jaeger, instance: "jaeger:8888" }
+            exp_annotations:
+              summary: Prometheus has not scraped jaeger for 5 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#monitoringtargetdown
+
+  # TelemetryMissing: the embed worker never sends telemetry.
+  - interval: 15s
+    input_series:
+      - series: 'target_info{job="filinglens-api",instance="a1"}'
+        values: "1x60"
+      - series: 'target_info{job="filinglens-ingest",instance="i1"}'
+        values: "1x60"
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: TelemetryMissing
+        exp_alerts:
+          - exp_labels: { severity: warning, job: filinglens-embed }
+            exp_annotations:
+              summary: filinglens-embed has sent no telemetry for 10 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#telemetrymissing
+
+  # Quiet above the minimum counts, under the ratios: 1 error in 8 calls, 1 of 10 drafts written
+  # again, 1 time-out in 20 reranks.
+  - interval: 1m
+    input_series:
+      - series: 'filinglens_llm_calls_total{provider="gemini",model="gemini-3.5-flash-lite",outcome="error",job="filinglens-api",instance="p1"}'
+        values: "0x10 1x60"
+      - series: 'filinglens_llm_calls_total{provider="gemini",model="gemini-3.5-flash-lite",outcome="ok",job="filinglens-api",instance="p1"}'
+        values: "0x10 7x60"
+      - series: 'filinglens_answer_regenerations_total{job="filinglens-api",instance="p1"}'
+        values: "0x10 1x60"
+      - series: 'filinglens_answer_stage_duration_seconds_count{stage="generate",route="textual",job="filinglens-api",instance="p1"}'
+        values: "0x10 10x60"
+      - series: 'filinglens_search_rerank_timeouts_total{job="filinglens-api",instance="p1"}'
+        values: "0x10 1x60"
+      - series: 'filinglens_search_duration_seconds_count{phase="rerank",job="filinglens-api",instance="p1"}'
+        values: "0x10 20x60"
+    alert_rule_test:
+      - { eval_time: 25m, alertname: LlmProviderErrors, exp_alerts: [] }
+      - { eval_time: 1h, alertname: CitationValidationDegraded, exp_alerts: [] }
+      - { eval_time: 1h, alertname: SearchDegraded, exp_alerts: [] }
+
+  # Pending, not yet firing: each condition holds from 75 s, short of its `for`.
+  - interval: 15s
+    input_series:
+      - series: 'rabbitmq_detailed_queue_consumers{queue="embed",vhost="/"}'
+        values: "1x4 0x20"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch.dlq",vhost="/"}'
+        values: "0x4 1x20"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch",vhost="/"}'
+        values: "0x4 5x20"
+      - series: 'up{job="jaeger",instance="jaeger:8888"}'
+        values: "1x4 0x20"
+      - series: 'filinglens_ai_tokens_today{job="filinglens-api",instance="p1"}'
+        values: "0x4 850000x20"
+      - series: 'filinglens_ai_token_budget{job="filinglens-api",instance="p1"}'
+        values: "1000000x24"
+    alert_rule_test:
+      - { eval_time: 5m, alertname: WorkerNotConsuming, exp_alerts: [] }
+      - { eval_time: 2m, alertname: DeadLetters, exp_alerts: [] }
+      - { eval_time: 5m, alertname: IngestStalled, exp_alerts: [] }
+      - { eval_time: 5m, alertname: MonitoringTargetDown, exp_alerts: [] }
+      - { eval_time: 5m, alertname: AiBudgetNearlyUsed, exp_alerts: [] }
+      - { eval_time: 5m, alertname: TelemetryMissing, exp_alerts: [] }
+
+  # IngestStalled when no task has ever run: there is no task series at all.
+  - interval: 15s
+    input_series:
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="discover",vhost="/"}'
+        values: "2x60"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: IngestStalled
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: Ingest queues hold work, but no task has finished for 15 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#ingeststalled
+
+  # Quiet: a healthy stack at low traffic. One failed answer, 2 LLM calls with one error, 4
+  # drafts with 3 regenerations and 5 reranks with 2 time-outs all stay under the minimum counts.
+  - interval: 15s
+    input_series:
+      - series: 'httpcheck_status{http_url="http://api:4100/readyz",http_status_class="2xx"}'
+        values: "1x80"
+      - series: 'rabbitmq_detailed_queue_consumers{queue="fetch",vhost="/"}'
+        values: "1x80"
+      - series: 'rabbitmq_detailed_queue_consumers{queue="fetch.dlq",vhost="/"}'
+        values: "0x80"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch",vhost="/"}'
+        values: "5x80"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch.dlq",vhost="/"}'
+        values: "0x80"
+      - series: 'filinglens_ingest_tasks_total{task="fetch",outcome="succeeded",job="filinglens-ingest",instance="p1"}'
+        values: "0+1x80"
+      - series: 'filinglens_sec_refusals_total{job="filinglens-ingest",instance="p1"}'
+        values: "0x80"
+      - series: 'filinglens_answers_total{outcome="failed",reason="upstream_error",job="filinglens-api",instance="p1"}'
+        values: "0x20 1x60"
+      - series: 'filinglens_answer_stage_duration_seconds_count{stage="generate",route="textual",job="filinglens-api",instance="p1"}'
+        values: "0x20 4x60"
+      - series: 'filinglens_answer_regenerations_total{job="filinglens-api",instance="p1"}'
+        values: "0x20 3x60"
+      - series: 'filinglens_ai_tokens_today{job="filinglens-api",instance="p1"}'
+        values: "500000x80"
+      - series: 'filinglens_ai_token_budget{job="filinglens-api",instance="p1"}'
+        values: "1000000x80"
+      - series: 'filinglens_llm_calls_total{provider="gemini",model="gemini-3.5-flash-lite",outcome="error",job="filinglens-api",instance="p1"}'
+        values: "0x20 1x60"
+      - series: 'filinglens_llm_calls_total{provider="gemini",model="gemini-3.5-flash-lite",outcome="ok",job="filinglens-api",instance="p1"}'
+        values: "0x20 1x60"
+      - series: 'filinglens_search_rerank_timeouts_total{job="filinglens-api",instance="p1"}'
+        values: "0x20 2x60"
+      - series: 'filinglens_search_duration_seconds_count{phase="rerank",job="filinglens-api",instance="p1"}'
+        values: "0x20 5x60"
+      - series: 'up{job="jaeger",instance="jaeger:8888"}'
+        values: "1x80"
+      - series: 'target_info{job="filinglens-api",instance="a1"}'
+        values: "1x80"
+      - series: 'target_info{job="filinglens-ingest",instance="i1"}'
+        values: "1x80"
+      - series: 'target_info{job="filinglens-embed",instance="e1"}'
+        values: "1x80"
+    alert_rule_test:
+      - { eval_time: 20m, alertname: ApiNotReady, exp_alerts: [] }
+      - { eval_time: 20m, alertname: WorkerNotConsuming, exp_alerts: [] }
+      - { eval_time: 20m, alertname: SecRefused, exp_alerts: [] }
+      - { eval_time: 20m, alertname: AnswersFailing, exp_alerts: [] }
+      - { eval_time: 20m, alertname: AiBudgetExhausted, exp_alerts: [] }
+      - { eval_time: 20m, alertname: AiBudgetNearlyUsed, exp_alerts: [] }
+      - { eval_time: 20m, alertname: LlmProviderErrors, exp_alerts: [] }
+      - { eval_time: 20m, alertname: CitationValidationDegraded, exp_alerts: [] }
+      - { eval_time: 20m, alertname: SearchDegraded, exp_alerts: [] }
+      - { eval_time: 20m, alertname: DeadLetters, exp_alerts: [] }
+      - { eval_time: 20m, alertname: IngestStalled, exp_alerts: [] }
+      - { eval_time: 20m, alertname: MonitoringTargetDown, exp_alerts: [] }
+      - { eval_time: 20m, alertname: TelemetryMissing, exp_alerts: [] }

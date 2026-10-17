@@ -15,6 +15,134 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-18: Step 7's manual GitHub steps 3 and 4 confirmed
+
+- Changes:
+  - **Step 3 (user, from GitHub's API):** the `corpus-v1` release was published on 2026-10-17 at 15:28 UTC with `corpus-v1.dump` (46.5 MB, 16 downloads). The previous entry had ticked it by deduction (CI's eval downloads the dump and checks its sha256); the API now confirms it.
+  - **Step 4 (user, from GitHub's API):** ruleset 25308468 is active on main. It requires a pull request with 0 approvals and the `ci-ok` check, not strict, and it blocks force pushes and deletion.
+  - **Docs:** todo.md ticks step 4 with this evidence, replaces step 3's deduction with the API's facts, and keeps step 5 (public GHCR packages, optional before step 10) in Pending. context.md records the release's publication time and the ruleset.
+- Small events: none.
+- Files: docs/{context,todo,activity-log}.md
+- Validation: docs only; no checks run.
+- Outstanding: step 5 (optional, before step 10). The user commits and pushes these with the settings fix and the nightly change.
+
+### 2026-10-18: Docs say CI runs on GitHub and step 7 is merged; the nightly cron moved off the hour
+
+- Changes:
+  - **CI facts (user, from the repo's public Actions page at 03:07 Taipei):** CI #1 on pull request #1 failed (the floor problem fixed with Wilson intervals). CI #2 on its next push and CI #3 on the push to main passed. CI #7 on pull request #5 and CI #8 on its push to main passed. So the workflows run on GitHub, the `safe.directory` setup for oasdiff and gitleaks works, and step 7 is merged. Dependabot's npm group pull request #3 failed CI and has not been looked into.
+  - **Docs corrected:**
+    - context.md said the workflows had not run on GitHub, and that step 7 waited for the `corpus-v1` release, the push and a green test PR.
+    - todo.md: step 7 moved to Completed. Its manual step 3 (the `corpus-v1` release) is marked done, because CI's eval downloads the dump from that release and checks its sha256, and CI #1's eval ran as far as its floors. Steps 4 (the ruleset on main) and 5 (public GHCR packages) went to Pending, since nothing records them done. Dependabot's pull request #3 is a new Pending item.
+  - **The nightly never ran (user, from GitHub's API at 04:37 Taipei):** no runs of `nightly-eval.yml` after its 03:00 schedule. The workflow had been on main since 00:07 Taipei (59ed9fe, committed by GitHub), so a missing workflow file is ruled out. Likely cause, not confirmed: the cron sat on minute 0, where GitHub delays or drops scheduled runs under load.
+  - **What we did, in order:**
+    1. Changed the cron from `0 19 * * *` to `17 19 * * *` (03:17 Taipei) and its comment. `workflow_dispatch` stays.
+    2. Ran `make actionlint`: no findings.
+    3. Updated the time in README and context.md. memory.md records the decision, and todo.md has the follow-up: after the merge, one manual run, then a check of the next scheduled run.
+    - Why this way: the user chose it. Moving off the hour is a one-line change, and a manual run tells a broken workflow apart from a missed schedule.
+  - **Found while writing the todo item:** a manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. So the manual run spends a full nightly's quota: about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit) and about 25 Gemini requests.
+- Small events, in order:
+  - The GateGuard hook refused the first edits of `nightly-eval.yml` and README until the facts were restated; each retry passed. Expected behavior.
+  - `TZ=Asia/Taipei date` in Git Bash printed the UTC time under the Taipei label. Likely cause, not confirmed: Git for Windows ships no time zone database. The times in this entry are UTC plus 8 hours.
+- Files: .github/workflows/nightly-eval.yml, README.md, docs/{context,memory,todo,activity-log}.md
+- Validation: `make actionlint` passed with no findings.
+- Outstanding:
+  - The user commits and pushes these with the settings fix.
+  - Dependabot pull request #3's CI failure.
+  - After the step 8 merge: one manual nightly run, then a check that the next scheduled run happens.
+
+### 2026-10-18: Step 8 PR's CI eval stopped at startup; settings validator names made unique
+
+- Changes:
+  - **What happened (user report):** on the step 8 pull request (5c8cb70), the CI job "Retrieval eval (dev, every question; local models, no LLM call)" stopped at startup with `Invalid configuration: OTEL_EXPORTER_OTLP_ENDPOINT: Input should be a valid URL, input is empty`. CI copies `.env.example` to `.env`, so the variable is set but empty.
+  - **Why (the user reproduced it outside the repo with pydantic 2.14.1 and pydantic-settings 2.15.0, the locked versions; confirmed here):**
+    - `TelemetrySettings` and `ApiSettings` each had a validator method named `_empty_is_off`: one for `OTEL_EXPORTER_OTLP_ENDPOINT`, one for `LLM_ANSWER_FALLBACK`.
+    - In pydantic, a subclass method with the same name replaces the parent's validator. So `ApiSettings`, and `EvalSettings` (its subclass), lost the endpoint's empty-means-off rule. `IngestSettings` kept it.
+    - `__pydantic_decorators__.field_validators` showed `_empty_is_off` bound only to `llm_answer_fallback` on `ApiSettings` and `EvalSettings`.
+    - It did not show locally: `.env` has no `OTEL_EXPORTER_OTLP_ENDPOINT` line, and an absent variable takes the default (None) without the validator.
+  - **Reach beyond CI (read from the code; not observed in a container):** compose passes the variable empty whenever `.env` leaves telemetry off, so the api container on 5c8cb70 would also exit at startup with telemetry off. Every host run that loads `ApiSettings` or `EvalSettings` with the variable empty fails the same way, such as `make eval`. Ingest and embed load `IngestSettings` and were not affected.
+  - **What we did, in order:**
+    1. Reproduced it in the repo: `uv run --env-file .env.example` with `ApiSettings` exited with CI's message.
+    2. Audited the names (user request): in `settings.py` and `evals/harness.py`, only `_empty_is_off` repeated. `_differs_from_api_key`, `_keys_for_roles`, `_real_contact` and `_not_claude` are unique. A wider check of all 47 pydantic models in our packages and `evals` found no other shadowed validator.
+    3. Wrote the test first: `test_an_empty_otel_endpoint_and_answer_fallback_read_as_off` loads `ApiSettings` and `IngestSettings` with both variables empty and checks that each of these fields the class has reads None (`IngestSettings` has no answer fallback). Before the rename, the `ApiSettings` case failed with CI's message and the `IngestSettings` case passed.
+    4. Renamed the validators `_empty_endpoint_is_off` (`TelemetrySettings`) and `_empty_fallback_is_off` (`ApiSettings`). The test then passed, and `EvalSettings` loaded from `.env.example` with both values None, which is the CI job's startup.
+    - Why this way: the user chose the rename. It is the smallest change that gives the subclasses their parent's validator back, and it changes nothing else.
+- Small events, in order:
+  - The GateGuard hook refused the first Bash command and the first edit of each file until the facts were restated; each retry passed. Expected behavior.
+  - `make test-int` was not run: the user asked for `make test`, lint and pyright.
+- Files: packages/core/src/filinglens_core/settings.py, packages/core/tests/test_settings.py, docs/{context,memory,todo,activity-log}.md
+- Validation: `make lint` clean; `make typecheck` 0 errors; `make test` 326 passed, the 2 new cases included. `.env` was not touched.
+- Outstanding: the user commits and pushes to `step-8-monitoring`, which reruns CI on the same pull request.
+
+### 2026-10-18: Step 8 live check on the throwaway stack `filinglens-demo` (19:41-19:58 UTC)
+
+- Changes:
+  - **The user's go (03:35 Taipei), with additions:** re-read the live-check rules after a summary; stop and hand over the commands if the safety check refuses a delete; ask before touching anything outside `filinglens-demo`; report the answers, the drills, the screenshots and capture, label corrections and the volume lists.
+  - **Setup:** ports 15433-15442 checked free; no demo resources before. Compose ran with `-p filinglens-demo`, `.env`, and a scratchpad override that moves the ingest worker's SEC cache from the repo's shared `.cache/sec` into a demo volume, so nothing outside the project was written. Shell values: the ports, `OTEL_EXPORTER_OTLP_ENDPOINT`, `AI_ENABLED=true`, `LLM_ANSWER_FALLBACK=` and `ANTHROPIC_API_KEY=` (Claude off). `docker compose config` confirmed them; only safe fields were printed, and the rendered file, which held `.env` secrets, was deleted at once. Images `filinglens-demo-{api,ingest,embed}` were built from this branch.
+  - **Data:** `make corpus-restore` would have restored into the dev stack (it has no `-p`), so the same `pg_restore` ran by hand against the demo: revision 0008, 30 companies, 30 filings, 11,263 chunks. Then NFLX, ADBE and CRM (latest 10-K since 2026-01-01) through `POST /v1/ingest-jobs`: 9 SEC requests (3 submissions, 3 documents, 3 companyfacts), job succeeded in about 70 s.
+  - **Answers, exactly 10, each once (6 answered, 4 refused, 0 errors, no quota stop):**
+    1. AAPL revenue FY2025 (REST): answered from the fact; Groq 1,056/53 tokens, Gemini 341/60.
+    2. Apple supply chain (SSE): answered; Groq failed (`upstream_error`), router fell back to NVIDIA 740/58, Gemini 4,558/360.
+    3. MSFT and GOOGL revenue (REST): answered; Groq 1,059/79, Gemini 6,025/124.
+    4. Netflix content costs (SSE): refused `insufficient_evidence`; Groq 1,062/52, Gemini 5,768/7.
+    5. NVDA net income FY2027 (REST): refused `time_trap`; Groq 1,057/72.
+    6. Pizza topping (SSE): refused `out_of_scope`; Groq 1,052/53.
+    7. KO revenue FY2025 (REST): answered; Groq 1,058/67, Gemini 327/60.
+    8. JPM cybersecurity (SSE): answered after one regeneration; Groq 1,055/52, Gemini 4,686/239 and 4,820/267.
+    9. CRM revenue (REST): answered from the new filing's facts; Groq 1,057/82, Gemini 339/68.
+    10. Adobe competition (SSE): refused `no_relevant_passages`; Groq 429 (`rate_limited`), router fell back to NVIDIA 739/83.
+    - Spent: gpt-oss-20b about 9.9K tokens (8 Groq calls, 2 NVIDIA), Gemini 9 calls, $0 credits. The two provider errors were absorbed by the router fallback (the API answered 200), so the stop rule did not apply.
+  - **Drills (times from Prometheus's `ALERTS` series):**
+    - ApiNotReady: redis stopped 19:44:59; pending 19:45:25; firing 19:47:25 (`http_url="http://api:15437/readyz"`); redis started 19:47:40; cleared about 19:48:55 (the 503 series lingers until `metric_expiration`).
+    - WorkerNotConsuming: ingest stopped 19:49:12; pending 19:49:25 on 6 queues (chunk, discover, facts, fetch, fetch.retry, parse); firing 19:54:25; ingest started 19:54:45; cleared about 19:55:10.
+  - **Labels:** the capture confirmed every assumed name: `httpcheck_status{http_url,http_status_class}`, `httpcheck_error{http_url}`, `rabbitmq_detailed_queue_{consumers,messages_ready}{queue}`, `target_info{job,instance}`, `http_server_request_duration_seconds{http_route,http_response_status_code}`. None corrected. Saved as names and label names only (48 metrics) to `packages/telemetry/tests/fixtures/metrics-capture.txt`; the drift test's third-party check now runs and passes.
+  - **Screenshots** (headless Chrome, profile in `H:\.cache\chrome-filinglens`), each checked for keys, the contact email and personal data before the copy into `docs/screenshots/`: the three dashboards, the ingest trace (3 services, 31 spans) and an answer trace. Every panel showed data; "No data" only where nothing happened (no firing alert, no 5xx, no 429/502/503).
+  - **Fixes from what the screenshots showed:** zero series for `filinglens_sec_requests_total` per kind (the SEC status panel stayed empty), `max: 1` on the time-out share (its axis ran to 10000%), and a 5xx share that reads 0% instead of "No data".
+  - **Teardown:** volumes before: `filinglens-demo_postgres-data`, `filinglens-demo_prometheus-data`, `filinglens-demo_rabbitmq-data`, `filinglens-demo_sec-cache`; `docker compose -p filinglens-demo down` removed the 10 containers and the network; `docker volume rm` of those four names; volumes after: none. No prune. The 7 `freightaudit-prod` containers stayed up; the dev stack was never touched. The three demo images remain.
+- Small events, in order:
+  - Two commands handed Python a `/h/...` path while `MSYS_NO_PATHCONV=1` was exported, so it got `H:\h\...` and failed before any request; rerun with `H:/...` paths.
+  - The ingest poll got "Server disconnected without sending a response": uvicorn closed an idle keep-alive connection as the 5 s poll reused it. The job continued; a poll with fresh connections read it as succeeded.
+  - The answers summary was piped into `python`, which is not on PATH (only uv's); the answers had already gone out once each, and the summary was read from the script's own file. Nothing was resent.
+  - Jaeger's `/api/traces` answered 404; Jaeger 2.21 serves only `/api/v3`, which gave each answer's model calls.
+  - Mistake: the drill script printed `now()` before evaluating its wait, so both "cleared" times were the start of the wait; the real times came from Prometheus's `ALERTS` series.
+- Validation: after the fixes, `make lint`, `make typecheck` (0 errors), `make test` 324 passed (the capture check included), `make test-int` 31 passed (186 s), `make monitoring-check`.
+- Outstanding: the user's review and commit; whether to remove the images `filinglens-demo-api`, `filinglens-demo-ingest` and `filinglens-demo-embed` (`docker image rm filinglens-demo-api filinglens-demo-ingest filinglens-demo-embed`).
+
+### 2026-10-18: Step 8 Part B built and checked offline (telemetry, dashboards, alerts); live check not yet run
+
+- Changes:
+  - **Start of the session:** the uncommitted work from session 1 passed `make lint`, `make typecheck`, `make test` (289) and `make test-int` (29) before anything was added.
+  - **API:** `__main__` installs telemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, registers the token, budget and in-flight gauges once (`budget.tokens_today` on a sync Redis client with 2 s timeouts), and starts the alerting counters at 0. `main.py` passes `FastAPI(telemetry={"logs": False, "auto_configure": False, "operation_spans": False, "exclude": <probes>})` and puts `request_id` on the server span. A model call that falls back adds a `fallback` event (role, models, error type).
+  - **Search:** a `search` span with one child per phase, phase and total histograms, a rerank time-out counter; neither the query nor exception messages are recorded.
+  - **Ingest:** telemetry per worker process (`worker_process_init`), a flush at child exit (`worker_process_shutdown`), task outcomes and durations in `_attempt`, the outcome on the `run/<task>` span, a `fetch queue full` event, embedded chunks, and one `SEC GET <kind>` span per SEC call with request, cool-off and refusal counters.
+  - **Infra:** collector (`memory_limiter`, `httpcheck` of `/readyz`, exemplars, `metric_expiration: 1m`, its own metrics), Prometheus (scrapes, 13 alert rules, 15 s evaluation, a 15 d or 1 GB volume, exemplars), Grafana (fixed uids, exemplar links, 3 provisioned dashboards, anonymous viewers in dev only), Jaeger capped at 20,000 traces, compose's `${OTEL_EXPORTER_OTLP_ENDPOINT:+http://otel-collector:4318}`, `.env.example`, `make monitoring-check` and its CI lint step. `docs/monitoring.md` is new.
+  - **Tests:** session-wide in-memory exporters in the root conftest; unit tests for setup, query names, the access log, trace ids in logs, every answer outcome and refusal code, rejections, provider spans, SEC counters, task outcomes, our Celery propagation with a failed publish, secrets in spans and the drift test; integration tests for one trace from `POST /v1/ingest-jobs` through every task (a worker exporting to an OTLP sink in the test), search spans and metrics. The label allowlist is checked once the whole session ends.
+  - **Rulings (memory.md):**
+    - `operation_spans: False`, so the request's span stays current in routes and carries the answer.
+    - The e2e trace test lives in `test_pipeline.py`: under `--import-mode=importlib` a new module could not reuse its harness.
+    - Search telemetry is tested in the integration `test_search.py`, since `search()` has no unit seam.
+  - **Final review (a fresh subagent, read-only):** it approved, with 5 minor findings and a doc nit. Re-graded by effect, 4 entered one fix pass, each test written first and seen failing:
+    - **Query names:** a query part without `=`, or a name over 24 characters, now becomes `_`. Before, `?what+did+apple+say`, or a key pasted without `=`, reached spans and access lines.
+    - **Label allowlist:** it now runs at session end. Before, it depended on test order.
+    - **promtool cases:** added quiet cases above the minimum counts and under the ratios, pending checks before each `for`, and IngestStalled with no task series. Before, a broken ratio or a dropped `for` still passed.
+    - **CitationValidationDegraded:** it now divides by drafts, the unit of its 2-of-53 baseline. Before, it divided by answered answers only and could fire falsely.
+    - **Plan alignment:** the run spans are now `run/<task>` as planned, and fallbacks are span events.
+    - **Deferred minor:** the e2e secrets scan looks for whole connection URLs. Their bare password, `test`, appears legitimately in the exported data, so its absence cannot be asserted.
+- Small events, in order:
+  - The GateGuard hook refused the first edit of each file (44 times) until its callers and the instruction were restated; the same edit then passed. Expected behavior.
+  - Two `cd`s into the venv (fastapi's, then celery's folder) moved the session's working directory; later calls start with `cd /h/Projects/projects/filing-lens &&`.
+  - Jaeger 2.21's built-in config binds every endpoint to `${env:JAEGER_LISTEN_HOST:-localhost}`; `docker image inspect` showed the image sets `0.0.0.0`, so its metrics port is reachable. Its memory backend is `some_storage` (100,000 traces), hence the `--set` path.
+  - The first access-log test asserted no query value anywhere on stdout; the test's own httpx2 client logs request URLs, so it now reads the server's lines only.
+  - The access-log test then passed alone and failed in the full unit run. Cause (confirmed in uvicorn/config.py:427-429): a server started with `access_log=False`, as the shared test servers are, sets `uvicorn.access` propagate=False for the rest of the process. The test restores it with monkeypatch, as a fresh API process has it.
+  - The first drift test counted label names (`gen_ai_provider_name`) as metrics; it now drops `by (...)` clauses and `{...}` selectors first.
+  - `make lint` found 8 issues (formatting, long lines, a nested `with`, try-except-pass), and later an `assert` in the root conftest (S101 outside test files, now `pytest.fail`). `make typecheck` found 11 (`ReadableSpan.context` is Optional; the conftest read `.value` on what may be an exponential histogram).
+  - Mistake: after renaming the run spans I ran only the unit test that names them. The e2e test still keyed runs by the old long names, and the next full `make test-int` failed on it (30 passed, 1 failed). Fixed the helper (`removeprefix("run/")`), grepped for other users of the old name (none), reran it alone (passed), then the whole suite.
+- Files: services/api/src/filinglens_api/{__main__,main,answering}.py, packages/llm/src/filinglens_llm/budget.py, packages/retrieval/src/filinglens_retrieval/__init__.py, packages/sec_client/src/filinglens_sec_client/__init__.py, packages/telemetry/src/filinglens_telemetry/{__init__,otel}.py, services/ingest/src/filinglens_ingest/{worker,pipeline}.py, conftest.py, tests in packages/{llm,sec_client,telemetry}/tests and services/{api,ingest}/tests, infra/{otel-collector.yaml,prometheus.yml,prometheus-alerts.yml,prometheus-alerts.test.yml,grafana-datasources.yaml,grafana-dashboards.yaml,dashboards/*.json,docker-compose.yml,docker-compose.prod.yml}, Makefile, .github/workflows/ci.yml, .env.example, README.md, docs/{monitoring,context,memory,todo,activity-log}.md
+- Validation (final, after the fix pass):
+  - `make lint`; `make typecheck` (0 errors); `make test` 323 passed, 1 skipped (the drift test's third-party check, which needs the live capture); `make test-int` 31 passed (182 s); `make monitoring-check` (config valid, 13 rules, promtool tests pass, collector config valid).
+  - Before the review: `make actionlint`; `make contracts-check` (no drift); `make secrets-scan` (20 commits, no leaks) and gitleaks over the new and changed files (no leaks); `docker compose config` with `.env.example` rendered the OTLP endpoint empty when off, the collector's URL when on, and anonymous Grafana off in the prod override.
+  - Red checks, each seen failing: answers with a sabotaged outcome (11 tests), the access-log filter disabled, the e2e test with trace injection disabled, promtool with mutated rules (4 mutations), the drift test with a metric removed, the session label check with a `question` label.
+- Outstanding: the live check on `filinglens-demo` (needs the user's go; never during Triage Copilot's exam, 2026-10-18 to 20 after 15:00 Taipei), with the screenshots, the `/metrics` capture for the drift test, and confirmation of the httpcheck and RabbitMQ label names. Nothing is committed (user).
+
 ### 2026-10-18: GraphQL answer guards and the SSE in-flight cap fixed (before step 8); step 8 planned
 
 - Changes:

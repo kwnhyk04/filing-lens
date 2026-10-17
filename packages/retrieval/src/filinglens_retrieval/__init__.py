@@ -11,6 +11,8 @@ from fractions import Fraction
 from typing import Any
 
 import structlog
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
 from sqlalchemy import Float, Row, Select, String, cast, column, func, select, table, text
 from sqlalchemy.dialects.postgresql import TSQUERY, TSVECTOR
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -18,12 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from filinglens_core.settings import EMBEDDING_MODELS, EmbeddingColumn
 from filinglens_db.models import Chunk, Filing, FilingStatus, Section, Vector
 from filinglens_llm.local import embed, rerank, reranker
+from filinglens_telemetry import metrics
 
 RRF_K = 60  # Cormack et al. (2009); a larger k flattens the lead of the top ranks
 VECTOR_K = 50  # nearest chunks by embedding
 TEXT_K = 50  # best full-text matches
 SCORE_DIGITS = 6  # rounded, so a recomputed page compares equal to its cursor
 log = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def reciprocal_rank_fusion(
@@ -136,37 +140,56 @@ async def search(
     `candidates` reranked by the cross-encoder, or left in fused order (degraded) when it misses
     `timeout_s` or `rerank_hits` is False."""
     timings: dict[str, float] = {}
-    clock = time.perf_counter()
+    started = clock = time.perf_counter()
+    clock_ns = time.time_ns()
 
     def lap(stage: str) -> None:
-        nonlocal clock
-        now = time.perf_counter()
+        """A finished phase: its time, its histogram and a span under the search's."""
+        nonlocal clock, clock_ns
+        now, now_ns = time.perf_counter(), time.time_ns()
         timings[stage] = round((now - clock) * 1000, 1)
-        clock = now
+        phase = stage.removesuffix("_ms")
+        tracer.start_span(phase, start_time=clock_ns).end(end_time=now_ns)
+        metrics.SEARCH.record(now - clock, {"phase": phase})
+        clock, clock_ns = now, now_ns
 
-    [vector] = await asyncio.to_thread(embed, [q], EMBEDDING_MODELS[embedding], query=True)
-    lap("embed_ms")
-    nearest, matching = await asyncio.gather(
-        _nearest(engine, vector, embedding, scope), _ids(engine, matching_chunks(q, TEXT_K, scope))
-    )
-    lap("sql_ms")
-    fused = reciprocal_rank_fusion([[row.id for row in nearest], matching])[:candidates]
-    rows = await _rows(engine, [chunk_id for chunk_id, _ in fused])
-    lap("load_ms")
-    scores = [score for _, score in fused]
-    reranked = None
-    if rerank_hits and fused:
-        texts = [rows[chunk_id].text for chunk_id, _ in fused]
-        reranked = await _rerank(q, texts, rerank_model, max_tokens, timeout_s)
-        lap("rerank_ms")
-    hits = sorted(
-        (
-            _hit(rows[chunk_id], score)
-            for (chunk_id, _), score in zip(fused, reranked or scores, strict=True)
-        ),
-        key=lambda hit: (-hit.score, hit.chunk_id),
-    )
-    degraded = bool(fused) and reranked is None
+    # Not the query: SQL errors quote their parameters, so neither the exception nor its message.
+    with tracer.start_as_current_span(
+        "search", record_exception=False, set_status_on_exception=False
+    ) as span:
+        try:
+            [vector] = await asyncio.to_thread(embed, [q], EMBEDDING_MODELS[embedding], query=True)
+            lap("embed_ms")
+            nearest, matching = await asyncio.gather(
+                _nearest(engine, vector, embedding, scope),
+                _ids(engine, matching_chunks(q, TEXT_K, scope)),
+            )
+            lap("sql_ms")
+            fused = reciprocal_rank_fusion([[row.id for row in nearest], matching])[:candidates]
+            rows = await _rows(engine, [chunk_id for chunk_id, _ in fused])
+            lap("load_ms")
+            scores = [score for _, score in fused]
+            reranked = None
+            if rerank_hits and fused:
+                texts = [rows[chunk_id].text for chunk_id, _ in fused]
+                reranked = await _rerank(q, texts, rerank_model, max_tokens, timeout_s)
+                lap("rerank_ms")
+        except Exception as exc:
+            span.set_status(StatusCode.ERROR)
+            span.set_attribute("error.type", type(exc).__qualname__)
+            raise
+        hits = sorted(
+            (
+                _hit(rows[chunk_id], score)
+                for (chunk_id, _), score in zip(fused, reranked or scores, strict=True)
+            ),
+            key=lambda hit: (-hit.score, hit.chunk_id),
+        )
+        degraded = bool(fused) and reranked is None
+        span.set_attributes(
+            {"filinglens.search.degraded": degraded, "filinglens.search.hits": len(hits)}
+        )
+    metrics.SEARCH.record(time.perf_counter() - started, {"phase": "total"})
     log.info(
         "search",
         vector_hits=len(nearest),
@@ -249,5 +272,6 @@ async def _rerank(
             )
     except TimeoutError:
         abandoned.set()  # still queued: it will skip the model; already running: result dropped
+        metrics.RERANK_TIMEOUTS.add(1)
         log.warning("reranker timed out, fused order kept", timeout_s=timeout_s, texts=len(texts))
         return None

@@ -1,11 +1,19 @@
+# Fixed uids, which the dashboards in infra/dashboards name. A latency exemplar's trace_id opens
+# the trace in Jaeger.
 apiVersion: 1
 datasources:
   - name: Prometheus
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger
   - name: Jaeger
+    uid: jaeger
     type: jaeger
     access: proxy
     url: http://jaeger:16686

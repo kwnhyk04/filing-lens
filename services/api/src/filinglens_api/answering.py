@@ -24,6 +24,7 @@ from datetime import date
 from typing import Any, Protocol, Self
 
 import structlog
+from opentelemetry import trace
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
@@ -51,13 +52,16 @@ from filinglens_llm import budget, router
 from filinglens_llm.providers import Anthropic, Completion, Provider, credits_usd
 from filinglens_retrieval import Hit, Ranking, Scope, search
 from filinglens_retrieval.facts import Fact, get_financial_fact, latest_fiscal_year
+from filinglens_telemetry import metrics
 
 SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 MAX_CHUNKS = 12  # chunks the answer model reads
 RELEVANCE_MIN = -3.0  # provisional: TinyBERT gave 0.7 to 9.4 on topic, -10.9 off; 6b calibrates
 NO_EVIDENCE = "The filings in FilingLens hold nothing relevant enough to answer this question."
 OUT_OF_SCOPE = "SEC filings cannot answer this question, so FilingLens does not answer it."
+STAGES = ("route_ms", "facts_ms", "retrieve_ms", "generate_ms", "regenerate_ms", "total_ms")
 log = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class Evidence(Protocol):
@@ -98,7 +102,10 @@ class _Run:
 
     started: float = field(default_factory=time.perf_counter)
     lap_at: float = field(default_factory=time.perf_counter)
+    lap_ns: int = field(default_factory=time.time_ns)  # wall clock, for the stage spans
     timings_ms: dict[str, float] = field(default_factory=dict)
+    refusal: str | None = None  # the refusal code, such as time_trap
+    dropped: int = 0  # sentences validation removed
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0  # prepaid credits spent (Claude); the free tiers cost nothing
@@ -109,9 +116,12 @@ class _Run:
     sources: dict[str, str] = field(default_factory=dict)  # alias -> chunk id or fact id
 
     def lap(self, stage: str) -> None:
-        now = time.perf_counter()
+        now, now_ns = time.perf_counter(), time.time_ns()
         self.timings_ms[stage] = round((now - self.lap_at) * 1000, 1)
-        self.lap_at = now
+        # The finished stage becomes a span under the request's. A span opened at the stage's
+        # start would have to stay current across the stream's yields.
+        tracer.start_span(stage.removesuffix("_ms"), start_time=self.lap_ns).end(end_time=now_ns)
+        self.lap_at, self.lap_ns = now, now_ns
 
     def since_start_ms(self) -> float:
         return round((time.perf_counter() - self.started) * 1000, 1)
@@ -174,12 +184,15 @@ class Answerer:
         counts as in flight from here, not from its first event, so streams opened together
         cannot pass the cap."""
         if self._inflight >= self._max_inflight:
+            metrics.REJECTED.add(1, {"reason": "overloaded"})
             raise OverloadedError("Too many answers in progress; retry shortly.", retry_after_s=2)
         self._inflight += 1
+        metrics.INFLIGHT.add(1)
         return Admitted(self.events(request), self._leave)
 
     def _leave(self) -> None:
         self._inflight -= 1
+        metrics.INFLIGHT.add(-1)
 
     async def events(
         self, request: AnswerRequest, stats: dict[str, Any] | None = None
@@ -191,7 +204,9 @@ class Answerer:
         admit() counts answers in flight; evals and scripts call this directly, one at a time.
         """
         run = _Run()
+        server = trace.get_current_span()  # the request's span carries the answer's outcome
         outcome: Answer | None = None
+        failure: BaseException | None = None
         routing: router.Routing | None = None
         early: _Early | None = None
         try:
@@ -200,8 +215,8 @@ class Answerer:
             routing = await self._route(request.question, companies, run)
             run.lap("route_ms")
             plan = await self._plan(request, routing)
-            if isinstance(plan, str):
-                outcome = self._refusal(plan, run)
+            if isinstance(plan, tuple):
+                outcome = self._refusal(*plan, run)
             else:
                 kept = early.task if early.agrees(request, routing, plan) else None
                 async for event in self._answer(request.question, routing, plan, run, kept):
@@ -214,6 +229,9 @@ class Answerer:
             if outcome.refused:
                 yield AnswerDelta(text=outcome.answer)
             yield AnswerCompleted(answer=outcome)
+        except BaseException as exc:  # recorded below, then raised as it was
+            failure = exc
+            raise
         finally:
             if early is not None:
                 early.task.cancel()  # a search the plan did not use; no-op once it was awaited
@@ -243,6 +261,7 @@ class Answerer:
                     early_search=run.early_search,
                     sources=run.sources,
                 )
+            _record(run, routing, outcome, failure, server)
 
     def _search_early(self, request: AnswerRequest, companies: Mapping[str, str]) -> "_Early":
         """Start the search the plan will most likely ask for, so it runs while the router does."""
@@ -285,21 +304,23 @@ class Answerer:
 
         return await self._with_fallback("router", route, run)
 
-    async def _plan(self, request: AnswerRequest, routing: router.Routing) -> "_Plan | str":
-        """The companies and years to read, or a refusal."""
+    async def _plan(
+        self, request: AnswerRequest, routing: router.Routing
+    ) -> "_Plan | tuple[str, str]":
+        """The companies and years to read, or a refusal's code and text."""
         if routing.route == "out_of_scope":
-            return OUT_OF_SCOPE
+            return "out_of_scope", OUT_OF_SCOPE
         ciks: list[int] | None = list(request.company_ids) if request.company_ids else None
         # An untracked company is refused when the question needs its figures or names nothing
         # tracked; a textual question about a tracked company may mention others (an acquisition).
         others = routing.other_companies
         if ciks is None and others and (not routing.tickers or routing.route != "textual"):
-            return f"FilingLens has no filings for {', '.join(others)}."
+            return "untracked_company", f"FilingLens has no filings for {', '.join(others)}."
         if ciks is None and routing.tickers:
             found = await self._evidence.companies(routing.tickers)
             missing = [ticker for ticker in routing.tickers if ticker not in found]
             if missing:
-                return f"FilingLens has no filings for {', '.join(missing)}."
+                return "untracked_company", f"FilingLens has no filings for {', '.join(missing)}."
             ciks = [found[ticker] for ticker in routing.tickers]
         years = list(request.fiscal_years or routing.fiscal_years) or None
         names = await self._evidence.names(ciks) if ciks else {}
@@ -311,7 +332,8 @@ class Answerer:
             ]
             if late:  # a time trap: that fiscal year has no 10-K yet
                 newest = f"its latest is fiscal {latest[cik]}" if latest[cik] else "it has none yet"
-                return f"{names.get(cik, cik)} has filed no 10-K for fiscal {late[0]}; {newest}."
+                text = f"{names.get(cik, cik)} has filed no 10-K for fiscal {late[0]}; {newest}."
+                return "time_trap", text
         return _Plan(ciks, years, names, latest, routing.fiscal_period or "FY")
 
     async def _answer(
@@ -349,7 +371,8 @@ class Answerer:
                 sources += [_chunk_source(n, hit, names) for n, hit in enumerate(hits, 1)]
         run.sources = {s.alias: s.chunk_id or s.fact_id or "" for s in sources}
         if not sources:
-            yield AnswerCompleted(answer=self._refusal(NO_EVIDENCE, run, degraded=degraded))
+            refusal = self._refusal("no_relevant_passages", NO_EVIDENCE, run, degraded=degraded)
+            yield AnswerCompleted(answer=refusal)
             return
         by_alias = {source.alias: source for source in sources}
         visible, reply_text = drafting.Visible(), ""
@@ -384,6 +407,7 @@ class Answerer:
             reply = drafting.read_reply(again.text)
             checked = drafting.check(reply, by_alias)
             warnings.append("The draft failed validation, so the answer was written again.")
+            run.dropped = checked.removed
             if checked.removed:
                 warnings.append(
                     f"Removed {checked.removed} sentence(s) whose citations or amounts did not"
@@ -391,8 +415,12 @@ class Answerer:
                 )
             run.lap("regenerate_ms")
         if reply.insufficient or not checked.text:
-            reason = NO_EVIDENCE if reply.insufficient else "No sentence of the answer held up."
-            yield AnswerCompleted(answer=self._refusal(reason, run, degraded, warnings))
+            code, text = (
+                ("insufficient_evidence", NO_EVIDENCE)
+                if reply.insufficient
+                else ("validation_failed", "No sentence of the answer held up.")
+            )
+            yield AnswerCompleted(answer=self._refusal(code, text, run, degraded, warnings))
             return
         citations = [
             Citation(
@@ -462,6 +490,10 @@ class Answerer:
         self, role: str, provider: Provider, to: Provider, exc: Exception, run: _Run
     ) -> None:
         run.fallbacks.append(f"{role}: {provider.name}: {exc}")
+        kind = exc.code if isinstance(exc, FilingLensError) else type(exc).__qualname__
+        trace.get_current_span().add_event(  # the request's span; never the message
+            "fallback", {"role": role, "from": provider.name, "to": to.name, "error.type": kind}
+        )
         log.warning(
             "model call fell back",
             role=role,
@@ -486,10 +518,16 @@ class Answerer:
             log.warning("tokens not counted", error=repr(error))
 
     def _refusal(
-        self, reason: str, run: _Run, degraded: bool = False, warnings: Sequence[str] = ()
+        self,
+        code: str,
+        text: str,
+        run: _Run,
+        degraded: bool = False,
+        warnings: Sequence[str] = (),
     ) -> Answer:
+        run.refusal = code  # metrics.REFUSALS: the text names companies, so it never labels
         return Answer(
-            answer=reason,
+            answer=text,
             citations=[],
             degraded=degraded,
             usage=_usage(run),
@@ -542,6 +580,56 @@ def _final(exc: FilingLensError) -> FilingLensError:
 def _usage(run: _Run) -> Usage:
     return Usage(
         input_tokens=run.input_tokens, output_tokens=run.output_tokens, cost_usd=run.cost_usd
+    )
+
+
+def _outcome(run: _Run, outcome: Answer | None, failure: BaseException | None) -> tuple[str, str]:
+    """The answer's outcome and reason, from metrics.REFUSALS and metrics.FAILURES."""
+    if outcome is not None:
+        return ("refused", run.refusal or "none") if outcome.refused else ("answered", "none")
+    if isinstance(failure, FilingLensError):
+        return "failed", failure.code if failure.code in metrics.FAILURES else "upstream_error"
+    if isinstance(failure, asyncio.CancelledError | GeneratorExit):
+        from filinglens_api.limits import ANSWER_TIMEOUT_S  # limits imports this module
+
+        timed_out = run.since_start_ms() >= ANSWER_TIMEOUT_S * 1000 - 100
+        return ("failed", "timeout") if timed_out else ("cancelled", "none")  # else: client left
+    return "failed", "internal"
+
+
+def _record(
+    run: _Run,
+    routing: router.Routing | None,
+    outcome: Answer | None,
+    failure: BaseException | None,
+    server: trace.Span,
+) -> None:
+    """The answer's metrics, and its outcome on the request's span, from the run's bookkeeping."""
+    result, reason = _outcome(run, outcome, failure)
+    route = {"route": routing.route if routing else "none"}
+    metrics.ANSWERS.add(1, {"outcome": result, "reason": reason})
+    for stage in STAGES:
+        if stage in run.timings_ms:
+            stage_label = {**route, "stage": stage.removesuffix("_ms")}
+            metrics.ANSWER_STAGE.record(run.timings_ms[stage] / 1000, stage_label)
+    if run.first_token_ms is not None:
+        metrics.ANSWER_TTFT.record(run.first_token_ms / 1000, route)
+    if "regenerate_ms" in run.timings_ms:
+        metrics.REGENERATIONS.add(1)
+    if run.dropped:
+        metrics.DROPPED.add(run.dropped)
+    if run.cost_usd:
+        metrics.CREDITS.add(run.cost_usd)
+    server.set_attributes(
+        {
+            "filinglens.answer.outcome": result,
+            "filinglens.answer.reason": reason,
+            "filinglens.answer.route": route["route"],
+            "filinglens.answer.degraded": bool(outcome and outcome.degraded),
+            "filinglens.answer.early_search": bool(run.early_search),
+            "gen_ai.usage.input_tokens": run.input_tokens,
+            "gen_ai.usage.output_tokens": run.output_tokens,
+        }
     )
 
 

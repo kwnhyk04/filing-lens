@@ -15,6 +15,7 @@ import httpx2
 import pytest
 from alembic import command
 from alembic.config import Config
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sqlalchemy import bindparam, insert, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -129,7 +130,7 @@ def test_a_cursor_from_another_embedding_index_gets_409(served: Start, api_key: 
 
 
 def test_a_reranker_timeout_keeps_the_fused_order_and_says_degraded(
-    served: Start, api_key: str
+    served: Start, api_key: str, metric_changes: Callable[[str], dict[str, float]]
 ) -> None:
     with served(RERANK_TIMEOUT_MS="1") as url:
         first = get(url, api_key, q="gross margin", limit=20)
@@ -138,3 +139,28 @@ def test_a_reranker_timeout_keeps_the_fused_order_and_says_degraded(
     assert first.json()["degraded"] and second.json()["degraded"]
     hits = first.json()["items"] + second.json()["items"]
     assert len({h["chunk_id"] for h in hits}) == len(TEXTS)  # the fused pages hold together
+    # SearchDegraded divides timeouts by reranks; the second page keeps the fused order unasked.
+    assert metric_changes("filinglens.search.rerank_timeouts") == {"": 1}
+    assert metric_changes("filinglens.search.duration")["phase=rerank"] == 1
+
+
+def test_a_search_is_one_span_with_a_child_and_a_histogram_per_phase(
+    served: Start,
+    api_key: str,
+    spans: InMemorySpanExporter,
+    metric_changes: Callable[[str], dict[str, float]],
+) -> None:
+    with served() as url:
+        assert get(url, api_key, q="supplier disruption", limit=5).status_code == 200
+    finished = {span.name: span for span in spans.get_finished_spans()}
+    search, server = finished["search"], finished["GET /v1/search"]
+    assert search.context is not None and server.context is not None
+    assert search.parent is not None and search.parent.span_id == server.context.span_id
+    for phase in ("embed", "sql", "load", "rerank"):
+        parent = finished[phase].parent
+        assert parent is not None and parent.span_id == search.context.span_id
+    assert (server.attributes or {})["url.query"] == "q&limit"  # names only
+    assert metric_changes("filinglens.search.duration") == {
+        f"phase={phase}": 1 for phase in ("embed", "sql", "load", "rerank", "total")
+    }
+    assert "supplier" not in "".join(span.to_json() for span in finished.values())

@@ -18,6 +18,9 @@ ACTIONLINT = docker run --rm $(REPO_RO) rhysd/actionlint:1.7.12@sha256:b1934ee5f
 # 2026 to steal CI secrets: never those, never the actions, and no Docker socket here.
 TRIVY = docker run --rm $(REPO_RO) --mount "type=bind,source=$(CURDIR)/.cache/trivy,target=/cache" aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa --cache-dir /cache
 TRIVY_ARGS = --scanners vuln --ignore-unfixed --skip-version-check --exit-code 1 --no-progress
+# The compose images of Prometheus and the collector, by digest, check the monitoring configs.
+PROMTOOL = docker run --rm $(REPO_RO) --entrypoint promtool prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+OTELCOL = docker run --rm $(REPO_RO) -e API_PORT=4100 otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
 IMAGE ?= filinglens-api
 BASE ?= main
 REV ?= head
@@ -27,7 +30,7 @@ SUBSET ?= full
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures corpus-dump corpus-restore actionlint secrets-scan vuln-scan image-scan
+.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures corpus-dump corpus-restore actionlint monitoring-check secrets-scan vuln-scan image-scan
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -108,6 +111,11 @@ corpus-restore: ## an empty Postgres (CI): fetch the corpus-v1 release asset if 
 
 actionlint: ## lint the GitHub Actions workflows (CI runs it too)
 	$(ACTIONLINT) -color
+
+monitoring-check: ## Prometheus config and alert rules with their tests, then the collector's config
+	$(PROMTOOL) check config infra/prometheus.yml
+	$(PROMTOOL) test rules infra/prometheus-alerts.test.yml
+	$(OTELCOL) validate --config=infra/otel-collector.yaml
 
 secrets-scan: ## gitleaks over every commit of every ref (CI runs it on each PR; run it before a push)
 	$(GITLEAKS) git --redact --log-opts=--all --no-banner /repo

@@ -5,16 +5,22 @@ neither. The stand-in Redis always grants the rate limit and holds no SEC refusa
 """
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock
 
 import httpx
 import pytest
 import respx
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind, StatusCode
 
-from filinglens_core.errors import UpstreamError
-from filinglens_sec_client import SecClient
+from filinglens_core.errors import RateLimitedError, UpstreamError
+from filinglens_sec_client import SecClient, SecRefusedError
 from network_guard import NetworkBlockedError
+
+type Changes = Callable[[str], dict[str, float]]
 
 AGENT = "FilingLens tests tests@filinglens.test"
 ACCESSION, NAME = "0000320193-25-000079", "aapl-20250927.htm"
@@ -61,6 +67,43 @@ def test_a_timeout_is_a_transient_upstream_error(
     respx.get(DOCUMENT).mock(side_effect=timeout)
     with pytest.raises(UpstreamError, match=f"SEC request failed \\({timeout.__name__}\\)"):
         sec_client(tmp_path).document(320193, ACCESSION, NAME)
+
+
+@respx.mock
+def test_each_request_is_counted_and_traced_without_the_user_agent(
+    tmp_path: Path, spans: InMemorySpanExporter, metric_changes: Changes
+) -> None:
+    respx.get(DOCUMENT).respond(200, content=b"<html>10-K</html>")
+    client = sec_client(tmp_path)
+    client.document(320193, ACCESSION, NAME)
+    client.document(320193, ACCESSION, NAME)  # from the cache: no request
+    assert metric_changes("filinglens.sec.requests") == {"kind=document,status=200": 1}
+    sent, cached = spans.get_finished_spans()
+    assert sent.name == "SEC GET document" and sent.kind == SpanKind.CLIENT
+    assert (sent.attributes or {})["http.response.status_code"] == 200
+    assert (sent.attributes or {})["filinglens.sec.cache_hit"] is False
+    assert (cached.attributes or {})["filinglens.sec.cache_hit"] is True
+    assert "tests@filinglens.test" not in sent.to_json() + cached.to_json()
+
+
+@respx.mock
+def test_a_429_cools_off_and_a_recorded_refusal_fails_without_a_request(
+    tmp_path: Path, spans: InMemorySpanExporter, metric_changes: Changes
+) -> None:
+    respx.get(DOCUMENT).respond(429, headers={"Retry-After": "5"})
+    client = sec_client(tmp_path)
+    with pytest.raises(RateLimitedError):
+        client.document(320193, ACCESSION, NAME)
+    refused = sec_client(tmp_path)
+    cast(Mock, refused._redis).get.return_value = b"SEC still refuses requests."  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(SecRefusedError):
+        refused.document(320193, ACCESSION, NAME)
+    assert metric_changes("filinglens.sec.requests") == {"kind=document,status=429": 1}
+    assert metric_changes("filinglens.sec.cooloffs") == {"status=429": 1}
+    assert metric_changes("filinglens.sec.refusals") == {"": 1}
+    throttled, stopped = spans.get_finished_spans()
+    assert throttled.status.status_code == stopped.status.status_code == StatusCode.ERROR
+    assert (stopped.attributes or {})["error.type"] == "SecRefusedError"
 
 
 def test_the_sec_client_cannot_reach_sec_in_tests(tmp_path: Path) -> None:

@@ -8,19 +8,27 @@ import asyncio
 import os
 import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 from hypothesis import settings as hypothesis_settings
 from hypothesis.database import DirectoryBasedExampleDatabase
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import network_guard
-from filinglens_telemetry import configure_logging
+from filinglens_telemetry import configure_logging, otel
 
 network_guard.install()  # before any test module creates a client
+# Telemetry goes to memory for the whole session: a process installs its providers once, and
+# configure_telemetry never runs here with an endpoint. Tests read the spans and metric changes.
+SPANS = InMemorySpanExporter()
+METRICS = InMemoryMetricReader()
+otel.install(*otel.providers("filinglens-tests", SimpleSpanProcessor(SPANS), METRICS))
 # Local models load from the Hugging Face cache (HF_HOME, filled by `make models`), never from the
 # network. Set before any test imports huggingface_hub; the processes tests start inherit it.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -48,6 +56,77 @@ def _json_logs() -> None:
     """The production log format. structlog's default renderer prints tracebacks with rich, locals
     included, which took 3.8 s for one logged 500."""
     configure_logging("tests")
+
+
+@pytest.fixture
+def spans() -> InMemorySpanExporter:
+    """The spans that end during the test."""
+    SPANS.clear()
+    return SPANS
+
+
+def _points() -> Iterator[tuple[str, dict[str, object], float]]:
+    """Every series now: its metric, its labels, and a counter's sum, a histogram's count or a
+    gauge's value."""
+    data = METRICS.get_metrics_data()
+    for resource in data.resource_metrics if data else ():
+        for scope in resource.scope_metrics:
+            for metric in scope.metrics:
+                for point in metric.data.data_points:
+                    value = point.value if isinstance(point, NumberDataPoint) else point.count
+                    yield metric.name, dict(point.attributes or {}), value
+
+
+def _series() -> dict[tuple[str, str], float]:
+    """Every series now, by metric name and its labels as `a=1,b=2`."""
+    return {
+        (name, ",".join(f"{k}={v}" for k, v in sorted(labels.items()))): value
+        for name, labels, value in _points()
+    }
+
+
+# Label names a series may carry: small fixed sets, never an id, a question, a CIK or a key.
+LABELS = {
+    *(
+        "outcome",
+        "reason",
+        "route",
+        "stage",
+        "phase",
+        "provider",
+        "model",
+        "task",
+        "kind",
+        "status",
+    ),
+    *("gen_ai.provider.name", "gen_ai.request.model", "gen_ai.token.type", "error.type"),
+    *("http.request.method", "http.response.status_code", "http.route"),
+    *("network.protocol.version", "url.scheme"),
+}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _labels_from_fixed_sets() -> Iterator[None]:
+    """After the last test: every series any test recorded carries only LABELS."""
+    yield
+    found = {f"{name}: {label}" for name, labels, _ in _points() for label in labels}
+    if unknown := sorted(pair for pair in found if pair.split(": ")[1] not in LABELS):
+        pytest.fail(f"metric labels outside the allowlist: {unknown}")
+
+
+@pytest.fixture
+def metric_changes() -> Callable[[str], dict[str, float]]:
+    """changes(name): how much each of the metric's series moved during the test, by labels."""
+    before = _series()
+
+    def changes(name: str) -> dict[str, float]:
+        return {
+            labels: value - before.get((metric, labels), 0)
+            for (metric, labels), value in _series().items()
+            if metric == name and value != before.get((metric, labels), 0)
+        }
+
+    return changes
 
 
 def compose_image(name: str) -> str:

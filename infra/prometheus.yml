@@ -1,8 +1,38 @@
-# Scrapes the OTel Collector, which re-exposes the metrics the services push over OTLP.
+# Scrapes the collector (the services' metrics and its own), RabbitMQ, Jaeger and itself, and
+# evaluates the alert rules (docs/monitoring.md). Rule paths are relative to this file, so
+# `make monitoring-check` reads the same config from the repo.
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - prometheus-alerts.yml
 
 scrape_configs:
-  - job_name: otel-collector
+  # The services' metrics, re-exposed by the collector: job is the service name and instance the
+  # process (service.instance.id), so keep the labels the collector sets.
+  - job_name: filinglens
+    honor_labels: true
     static_configs:
       - targets: ["otel-collector:8889"]
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]
+  # Per-queue depth and consumers from RabbitMQ's own endpoint; Celery's event and control queues
+  # come and go with each worker, so they are dropped.
+  - job_name: rabbitmq
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics, queue_consumer_count]
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+    metric_relabel_configs:
+      - source_labels: [queue]
+        regex: celeryev\..*|.*\.pidbox
+        action: drop
+  - job_name: jaeger
+    static_configs:
+      - targets: ["jaeger:8888"]
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
