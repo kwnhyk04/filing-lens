@@ -8,12 +8,13 @@ import strawberry
 from fastapi import Depends
 from graphql import GraphQLError
 from pydantic import BaseModel, ValidationError
-from strawberry.extensions import MaskErrors
+from strawberry.extensions import MaskErrors, MaxAliasesLimiter, QueryDepthLimiter
 from strawberry.relay import PageInfo
 
 from filinglens_api import schemas
 from filinglens_api.backend import (
     Backend,
+    ChunkSource,
     CompanyKey,
     FilingKey,
     ItemKey,
@@ -22,10 +23,17 @@ from filinglens_api.backend import (
 )
 from filinglens_api.limits import answer_limits_for, timed_answer
 from filinglens_api.schemas import FiscalPeriod, FormType
-from filinglens_core.errors import FilingLensError, InvalidInputError
+from filinglens_core.errors import FilingLensError, InvalidInputError, NotFoundError
 
 FIRST = "Page size (at most 100)."
 AFTER = "endCursor from the previous page."
+MAX_IDS = 20
+MAX_DEPTH = 6  # Coverage and Filings, the deepest operations in clients/operations.graphql
+MAX_ALIASES = 0  # no client sends one, and each would multiply what a query may look up
+IDS = (
+    f"Up to {MAX_IDS} ids per call, of 1 to 64 characters each. Results keep the order given,"
+    " hold each id once and leave unknown ids out."
+)
 
 # The REST enums double as GraphQL enums, whose values are the member names (FORM_10K).
 strawberry.enum(FormType)
@@ -69,6 +77,22 @@ def _connection[M, N](
             end_cursor=edges[-1].cursor if edges else None,
         ),
     )
+
+
+def _ids(ids: list[strawberry.ID]) -> list[str]:
+    if len(ids) > MAX_IDS or not all(1 <= len(i) <= 64 and "\x00" not in i for i in ids):
+        raise InvalidInputError(
+            f"ids takes at most {MAX_IDS} ids, each 1 to 64 characters with no NUL."
+        )
+    return [str(i) for i in ids]
+
+
+async def _company(info: strawberry.Info, known: schemas.Company | None, cik: int) -> "Company":
+    # ponytail: one lookup per filing or fact on connection pages; a DataLoader if pages need it.
+    company = known or await _backend(info).get_company(cik)
+    if company is None:
+        raise NotFoundError(f"No company with CIK {cik}.")
+    return Company(**company.model_dump())
 
 
 def _item_key(item: schemas.Chunk | schemas.FinancialFact) -> ItemKey:
@@ -126,10 +150,32 @@ class Chunk:
     id: strawberry.ID
     section_id: strawberry.ID
     text: str
+    source: strawberry.Private[ChunkSource | None] = None  # set when looked up by id
 
     @classmethod
-    def of(cls, chunk: schemas.Chunk) -> "Chunk":
-        return cls(**chunk.model_dump())
+    def of(cls, chunk: schemas.Chunk, source: ChunkSource | None = None) -> "Chunk":
+        return cls(**chunk.model_dump(), source=source)
+
+    async def _source(self, info: strawberry.Info) -> ChunkSource:
+        if self.source is None:
+            # ponytail: one lookup per chunk on connection pages; a DataLoader if pages need it.
+            found = await _backend(info).get_chunks([self.id])
+            if not found:
+                raise NotFoundError("This chunk's filing is not indexed.")
+            self.source = found[0]
+        return self.source
+
+    @strawberry.field(description="The section the chunk belongs to.")
+    async def section(self, info: strawberry.Info) -> "Section":
+        source = await self._source(info)
+        return Section(
+            **source.section.model_dump(), accession_number=source.filing.accession_number
+        )
+
+    @strawberry.field(description="The filing the chunk comes from.")
+    async def filing(self, info: strawberry.Info) -> "Filing":
+        source = await self._source(info)
+        return Filing.of(source.filing, source.company)
 
 
 @strawberry.type
@@ -144,10 +190,18 @@ class FinancialFact:
     fiscal_year: int
     fiscal_period: FiscalPeriod
     accession_number: str
+    cik: strawberry.Private[int]
+    known_company: strawberry.Private[schemas.Company | None] = None
 
     @classmethod
-    def of(cls, fact: schemas.FinancialFact) -> "FinancialFact":
-        return cls(**fact.model_dump())
+    def of(
+        cls, fact: schemas.FinancialFact, cik: int, company: schemas.Company | None = None
+    ) -> "FinancialFact":
+        return cls(**fact.model_dump(), cik=cik, known_company=company)
+
+    @strawberry.field(description="The company that reported the fact.")
+    async def company(self, info: strawberry.Info) -> "Company":
+        return await _company(info, self.known_company, self.cik)
 
 
 @strawberry.type
@@ -180,10 +234,15 @@ class Filing:
     fiscal_year: int
     fiscal_period: FiscalPeriod
     url: str
+    known_company: strawberry.Private[schemas.Company | None] = None
 
     @classmethod
-    def of(cls, filing: schemas.Filing) -> "Filing":
-        return cls(**filing.model_dump())
+    def of(cls, filing: schemas.Filing, company: schemas.Company | None = None) -> "Filing":
+        return cls(**filing.model_dump(), known_company=company)
+
+    @strawberry.field(description="The company that filed it.")
+    async def company(self, info: strawberry.Info) -> "Company":
+        return await _company(info, self.known_company, self.cik)
 
     @strawberry.field
     async def sections(self, info: strawberry.Info) -> list[Section]:
@@ -211,7 +270,7 @@ class Filing:
         page = await _backend(info).list_facts(
             self.accession_number, _page_size(first), after, concept=concept
         )
-        return _connection(page, FinancialFact.of, _item_key)
+        return _connection(page, lambda fact: FinancialFact.of(fact, self.cik), _item_key)
 
 
 async def _filings(
@@ -272,6 +331,24 @@ class Query:
     ) -> Connection[Filing]:
         return await _filings(info, first, after, cik, form_type, fiscal_year)
 
+    @strawberry.field(description="Text chunks of indexed filings by id, in the order given.")
+    async def chunks(
+        self,
+        info: strawberry.Info,
+        ids: Annotated[list[strawberry.ID], strawberry.argument(description=IDS)],
+    ) -> list[Chunk]:
+        found = await _backend(info).get_chunks(_ids(ids)) if ids else []
+        return [Chunk.of(source.chunk, source) for source in found]
+
+    @strawberry.field(description="Financial facts by id, in the order given.")
+    async def facts(
+        self,
+        info: strawberry.Info,
+        ids: Annotated[list[strawberry.ID], strawberry.argument(description=IDS)],
+    ) -> list[FinancialFact]:
+        found = await _backend(info).get_facts(_ids(ids)) if ids else []
+        return [FinancialFact.of(s.fact, s.company.cik, s.company) for s in found]
+
     @strawberry.field(description="Answer a question from the filings, with citations.")
     async def answer(
         self,
@@ -330,4 +407,12 @@ async def get_context(
     return {"backend": backend, "answer_limits": answer_limits}
 
 
-schema = strawberry.Schema(query=Query, extensions=[ErrorCodes])
+# The limits are validation rules, so a query past them is refused before any resolver runs.
+schema = strawberry.Schema(
+    query=Query,
+    extensions=[
+        ErrorCodes,
+        lambda: QueryDepthLimiter(max_depth=MAX_DEPTH),
+        lambda: MaxAliasesLimiter(max_alias_count=MAX_ALIASES),
+    ],
+)

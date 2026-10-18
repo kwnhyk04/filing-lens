@@ -100,5 +100,77 @@ query Answer($question: String!, $companyIds: [Int!], $fiscalYears: [Int!]) {
       outputTokens
       costUsd
     }
+    refused
+    warnings
+  }
+}
+
+query Coverage($first: Int! = 20, $after: String) {
+  companies(first: $first, after: $after) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    edges {
+      node {
+        cik
+        ticker
+        name
+        filings(first: 5) {
+          edges {
+            node {
+              accessionNumber
+              formType
+              fiscalYear
+              fiscalPeriod
+              filedOn
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query Sources($chunkIds: [ID!]!, $factIds: [ID!]!) {
+  chunks(ids: $chunkIds) {
+    id
+    text
+    section {
+      id
+      item
+      title
+    }
+    filing {
+      accessionNumber
+      formType
+      fiscalYear
+      fiscalPeriod
+      filedOn
+      url
+      company {
+        cik
+        ticker
+        name
+      }
+    }
+  }
+  facts(ids: $factIds) {
+    id
+    concept
+    label
+    value
+    unit
+    periodStart
+    periodEnd
+    fiscalYear
+    fiscalPeriod
+    accessionNumber
+    company {
+      cik
+      ticker
+      name
+    }
   }
 }

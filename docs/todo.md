@@ -48,23 +48,19 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - fixtures;
     - golden v2, since re-parsing dev removes 14 of golden v1's gold chunk ids and voids the reply cache.
   - Findings: memory.md, 2026-10-18.
-- [ ] 9, PR B1, the API lookups (from main after PR A merges, branch `step-9-api-lookups`). Plan: section "PR B1".
-  - GraphQL `chunks(ids)` and `facts(ids)`:
-    - 1 to 20 well-formed ids, otherwise `invalid_input`;
-    - order kept;
-    - unknown ids, and chunks of filings that are not indexed, left out.
-  - `Chunk.section`, `Chunk.filing`, `Filing.company`, `FinancialFact.company`.
-  - `Backend.get_chunks` and `get_facts`: one SQL each in LiveBackend, plus FakeBackend.
-  - The `Coverage` and `Sources` operations, and `Answer` also selecting `refused` and `warnings`.
-  - clients/ts:
-    - `ApiError` (status, code, Retry-After, request id);
-    - `AbortSignal.any`;
-    - a per-call `X-Request-ID`;
-    - the trailing slash;
-    - `.ts` imports;
-    - `@graphql-typed-document-node/core` in dependencies.
-  - Tests: Python unit and integration, and clients/ts `node --test` in CI's contracts job.
-  - Done when every make check passes, the eval check shows no model call (memory.md, Preferences), and the user ships it.
+- [ ] (flaky test, found 2026-10-18; user decides) `test_twenty_workers_never_exceed_eight_sec_requests_a_second` fails now and then on this PC.
+  - The misses: its tightest 9-request span came in 60 and 75 ms under 1 s, against `JITTER_S = 0.05` (`services/ingest/tests/test_pipeline.py:80`). It failed 2 of 4 full `make test-int` runs, and 1 of 5 runs alone.
+  - Not B1: the code it runs is identical to main.
+  - Options: widen `JITTER_S` (the calibration knob) in its own small PR, or leave it, since CI runs it on Linux.
+- [ ] (B1 review minors, 2026-10-18; deferred, user decides) Found by B1's final review, not fixed:
+  - **Combined filings:** facts listed under a filing take the filing's CIK (`Filing.facts`). So a combined filing's facts of another registrant would show the wrong company. Latent: none of the 30 companies share a filing.
+  - **Comment:** the `ponytail:` comment on `Chunk._source` says one lookup per chunk. But `section` and `filing` resolve at once and make two; step 10's DataLoader fixes it.
+  - **Test strength:**
+    - The FakeBackend maps every chunk to `FILINGS[0]` and every fact to AAPL, so the link tests cannot tell a link that follows its row from a constant.
+    - "No lookup on an empty list" has no test.
+    - Nothing pins that facts of a non-indexed filing stay found.
+  - **Empty IN:** non-numeric fact ids still run an empty IN query.
+  - **`@types/node`:** it comes in at 26 (through `@types/ws`), while CI runs Node 24.
 - [ ] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job. **B2 starts here**, so a fresh session can pick it up:
   - **Start:** once PR B1 is merged, create branch `step-9-web` from main.
   - **Read first:**
@@ -79,6 +75,22 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - `@playwright/test` and `@axe-core/playwright` are approved.
     - Axe, plus keyboard and phone specs.
     - No model call, and containers only as memory.md allows.
+  - **From B1** (memory.md, 2026-10-18):
+    - **tsconfig:** web's tsconfig needs `allowImportingTsExtensions`, because `clients/ts` imports end in `.ts`.
+    - **Calls:** the BFF uses:
+      - `executeGraphql(base, key, document, variables, { signal, timeoutMs, requestId })`;
+      - `createApiClient(base, key, timeoutMs)`, passing a per-call `signal` and `X-Request-ID` header. It throws a REST error reply as `ApiError` itself; `readApiError` is only for a raw `fetch` reply.
+    - **Errors:** failures arrive as `ApiError` (`status`, `code`, `retryAfterS`, `requestId`).
+      - A GraphQL error has status 200 and its `extensions.code`, so `internal` there is the offline case.
+      - Any other reply gives `unexpected_response`.
+    - **GraphQL limits:** queries go at most 6 levels deep and use no alias. Coverage sits at the limit, so a deeper B2 operation needs the limit raised, together with its test.
+    - **Sources:** at most 20 ids per call.
+      - An answer can cite more than 20 facts: one per company and year, while chunks stop at 12.
+      - So send fact ids in batches of 20. A 21st id fails the whole query, because both root fields are non-null.
+    - **Left for B2 by B1's final review:**
+      - `executeGraphql` throws `SyntaxError` or `TypeError`, not `ApiError`, on a 200 whose body is not JSON or is null.
+      - `Coverage` selects `filings(first: 5)` without `pageInfo`, so it cuts a company's filings at 5.
+      - A caller's `requestId` should match the API's `[A-Za-z0-9._-]{1,64}`. Otherwise the API replaces it, and the logs do not join.
   - **First task:** the web settings (`lib/settings.ts`, `instrumentation.ts`) and the launcher (`web/scripts/run.mjs`), with their `node --test` tests.
   - **Then:**
     1. Session and sign-in, with `hash-password` and `session-secret`.
@@ -112,10 +124,102 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - the api refuses requests with a browser `Origin`;
       - `/readyz` answers from a short cache behind Funnel;
       - GraphQL depth limits, and introspection off in production.
+      - From B1's final review (2026-10-18):
+        - **Fan-out:** B1's links made the GraphQL schema cyclic (Chunk and Filing, Chunk and Section, Company and Filing, FinancialFact to Company). Off the citation path, each link is one backend query per item: one 222-byte query made 10,101 `get_chunks` calls.
+          - Done in B1 (user, 2026-10-18): depth 6 and no aliases.
+          - Still open: a DataLoader for the per-item lookups. Within depth 6, one request can still make roughly 6,000 of them, under a cited chunk's filing with `first: 100`. The DataLoader also ends the two lookups per chunk when `section` and `filing` are both selected.
+        - **Input echoes:** GraphQL-core's coercion errors echo the input value.
+        - **NUL:** a NUL in `concept` reaches Postgres and comes back as `internal`. Chunk ids with a NUL are refused since B1.
 
 ## In Progress
 
-- [ ] 9, PR A: GraphQL GET and WebSocket off, Retry-After fixed. It is the step 9 plan's first PR (approved 2026-10-18), on branch `fix/graphql-get-ws-retry-after` from main.
+- [ ] 9, PR B1, the API lookups. **Handed off mid-way on 2026-10-18, then finished by a fresh session the same day. Built and checked, uncommitted, and waiting for the user to ship it.**
+  - **Where:** branch `step-9-api-lookups`, made from main at 35902f3 (PR A merged as #8). Everything below is uncommitted.
+  - **Plan:** the approved plan file, section "PR B1".
+  - **Spec, with one change from the plan:** a lookup takes **0 to 20** ids, not 1 to 20.
+    - Why: one `Sources` query asks for chunks and facts together, and an answer may cite only one kind.
+    - An empty list returns an empty list with no lookup.
+    - Each id is 1 to 64 characters; otherwise the error is `invalid_input`.
+    - Results keep the order given and hold each id once. Unknown ids, and chunks of filings that are not indexed, are left out.
+  - **Built by the first session (at the handoff only `make codegen` had run):**
+    - `backend.py`:
+      - `ChunkSource`, `FactSource` and `_fact` (now also used by `list_facts`);
+      - `Backend.get_chunks`, `get_facts` and `get_company`;
+      - LiveBackend SQL with inner joins, chunks only from indexed filings, and `dict.fromkeys` to keep the order and drop repeats.
+    - `services/api/tests/conftest.py`: the FakeBackend versions.
+    - `graph.py`:
+      - `MAX_IDS`, `IDS`, `_ids` and `_company`;
+      - `Chunk.source` (private), with the `section` and `filing` resolvers. They make one lookup per chunk off the citation path, marked with a `ponytail:` comment;
+      - `Filing.known_company` and `company`;
+      - `FinancialFact.cik`, `known_company` and `company`;
+      - `Query.chunks` and `Query.facts`.
+    - `clients/operations.graphql`: `Coverage` and `Sources`; `Answer` also selects `refused` and `warnings`. Codegen added `coverage.py` and `sources.py` to `clients/python-graphql`.
+    - `main.py`: the description's broker phrase now reads "refused a job or could not be reached" (user question, 2026-10-18). The test row is renamed "broker refused or unreachable".
+    - `services/api/tests/test_app.py`: integration assertions for the three lookups in `_page_through_live_backend`, including a filing set to `embedded`, which drops out.
+  - **The handoff's next steps (all done on 2026-10-18; results under "Done and checked"):**
+    1. **Contract unit tests** in `services/api/tests/test_contract.py`, through the `graphql` fixture:
+       - `sources(chunk_ids=["c-2","unknown","c-1","c-2"], fact_ids=["f-1"])` gives chunks c-2 and c-1 (section 7, filing 0000320193-25-000079, company AAPL) and fact f-1 (AAPL).
+       - A bounds table: `[]` gives 0; 20 times "c-1" gives 1, the edge row it must accept; 21 ids, a 65-character id and `""` each give `invalid_input`; a 64-character id gives 0.
+       - Links on other paths, through a raw POST: `filings(first: 1)` resolves `company`, chunks resolve `section` (1A) and `filing.company`, and facts resolve `company`, all AAPL.
+    2. **Run** `make lint`, `make typecheck`, `make test` and `make test-int`. Testcontainers have the user's go.
+    3. **`clients/ts/index.ts`:**
+       - `ApiError` with status, code, `retryAfterS` and `requestId`. Use no parameter properties, so Node's type stripping can load it.
+       - `readApiError(response)` for problem+json and non-JSON bodies, and GraphQL errors' `extensions.code`.
+       - `AbortSignal.any([caller, AbortSignal.timeout(ms)])`.
+       - A per-call `X-Request-ID`, generated when absent.
+       - The base URL's trailing slash stripped.
+       - `.ts` extensions on value imports (`./graphql/graphql.ts`), with `allowImportingTsExtensions` in its tsconfig.
+       - `@graphql-typed-document-node/core` moved to dependencies.
+       - Then `clients/ts/index.test.ts` (`node --test`, with a stubbed `globalThis.fetch` and no server), a `test` script, and the CI contracts job step `- run: npm --prefix clients/ts test`.
+    4. **Contract checks:** `make codegen`, then `make contracts-check` (only the unstaged generated files may be listed), `make contracts-breaking` (nothing breaking) and `make actionlint`.
+    5. **The eval check:**
+       - `git diff --name-only main -- <EVAL_INPUTS>` may list only `services/api/src/filinglens_api/{backend,graph,main}.py`. The harness runs none of the changed code: it imports only `answering`, `limits.ANSWER_TIMEOUT_S` and `schemas`.
+       - Then the user confirms that the `eval-calls-*` Actions cache exists, and ships.
+    6. **Docs:** context.md (the API section on the lookups), the activity log, memory.md and this item.
+  - [x] **Done and checked on 2026-10-18** (fresh session; activity-log.md):
+    - **Tree:** it matched the handoff, and `make codegen` changed nothing.
+    - **Contract tests:** added as in step 1. The bounds table runs each row against both lookups, and its 20-id row is `["c-1", "f-1"] * 10`. The generated-client test also runs `Coverage`. A `ponytail:` comment went on `_company`.
+    - **`clients/ts`:** built test first as in step 3.
+    - **Red checks:** the contract and integration tests came after the code, so red checks stand in. 6 mutations of `graph.py`, 9 of `clients/ts/index.ts` and 4 of the LiveBackend SQL each failed a test.
+    - **Checks:**
+      - `make lint` and `make typecheck` (0 errors) clean;
+      - `make test` 359 passed and `make test-int` 31 passed;
+      - `npm --prefix clients/ts test` 14 passed, with `tsc --noEmit`;
+      - `make contracts-check` lists only B1's 15 files (6 hand-edited, 9 generated), unstaged until ship commits them;
+      - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean.
+    - **Eval check:**
+      - Of the eval inputs, only `backend.py`, `graph.py` and `main.py` differ from main.
+      - The harness never loads `graph` or `main`. It loads `backend` through `limits` and calls none of its changed code (memory.md).
+      - So CI's eval computes main's keys.
+    - **Final review:** a fresh subagent; verdict "with fixes", no Critical (activity-log.md, memory.md).
+      - Fixed, test first: the REST client now throws an error reply as `ApiError`.
+      - Ruled: 20 ids per call stays, and the BFF batches fact ids (B2 block). The query fan-out goes to step 10 (its notes).
+      - Deferred minors: Pending, "B1 review minors".
+      - All checks above passed again on the final tree.
+  - [x] (user, 2026-10-18) `main.py`'s description phrase stays in B1.
+  - [x] **The user's additions to B1, done on 2026-10-18** (memory.md, activity-log.md):
+    - **Limits:** GraphQL refuses a query deeper than 6 levels or with an alias (`QueryDepthLimiter(max_depth=6)`, `MaxAliasesLimiter(max_alias_count=0)`), before any resolver runs.
+    - **NUL:** an id with a NUL is refused as `invalid_input`.
+    - **Tests first:**
+      - a depth-7 query and a query with one alias are refused, with the backend set to fail if touched;
+      - Coverage, the web's deepest query (depth 6), still passes;
+      - rows for a NUL (refused) and another control character (looked up), against both lookups.
+    - **Red checks:** depth 5, depth 7 and one allowed alias each failed a test.
+    - **Links test:** reshaped to stay within depth 6.
+    - **Checks:**
+      - `make lint` and `make typecheck` (0 errors) clean;
+      - `make test` 366 passed;
+      - `npm --prefix clients/ts test` 15 passed, with `tsc`;
+      - `make contracts-check` lists the same 15 files;
+      - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean;
+      - `make test-int`: 30 passed, and `test_twenty_workers_never_exceed_eight_sec_requests_a_second` failed by 10 ms. That test is flaky on this PC today: alone it passed 4 of 5. It is unrelated to B1 (memory.md, Pending).
+    - **Eval check:** of the eval inputs, still only `backend.py`, `graph.py` and `main.py` differ from main, with no change the eval runs.
+  - [ ] (user) Confirm that Actions → Caches lists an `eval-calls-*` entry, then ship with ship.
+  - **Done when:** every make check passes, the eval check shows no model call (memory.md, Preferences), and the user ships it.
+
+## Completed
+
+- [x] 9, PR A: GraphQL GET and WebSocket off, Retry-After fixed, merged as #8 (35902f3, git log, 2026-10-18). It was the step 9 plan's first PR (approved 2026-10-18), on branch `fix/graphql-get-ws-retry-after` from main.
   - **GET is off entirely**, since nothing sends GraphQL over GET:
     - both generated clients POST;
     - there is no GraphiQL page;
@@ -136,9 +240,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean;
     - `make contracts-check` lists only the two regenerated files (`contracts/openapi.json`, `clients/ts/openapi.d.ts`), unstaged until ship commits them;
     - eval check: of the eval inputs, only `main.py` (router setup, description) and `problems.py` (the 503 doc text) differ from main. The harness imports neither `main` nor that code, so CI's eval replays main's keys.
-  - [ ] (user) Confirm that Actions → Caches lists an `eval-calls-*` entry, then ship with ship.
-
-## Completed
+  - [x] (user) Shipped with ship, and it merged as #8 (35902f3, git log).
 
 - [x] 8. Instrumentation, merged as pull request #6 (febbe5f, git log, 2026-10-18). Its record follows (branch `step-8-monitoring`, created 2026-10-18 from main at 5af8fcd when the user said to start Part B; the user committed it as 5c8cb70 and opened a pull request). Done when OpenTelemetry traces span services end to end, the dashboards and alerts are committed with promtool tests, and the screenshots are saved. Plan approved 2026-10-18 with the user's changes, then the design critique's revisions with three user conditions. Paused on 2026-10-18 at the user's request (context at 75%); a fresh session resumes from this checklist.
   - **Plan file:** `C:\Users\kwonhyuk\.claude\plans\start-step-8-monitoring-iridescent-sedgewick.md`. It holds the approved Part B plan and, at its end, "Revisions from the design critique".

@@ -7,8 +7,10 @@ from .answer import Answer
 from .base_client import BaseClient
 from .base_model import UNSET, UnsetType
 from .companies import Companies
+from .coverage import Coverage
 from .enums import FormType
 from .filings import Filings
+from .sources import Sources
 
 
 def gql(q: str) -> str:
@@ -159,6 +161,8 @@ class Client(BaseClient):
                   outputTokens
                   costUsd
                 }
+                refused
+                warnings
               }
             }
             """)
@@ -172,3 +176,95 @@ class Client(BaseClient):
         )
         data = self.get_data(response)
         return Answer.model_validate(data)
+
+    def coverage(
+        self, first: int, after: Union[Optional[str], UnsetType] = UNSET, **kwargs: Any
+    ) -> Coverage:
+        query = gql("""
+            query Coverage($first: Int! = 20, $after: String) {
+              companies(first: $first, after: $after) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                edges {
+                  node {
+                    cik
+                    ticker
+                    name
+                    filings(first: 5) {
+                      edges {
+                        node {
+                          accessionNumber
+                          formType
+                          fiscalYear
+                          fiscalPeriod
+                          filedOn
+                          url
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """)
+        variables: dict[str, object] = {"first": first, "after": after}
+        response = self.execute(
+            query=query, operation_name="Coverage", variables=variables, **kwargs
+        )
+        data = self.get_data(response)
+        return Coverage.model_validate(data)
+
+    def sources(
+        self, chunk_ids: list[str], fact_ids: list[str], **kwargs: Any
+    ) -> Sources:
+        query = gql("""
+            query Sources($chunkIds: [ID!]!, $factIds: [ID!]!) {
+              chunks(ids: $chunkIds) {
+                id
+                text
+                section {
+                  id
+                  item
+                  title
+                }
+                filing {
+                  accessionNumber
+                  formType
+                  fiscalYear
+                  fiscalPeriod
+                  filedOn
+                  url
+                  company {
+                    cik
+                    ticker
+                    name
+                  }
+                }
+              }
+              facts(ids: $factIds) {
+                id
+                concept
+                label
+                value
+                unit
+                periodStart
+                periodEnd
+                fiscalYear
+                fiscalPeriod
+                accessionNumber
+                company {
+                  cik
+                  ticker
+                  name
+                }
+              }
+            }
+            """)
+        variables: dict[str, object] = {"chunkIds": chunk_ids, "factIds": fact_ids}
+        response = self.execute(
+            query=query, operation_name="Sources", variables=variables, **kwargs
+        )
+        data = self.get_data(response)
+        return Sources.model_validate(data)

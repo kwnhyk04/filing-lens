@@ -409,6 +409,72 @@ From the step 9 plan (2026-10-18; approved plan: `C:\Users\kwonhyuk\.claude\plan
     - Rewrote the description and the doc.
     - Added `test_a_503_carries_retry_after_only_when_waiting_helps`: 12 rows, each raised by the production code and sent through the REST route.
   - Why it matters: the BFF reads "no Retry-After" as "switched off, show the saved answers".
+- 2026-10-18: The GraphQL lookups by id (PR B1) take 0 to 20 ids, not the plan's 1 to 20. Each id is 1 to 64 characters.
+  - What happened: building `Sources`, one query asks for chunks and facts together, and an answer may cite only one kind. With a lower bound of 1, the BFF would need two queries or `@include`.
+  - What we did:
+    - an empty list returns an empty list without a lookup;
+    - more than 20 ids, or an id of 0 or over 64 characters, gives `invalid_input`;
+    - an id that cannot exist is simply not found;
+    - the links (`Chunk.section`, `Chunk.filing`, `Filing.company`, `FinancialFact.company`) use the pre-joined rows on the citation path, and one lookup per item elsewhere (a `ponytail:` comment names the DataLoader upgrade).
+  - Best option: one query per answer, and no new error case for the UI.
+- 2026-10-18: The API description's "a broker that refused a job" now reads "refused a job or could not be reached".
+  - What happened: the user asked whether any 503 comes from a dependency being down, since the new text dropped "a dependency is down".
+  - The answer:
+    - Redis down for the budget check gives `ai_unavailable` with Retry-After 30;
+    - RabbitMQ refusing or unreachable on an ingest publish gives `overloaded` with Retry-After 5;
+    - `/readyz` answers 503 when Postgres, RabbitMQ or Redis is unreachable;
+    - Postgres down on data routes is a 500.
+  - What we did: sharpened the broker phrase in PR B1.
+- 2026-10-18: The answer above, checked against the code when B1 was finished (the handoff had marked it not confirmed):
+  - `budget.py:62-65` turns a `RedisError` into `ai_unavailable` with Retry-After 30.
+  - `backend.py:332-335` turns kombu's `OperationalError` or an `OSError` on the job publish into `overloaded` with Retry-After 5. That covers a broker that refuses the job and one that cannot be reached.
+  - `main.py:183`: `/readyz` answers 503.
+  - No code in `services/api/src` maps a database error, so Postgres down on a data route is the catch-all 500.
+- 2026-10-18: The `clients/ts` error and call shape for B2's BFF (PR B1; plan B2.1 and B2.2). B2 sorts a failure into offline (network error, timeout, 5xx, GraphQL `internal`), misconfigured (401 or 403) or a problem with its code.
+  - **`ApiError`** holds `status`, `code`, the detail as its `message`, `retryAfterS` and `requestId`.
+  - **`readApiError(response, requestId?)`:**
+    - A problem body gives its `code` and `detail`.
+    - Anything else, such as a proxy's page, a body that is not JSON under a JSON type, or a problem without a detail, gives code `unexpected_response` or detail `HTTP <status>`.
+    - Retry-After is read as delta-seconds only. The API never sends a date, and a date gives no value.
+    - The request id comes from the reply's `X-Request-ID` (the API echoes it), else from the one sent.
+  - **`executeGraphql`:**
+    - Its fifth parameter is `CallOptions {signal, timeoutMs, requestId}`; it used to be `timeoutMs`, and nothing called it yet.
+    - A GraphQL error throws `ApiError` with status 200 and the first error's `extensions.code`. An error without one, such as a query validation error, gives `unexpected_response`.
+  - **Abort and timeout:** a caller's abort rejects with `AbortError` and the timeout with `TimeoutError` (`AbortSignal.any`). So B2 can tell a browser that went away from a stalled API.
+  - **Request ids:** every call sends `X-Request-ID`, a uuid4 when the caller gives none. It fits the API's pattern `[A-Za-z0-9._-]{1,64}`.
+  - Reason: one error type that carries everything B2's classification and its log line need, and no new error case for the UI.
+- 2026-10-18: `clients/ts` imports end in `.ts` (`allowImportingTsExtensions`), so `node --test` loads it with Node's type stripping (PR B1).
+  - **For B2:** web's tsconfig must allow `.ts` imports too, or TypeScript reports TS5097 in the `clients/ts` files it checks.
+  - **`@types/node`** (for `node:test` in `index.test.ts`) comes from the lock's transitive dev copy (26.6.5). It was not added as a direct dependency.
+  - **The dependency move:** moving `@graphql-typed-document-node/core` 3.2.0 to dependencies made npm drop `dev: true` from `graphql` 16.14.2, its peer. B2's `npm ci --omit=dev` in `clients/ts` therefore installs graphql too.
+- 2026-10-18: Correction to the plan's eval check ("From `services/api` the harness imports only answering, `limits.ANSWER_TIMEOUT_S`, schemas"). Importing those three loads `filinglens_api.backend` and `problems` too, because `limits.py` imports `Backend` from `backend`. Listed from `sys.modules` after the harness's three imports.
+  - What it means: a change to `backend.py` is safe for the eval only while the harness calls none of the changed code. B1's changes there (`_fact`, `ChunkSource`, `FactSource`, the lookups) are never called by it. `graph.py` and `main.py` are never loaded.
+- 2026-10-18: B1's final review (fresh subagent, verdict "with fixes", no Critical) led to one fix and two rulings.
+  - **Fixed, the REST client throws `ApiError`:** `createApiClient` now throws `ApiError` from inside its fetch for any reply that is not ok.
+    - What happened: openapi-fetch reads an error reply's body itself (`let error = await response.text()`), so `readApiError` on the response returned `unexpected_response` for a real 503 problem.
+    - Best option: both entry points now fail the same way, which is what B2's classification needs.
+  - **Ruling, ids per call:** `MAX_IDS` stays 20, as the plan says.
+    - What happened: an answer can cite more than 20 facts, one per company and year with no cap (`answering.py:348-354`), while chunks stop at 12. A 21st fact id fails the whole `Sources` query, because both root fields are non-null.
+    - What we did: the `IDS` description now says "per call", and B2's BFF sends fact ids in batches of 20.
+    - Why: the fact count has no hard bound, so B2 must batch at any cap.
+  - **Ruling, fan-out deferred to step 10:** B1's links make the schema cyclic, and off the citation path each link is one backend query per item. The reviewer's 222-byte query made 10,101 `get_chunks` calls.
+    - Why defer: nothing reaches the API before step 10, and only the BFF holds the key, sending fixed documents. The plan already puts GraphQL depth limits in step 10.
+    - The step 10 note now names a depth limit of 6 (the reviewer measured it as the smallest that passes every operation), an alias limit and a DataLoader.
+- 2026-10-18: User decisions on B1, after the review:
+  - `main.py`'s description change stays in B1.
+  - The GraphQL depth and alias limits go in now, not in step 10.
+  - An id with a NUL is refused as `invalid_input`.
+- 2026-10-18: GraphQL limits in B1 (`graph.py`).
+  - **The limits:** `QueryDepthLimiter(max_depth=6)` and `MaxAliasesLimiter(max_alias_count=0)`. Both are validation rules, so a query past them is refused before any resolver runs.
+  - **Depth 6:** the user's number. Strawberry counts a root field as depth 0, and Coverage and Filings put their leaves at depth 6. Coverage is the deepest query B2's web needs; `Sources` reaches depth 3.
+  - **No aliases:** the same rule as for depth, the smallest value every client operation passes. No operation uses an alias, and each alias would multiply what a query may look up.
+  - **Factories:** the limiters are passed as `lambda: ...`, because Strawberry 0.334.4 warns that passing extension instances is deprecated.
+  - **What stays open:** within depth 6, a cited chunk's filing still reaches up to 100 listed chunks and facts. So one request can still make roughly 6,000 per-item lookups: about 4,000 `get_chunks` and 2,000 `get_company` (an estimate from 20 ids, `first: 100`, and two lookups per chunk). Step 10's DataLoader closes that.
+  - **The links test:** it now reaches the links off the citation path under a cited chunk's filing, since its old path nested to depth 8.
+- 2026-10-18: `_ids` refuses an id that holds a NUL (`"\x00"`), with the message "ids takes at most 20 ids, each 1 to 64 characters with no NUL."
+  - Why: Postgres refuses a NUL in a text parameter, so a NUL chunk id came back as a masked `internal`, which B2 would read as offline.
+  - Pinned: an id with another control character (`"\x01"`) is still looked up and simply not found.
+  - Open: `concept` in `Filing.facts` still lets a NUL reach Postgres (step 10 note).
 
 ## Preferences and Instructions
 
@@ -572,6 +638,13 @@ None yet.
 - 2026-10-18: FastAPI 0.143 keeps an included router as an `_IncludedRouter` entry in `app.routes` (lazy inclusion), so the included routes do not show in `app.routes`.
   - What happened: PR A's first route-table test found no `/graphql` route at all.
   - What we did: the test reads the router object we filter (`main.graphql_router.routes`) instead of FastAPI's internals. The 405 test covers the routing behaviour.
+- 2026-10-18: Git Bash rewrites any argument that starts with `/` into a Windows path, a regex included. During B1's red checks, `/^\d+$/.test(retryAfter)` reached Python as `C:/Program Files/Git/^/d+$/.test(retryAfter)`, so that mutation was not applied. Set `MSYS_NO_PATHCONV=1`, and then pass `H:/...` paths (see above). Git Bash here also has no `python` on PATH: the Microsoft Store alias answers "Python was not found". Run scratch scripts with `uv run --no-project python -I`.
+- 2026-10-18: `test_twenty_workers_never_exceed_eight_sec_requests_a_second` failed once with its tightest 9-request span at 0.925 s against its 0.95 s floor. That `make test-int` overlapped lint, pyright, the unit suite, `npm ci` and two Docker tool runs. Alone it passed, and so did the whole suite rerun with nothing beside it. Likely cause, not confirmed: CPU contention delays a client between its Redis grant and its request, which squeezes the arrival gaps at the fake SEC server. Run `make test-int` with nothing heavy beside it.
+- 2026-10-18: Correction to the entry above: CPU contention is not the whole story. On the final B1 tree, `test_twenty_workers_never_exceed_eight_sec_requests_a_second` failed again in a `make test-int` with nothing else of ours running (0.940 s against 0.95 s). Run alone five times, it passed four and failed one (0.940 s).
+  - B1 cannot affect it: the test and every module its 20 processes load are identical to main.
+  - The cause of the extra jitter today is not confirmed. Other sessions on this PC are one guess.
+  - The knob is `JITTER_S = 0.05` (`test_pipeline.py:80`). Today's misses were 60 and 75 ms. Widening it is the user's call, as a separate fix.
+- 2026-10-18: `node --test` reports a test that reaches its `timeout` option as cancelled, not failed, though the run exits 1. So a red check on node tests reads the exit code or the cancelled count, not only the fail count. Seen when B1's signal mutations left a stubbed fetch hanging.
 
 ## Rejected Approaches
 

@@ -15,6 +15,182 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-18: B1 additions after the review: GraphQL depth and alias limits, NUL ids (uncommitted)
+
+- Changes:
+  - **What happened:** the user answered the B1 report.
+    - Keep `main.py`'s description change in B1.
+    - Add the depth limit (6) and the alias limit now, with tests: a query past each limit is refused before any resolver runs, and the web's deepest query still passes.
+    - Refuse NUL ids as `invalid_input`, with a test.
+    - Then rerun the checks, confirm the eval inputs, update the docs, and do not commit.
+  - **What we did, in order:**
+    1. Read Strawberry 0.334.4's limiters.
+       - A root field is depth 0, and a field reached at depth 7 or more is refused. Introspection fields are not counted.
+       - An alias refusal reads "N aliases found. Allowed: M".
+       - Every GraphQL query the tests and codegen send stays within depth 6 (`test_under_load`, Filings and Coverage reach it), and none uses an alias. ariadne reads the schema file, and no script, eval or web code sends GraphQL.
+    2. Wrote the tests first, in `test_contract.py`.
+       - `PAST_THE_LIMITS`: a depth-7 query (`TooDeep`, Coverage plus each filing's company) and a one-alias query, each sent with the FakeBackend set to fail if touched.
+       - `test_graphql_limits_pass_the_deepest_query_the_web_needs`: Coverage, moved here from the generated-client test.
+       - `IDS` rows for a NUL (refused) and `\x01` (looked up), and the new message.
+       - RED: 10 failed. The 6 refused rows failed on the new message, and the 2 NUL rows did not raise. Both limit queries ran their resolvers: the alias query came back "Unexpected error." from the failing backend.
+    3. Changed `graph.py`: `MAX_DEPTH = 6`, `MAX_ALIASES = 0`, the two limiters, and `_ids` refusing NUL.
+       - GREEN except one: the links test from the previous entry nested to depth 8.
+       - It was reshaped to reach the same fallback lookups under a cited chunk's filing, within depth 6.
+    4. Strawberry warned that passing extension instances is deprecated, so the limiters are now factories (`lambda`). No warning remained, and pyright reported 0 errors.
+    5. Red checks: depth 5 failed 4 tests (Coverage among them), depth 7 failed the depth-7 row, and one allowed alias failed the alias row. `graph.py` was restored byte for byte, with the trap on absolute paths.
+    6. Reran the checks in sequence.
+       - `make lint` clean, `make typecheck` 0 errors, `make test` 366 passed;
+       - TS tests 15 passed, `tsc` clean;
+       - `make contracts-check` lists the same 15 files;
+       - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean;
+       - then `make test-int` alone: 30 passed and 1 failed, the SEC rate test (below).
+    7. Ran the SEC rate test alone five times: 4 passed, 1 failed (0.940 s).
+    8. Ran the eval check.
+       - The eval inputs that differ from main are `backend.py`, `graph.py` and `main.py`.
+       - The harness loads `answering`, `backend`, `limits`, `problems` and `schemas`, never `graph` or `main`.
+       - `backend.py` and `main.py` are unchanged since the last check.
+    9. Updated the docs: context.md, README, memory.md, todo.md and this entry.
+- Small events, in order:
+  - **GateGuard:** in this session it again asked for the facts before the first Bash command and before each file's first edit. Each blocked call passed on retry.
+  - **ruff format:** it rewrapped two lines, the `_ids` message and its test row.
+  - **Ruling, no aliases:** `MAX_ALIASES = 0`. The user gave no number, and 0 follows the depth rule: the smallest value every client operation passes. Cost if wrong: one constant.
+  - **Ruling, the links test:** it now reaches the links under a cited chunk's filing, because its old path (depth 8) is refused. It still exercises every fallback lookup.
+  - **A failed `make test-int`:** `test_twenty_workers_never_exceed_eight_sec_requests_a_second` failed by 10 ms with nothing else of ours running.
+    - This corrects the previous entry's guess of CPU contention: alone, it failed 1 of 5. The cause is not confirmed.
+    - Not changed: its tolerance (`JITTER_S`) belongs to another subsystem, and widening it is the user's call (todo.md, Pending).
+  - **Estimate recorded:** within depth 6, one request can still make roughly 6,000 per-item lookups (memory.md). The DataLoader stays in step 10's note.
+- Files: services/api/src/filinglens_api/graph.py, services/api/tests/test_contract.py, README.md, docs/{context,memory,todo,activity-log}.md
+- Validation: as above. No model call, no gh, no commit. Containers: Testcontainers (the user's go) and the one-shot oasdiff and actionlint images.
+- Outstanding: the user confirms the `eval-calls-*` Actions cache and ships B1, and decides on the flaky SEC rate test.
+
+### 2026-10-18: PR B1 finished: contract tests, clients/ts, every check (uncommitted)
+
+- Changes:
+  - **What happened:** the user asked a fresh session to resume B1 from the todo.md handoff. The rules: check the tree against the handoff before any code; finish B1 as the plan says, test-first; answer two questions; run every make check and the eval check; update the docs; no commit.
+  - **Answers given:**
+    - **Cold-run estimate:** 22K and 28K are gpt-oss-20b tokens (the Groq router); 16 and 20 are Gemini requests. They grew because the ci subset grew from 20 to 25 questions on 2026-10-17 (a04, a07, a09, t04, t08).
+      - 22.2K: `20261016T093202Z`, 20 router calls. Gemini was not that run's primary, so 16 was an estimate; a replay of the 20 questions shows 18 Gemini calls.
+      - 27.7K and 20: the live 25-question run `20261017T154912Z`, with 25 router calls and 20 Gemini calls.
+    - **503 for a dependency that is down:** yes, now checked in the code. Redis at the budget check gives `ai_unavailable` with Retry-After 30. RabbitMQ refusing or unreachable on a job publish gives `overloaded` with Retry-After 5. `/readyz` answers 503. Postgres down on a data route is a 500 (memory.md).
+  - **What we did, in order:**
+    1. Read AGENTS.md, todo.md (the B1 handoff and the B2 block), memory.md and the plan.
+    2. Checked the tree against the handoff.
+       - Branch `step-9-api-lookups`, with HEAD, main and the merge base all at 35902f3, and nothing committed.
+       - The same 18 modified and 2 untracked files. `test_contract.py` differed only by the renamed row.
+       - `make codegen` again: exit 0, no file changed, the TS typecheck passed.
+       - Baseline: `make lint` clean, `make typecheck` 0 errors, `make test` 345 passed (PR A's count, so no B1 unit test existed yet).
+       - It all matched, so work went on.
+    3. Added the contract unit tests in `test_contract.py`.
+       - Tests: sources come in the order given, with their links; a bounds table runs against both lookups; links resolve off the citation path, through a raw POST; the generated-client test also runs `Coverage`.
+       - The 14 new tests passed on the first run, because the code predates them.
+       - Red check: 6 mutations of `graph.py` each failed 1 to 4 tests. They refused 20 ids, accepted 65 characters and an empty id, skipped the bounds for facts, re-sorted chunks, and broke the chunk and company link lookups.
+       - `graph.py` was restored byte for byte.
+    4. Ran `make lint`, `make typecheck` (0 errors), `make test` (359 passed) and `make test-int` (31 passed, 3:27).
+       - Testcontainers used random 127.0.0.1 ports.
+       - Only FreightAudit's containers were running, and nothing was left behind.
+    5. Built the `clients/ts` changes, tests first.
+       - RED: `index.test.ts` (14 tests) failed to load with `ERR_MODULE_NOT_FOUND` for `./graphql/graphql`, the extensionless import the plan names.
+       - Then `index.ts` (`ApiError`, `readApiError`, `CallOptions`, `AbortSignal.any`, `X-Request-ID`, trailing slashes), `allowImportingTsExtensions`, a `test` script, and `npm install --save-exact --ignore-scripts @graphql-typed-document-node/core@3.2.0`.
+       - GREEN: 14 passed, and `tsc --noEmit` was clean.
+       - Red check: 9 mutations each failed a test.
+       - CI's contracts job now runs `npm --prefix clients/ts test` after `make contracts-check`.
+    6. Red-checked the integration test.
+       - 4 mutations of the LiveBackend SQL each failed `test_live_backend_pages_seeded_filings_sections_chunks_and_facts[0008-embedding]` on the intended assertion. They dropped the indexed filter, kept repeated ids, and reversed the chunk order and the fact order.
+       - The unmutated test passed, and `backend.py` was restored byte for byte.
+    7. Ran the contract checks.
+       - `make contracts-check`: codegen clean. It lists only B1's 15 files (6 hand-edited, 9 generated) and exits 1 because they are unstaged, as in PR A.
+       - `make contracts-breaking`: nothing breaking; the specs differ in the description.
+       - `make actionlint`: clean.
+    8. Ran the eval check (below), then added a `ponytail:` comment on `_company`, like the one on `Chunk._source`. `make lint` was clean again.
+    9. Final review by a fresh subagent: see the end of this entry.
+    10. Updated the docs: context.md, README, memory.md, todo.md and this entry.
+  - **Eval check:**
+    - Of the eval inputs, `backend.py`, `graph.py` and `main.py` differ from main, and nothing untracked.
+    - Importing the harness's three API imports loads `answering`, `backend`, `limits`, `problems` and `schemas`, never `graph` or `main` (memory.md).
+    - The harness calls none of `backend.py`'s changed code, so CI's eval computes the keys main's last eval saved.
+    - The user's list for this check named only `graph.py`, `backend.py` and additions to `schemas.py`. So `main.py` (the description phrase) goes to the user for a decision.
+  - **Final review (step 9):** a fresh subagent on the most capable model, read-only. It ran the unit and TS tests and three probes in the scratchpad. Verdict "with fixes", no Critical.
+    - **Fixed, Important 1:** `readApiError` could not read a REST error from `createApiClient`, because openapi-fetch reads an error reply's body itself (`dist/index.mjs:196`). So a 503 problem came back as `unexpected_response`.
+      - The fix: the client's fetch now throws `ApiError` for any reply that is not ok.
+      - Test first: "the REST client throws an error reply as an ApiError, keeping the request id sent" failed (the call resolved), then passed. TS tests 15 passed, `tsc` clean.
+    - **Ruling, Important 2:** an answer can cite more than 20 facts (one per company and year, with no cap; chunks stop at 12), and a 21st fact id fails the whole `Sources` query.
+      - What we did: `MAX_IDS` stays 20 as the plan says. The `IDS` description now says the limit is per call, and the B2 block says the BFF batches fact ids by 20.
+      - Why: the fact count has no hard bound, so B2 must batch at any cap.
+      - Cost if wrong: one constant.
+    - **Ruling, Important 3:** B1's links make the schema cyclic, and off the citation path each link is one query per item; one 222-byte query made 10,101 `get_chunks` calls.
+      - What we did: deferred to step 10, where the plan schedules GraphQL depth limits. Nothing reaches the API before then, and only the BFF holds the key, sending fixed documents.
+      - The step 10 note now names a depth limit of 6 (the reviewer measured it as the smallest that passes every operation), an alias limit and a DataLoader.
+      - Cost if wrong: a key holder could tie up the database pool before step 10.
+    - **Docs fix:** README said Node 20.9+, but the `clients/ts` tests need Node's type stripping (22.18+ or 23.6+; CI uses 24).
+    - **Deferred minors** (todo.md, Pending and the B2 and step 10 notes):
+      - two lookups per chunk when `section` and `filing` are both selected;
+      - the filing's company on a combined filing's facts;
+      - NUL ids reaching Postgres, and an empty IN for non-numeric fact ids;
+      - link tests that cannot tell a row-following link from a constant, "no lookup on an empty list" untested, and nothing pinning that facts of a non-indexed filing stay found;
+      - `executeGraphql` throwing non-`ApiError`s on odd 200 bodies;
+      - `Coverage` cutting filings at 5;
+      - unchecked caller request ids;
+      - `@types/node` 26 against CI's Node 24.
+    - **Declined to judge** (the reviewer's list), all left as they are: the docs (being edited), generated files and existing codegen output, float precision and `10-K/A`, the Actions cache (the user's check), the checks it could not run (run here), and step 10 items. `concept`'s NUL handling and GraphQL-core's coercion messages that echo input went into the step 10 note.
+    - **The stray file:** the reviewer also saw the root `index.ts`, already removed (below).
+- Small events, in order:
+  - **GateGuard:** blocked the first Bash command and the first edit of each file. Each passed after the facts were given.
+    - In a parallel pair on `test_contract.py`, the blocked edit was the appended tests, while the Coverage edit applied.
+    - That Coverage assertion had been written in a convoluted form; it was rewritten before any run.
+  - **Working directory:** a `cd clients/ts` inside one command moved the shell's working directory. Later commands `cd` to the repo root first.
+  - **No Python:** the first TS red-check loop applied nothing. Git Bash has no `python` on PATH ("Python was not found", the Microsoft Store alias). We reran it with `uv run --no-project python -I`; `index.ts` was unchanged throughout.
+  - **Path conversion:** in that rerun, the Retry-After mutation was not applied, because Git Bash rewrote its `/^\d+$/` argument into a Windows path. We reran it with `MSYS_NO_PATHCONV=1` (memory.md).
+  - **Cancelled, not failed:** the two signal mutations showed "pass 13, fail 0", because node:test counted the hung test as cancelled at its 5 s timeout. A rerun showed exit 1 and "cancelled 1" (memory.md).
+  - **Mistake, a stray file:** the three TS red-check commands set `trap 'cp ... index.ts' EXIT` with a relative path, then ended with a `cd` to the repo root. So each trap fired there and wrote a copy of the client as `index.ts` at the root. `clients/ts/index.ts` itself had been restored and checked.
+    - How it was found: the final `git status` showed `?? index.ts`.
+    - Before removing it, we checked that the root file was untracked, never in history, and byte-identical to `clients/ts/index.ts`.
+    - Lesson: a cleanup trap takes absolute paths.
+  - **Fast failures:** the integration mutations failed in about 6 s each, fast enough to doubt. The unmutated test passed in 4.8 s, since the image is cached, and the failure lines showed the intended assertions (lines 225 and 215).
+  - **npm:** it also dropped `dev: true` from `graphql` 16.14.2, the peer of the moved package (memory.md).
+  - **Ruling, bounds table:** each row runs against chunk ids and fact ids, and the 20-id row is `["c-1", "f-1"] * 10`, so each lookup finds 1. Why: `_ids` guards both resolvers, and a chunk-only table would not notice the facts resolver losing it.
+  - **Ruling, Coverage:** the new `Coverage` operation gets one execution assertion, though the plan lists no Coverage test. Why: nothing else in B1 runs it.
+  - **Ruling, `readApiError`:** for any reply that is not one of the API's problems, it gives code `unexpected_response` and detail `HTTP <status>`. Retry-After is read as delta-seconds only (memory.md).
+  - **Not run, with reasons:** `make monitoring-check`, `make vuln-scan` and `make image-scan`, because B1 changes no monitoring file and no package version, which is what Trivy scans; `make secrets-scan`, because it scans commits and B1 is uncommitted. CI runs all four.
+  - **A failed final `make test-int`:** 30 passed and 1 failed: `test_twenty_workers_never_exceed_eight_sec_requests_a_second`, whose tightest 9-request span was 0.925 s against its 0.95 s floor.
+    - Likely cause, not confirmed: CPU contention. That run overlapped lint, pyright, the unit suite, codegen with `npm ci`, and two Docker tool runs. B1 changes nothing under `services/ingest`, `packages/sec_client` or `packages/core`.
+    - What we did: ran the test alone (passed), then the whole suite with nothing else running (31 passed, 3:13).
+    - Lesson: run `make test-int` with nothing heavy beside it (memory.md).
+- Files: services/api/src/filinglens_api/graph.py, services/api/tests/test_contract.py, clients/ts/{index.ts,index.test.ts,package.json,package-lock.json,tsconfig.json}, .github/workflows/ci.yml, README.md, docs/{context,memory,todo,activity-log}.md. From the handoff session, unchanged here: services/api/src/filinglens_api/{backend,main}.py, services/api/tests/{conftest,test_app}.py, clients/operations.graphql, the generated clients and contracts.
+- Validation: on the final tree after the review fix:
+  - `make codegen` clean;
+  - `make lint` and `make typecheck` (0 errors) clean;
+  - `make test` 359 passed and `make test-int` 31 passed (the rerun above);
+  - `npm --prefix clients/ts test` 15 passed, and `tsc --noEmit` is clean;
+  - `make contracts-check` lists only B1's 15 files;
+  - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean;
+  - eval inputs changed: `backend.py`, `graph.py` and `main.py` only.
+
+  No model call, no gh, no commit. Containers: Testcontainers (the user's go), plus the one-shot oasdiff and actionlint tool images that `make contracts-breaking` and `make actionlint` run, as in PR A.
+- Outstanding: the user decides on `main.py` in the eval list, confirms that Actions shows an `eval-calls-*` cache, and ships B1. B2 follows from main.
+
+### 2026-10-18: PR A merged; PR B1 started, then handed off mid-way
+
+- Changes:
+  - **What happened:**
+    - the user shipped PR A (merged as #8, 35902f3) and asked to start B1;
+    - the user asked which cold-run numbers are tokens and which are requests;
+    - the user asked to confirm that no 503 comes from a dependency being down.
+  - **Answers given:**
+    - 22K and 28K are gpt-oss-20b tokens, and 16 and 20 are Gemini requests. They grew with the ci subset, from 20 to 25 questions on 2026-10-17.
+    - Not confirmed: Redis down for the budget check gives `ai_unavailable` (Retry-After 30), RabbitMQ refusing or unreachable on an ingest publish gives `overloaded` (Retry-After 5), and `/readyz` answers 503 for an unreachable Postgres, RabbitMQ or Redis. The description's broker phrase was sharpened in B1.
+  - **What we did, in order:**
+    1. Confirmed that local main was at 35902f3 and clean, then created `step-9-api-lookups`.
+    2. Built the backend lookups (`get_chunks`, `get_facts`, `get_company`), the FakeBackend versions, the GraphQL fields and links, and the `Coverage` and `Sources` operations. One change from the plan: 0 to 20 ids (memory.md).
+    3. Ran `make codegen`: clean, and the TS typecheck passed.
+    4. Added the integration assertions for the lookups.
+    5. At about 75% of the context window, a hook said to ask the user how to proceed. The user chose a handoff, so todo.md (In Progress, PR B1) now holds the exact state and the next steps in order.
+- Small events, in order:
+  - **GateGuard:** the hook blocked the first edit of each file again; each retry passed after the facts were given. In two parallel batches, the blocked edit was the one that defined names the other, applied edits used: `backend.py`'s `_fact` and the Source models, and `graph.py`'s imports. Each was retried before anything ran.
+  - **Style:** `strawberry.argument(IDS)` was rewritten as `strawberry.argument(description=IDS)`, to match the file's keyword style.
+- Files: services/api/src/filinglens_api/{backend,graph,main}.py, services/api/tests/{conftest,test_app,test_contract}.py, clients/operations.graphql, clients/python-graphql (generated), clients/ts/graphql (generated), contracts/{openapi.json,schema.graphql}, docs/{context,memory,todo,activity-log}.md
+- Validation: only `make codegen`, with its TS typecheck. No test has run on the B1 code yet. No model call.
+- Outstanding: B1's next steps in todo.md, from the contract unit tests on.
+
 ### 2026-10-18: PR A, GraphQL POST only and the 503 Retry-After rules
 
 - Changes:

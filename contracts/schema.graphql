@@ -17,6 +17,12 @@ type Chunk {
   id: ID!
   sectionId: ID!
   text: String!
+
+  """The section the chunk belongs to."""
+  section: Section!
+
+  """The filing the chunk comes from."""
+  filing: Filing!
 }
 
 """A connection to a list of items."""
@@ -93,6 +99,9 @@ type Filing {
   fiscalYear: Int!
   fiscalPeriod: FiscalPeriod!
   url: String!
+
+  """The company that filed it."""
+  company: Company!
   sections: [Section!]!
 
   """All text chunks of the filing, in reading order."""
@@ -145,6 +154,9 @@ type FinancialFact {
   fiscalYear: Int!
   fiscalPeriod: FiscalPeriod!
   accessionNumber: String!
+
+  """The company that reported the fact."""
+  company: Company!
 }
 
 """A connection to a list of items."""
@@ -215,6 +227,22 @@ type Query {
     """endCursor from the previous page."""
     after: String = null
   ): FilingConnection!
+
+  """Text chunks of indexed filings by id, in the order given."""
+  chunks(
+    """
+    Up to 20 ids per call, of 1 to 64 characters each. Results keep the order given, hold each id once and leave unknown ids out.
+    """
+    ids: [ID!]!
+  ): [Chunk!]!
+
+  """Financial facts by id, in the order given."""
+  facts(
+    """
+    Up to 20 ids per call, of 1 to 64 characters each. Results keep the order given, hold each id once and leave unknown ids out.
+    """
+    ids: [ID!]!
+  ): [FinancialFact!]!
 
   """Answer a question from the filings, with citations."""
   answer(

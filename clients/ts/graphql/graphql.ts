@@ -43,7 +43,23 @@ export type AnswerQueryVariables = Exact<{
 }>;
 
 
-export type AnswerQuery = { answer: { answer: string, degraded: boolean, citations: Array<{ chunkId: string | null, factId: string | null, quote: string, filingUrl: string }>, usage: { inputTokens: number, outputTokens: number, costUsd: number } } };
+export type AnswerQuery = { answer: { answer: string, degraded: boolean, refused: boolean, warnings: Array<string>, citations: Array<{ chunkId: string | null, factId: string | null, quote: string, filingUrl: string }>, usage: { inputTokens: number, outputTokens: number, costUsd: number } } };
+
+export type CoverageQueryVariables = Exact<{
+  first?: number;
+  after?: string | null | undefined;
+}>;
+
+
+export type CoverageQuery = { companies: { pageInfo: { hasNextPage: boolean, endCursor: string | null }, edges: Array<{ node: { cik: number, ticker: string, name: string, filings: { edges: Array<{ node: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string } }> } } }> } };
+
+export type SourcesQueryVariables = Exact<{
+  chunkIds: Array<string | number> | string | number;
+  factIds: Array<string | number> | string | number;
+}>;
+
+
+export type SourcesQuery = { chunks: Array<{ id: string, text: string, section: { id: string, item: string, title: string }, filing: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string, company: { cik: number, ticker: string, name: string } } }>, facts: Array<{ id: string, concept: string, label: string, value: number, unit: string, periodStart: string | null, periodEnd: string, fiscalYear: number, fiscalPeriod: FiscalPeriod, accessionNumber: string, company: { cik: number, ticker: string, name: string } }> };
 
 export class TypedDocumentString<TResult, TVariables>
   extends String
@@ -164,6 +180,80 @@ export const AnswerDocument = new TypedDocumentString(`
       outputTokens
       costUsd
     }
+    refused
+    warnings
   }
 }
     `) as unknown as TypedDocumentString<AnswerQuery, AnswerQueryVariables>;
+export const CoverageDocument = new TypedDocumentString(`
+    query Coverage($first: Int! = 20, $after: String) {
+  companies(first: $first, after: $after) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    edges {
+      node {
+        cik
+        ticker
+        name
+        filings(first: 5) {
+          edges {
+            node {
+              accessionNumber
+              formType
+              fiscalYear
+              fiscalPeriod
+              filedOn
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<CoverageQuery, CoverageQueryVariables>;
+export const SourcesDocument = new TypedDocumentString(`
+    query Sources($chunkIds: [ID!]!, $factIds: [ID!]!) {
+  chunks(ids: $chunkIds) {
+    id
+    text
+    section {
+      id
+      item
+      title
+    }
+    filing {
+      accessionNumber
+      formType
+      fiscalYear
+      fiscalPeriod
+      filedOn
+      url
+      company {
+        cik
+        ticker
+        name
+      }
+    }
+  }
+  facts(ids: $factIds) {
+    id
+    concept
+    label
+    value
+    unit
+    periodStart
+    periodEnd
+    fiscalYear
+    fiscalPeriod
+    accessionNumber
+    company {
+      cik
+      ticker
+      name
+    }
+  }
+}
+    `) as unknown as TypedDocumentString<SourcesQuery, SourcesQueryVariables>;

@@ -20,7 +20,7 @@ from filing_lens_api_client.types import UNSET, Unset
 from kombu import Connection, Queue
 from redis import Redis
 from seed_fake import CIK_BASE, seed_fake
-from sqlalchemy import column, func, select, table, text
+from sqlalchemy import column, func, select, table, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -38,7 +38,7 @@ from filinglens_api.main import app
 from filinglens_api.schemas import FormType, Page
 from filinglens_core import queues
 from filinglens_core.errors import InvalidInputError
-from filinglens_db.models import Company, Filing, IngestJobItem, ItemStatus
+from filinglens_db.models import Company, Filing, FilingStatus, IngestJobItem, ItemStatus
 from filinglens_db.seed import COMPANIES
 
 QUERY = {"query": "{ __typename }"}
@@ -199,6 +199,30 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
         ]
         revenue = await backend.list_facts(accession, 5, None, concept="us-gaap:Revenues")
         assert revenue.items == facts[:1]
+
+        # Lookups by id, as citations make them: in the order given, once each, unknown ids out.
+        company = await backend.get_company(filings[0].cik)
+        assert company is not None
+        assert await backend.get_company(1) is None
+        cited = await backend.get_chunks([chunks[4].id, "unknown", chunks[0].id, chunks[4].id])
+        assert [source.chunk for source in cited] == [chunks[4], chunks[0]]
+        assert (cited[0].section, cited[0].filing, cited[0].company) == (
+            sections[1],
+            filings[0],
+            company,
+        )
+        found = await backend.get_facts([facts[1].id, "12x", facts[0].id])
+        assert [(source.fact, source.company) for source in found] == [
+            (facts[1], company),
+            (facts[0], company),
+        ]
+        async with engine.begin() as connection:  # a filing that is no longer indexed
+            await connection.execute(
+                update(Filing)
+                .where(Filing.accession_number == accession)
+                .values(status=FilingStatus.EMBEDDED)
+            )
+        assert await backend.get_chunks([chunks[0].id]) == []
     finally:
         await engine.dispose()
 

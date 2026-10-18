@@ -352,7 +352,7 @@ UNAVAILABLE: list[tuple[str, Raise, str | None]] = [
     ("last model refused the key", lambda _: _raise(_final(failure("nvidia", 401))), None),
     ("too many answers in progress", _admitted_past_the_cap, "2"),
     ("reranker busy on a later page", _next_page_while_the_reranker_is_busy, "1"),
-    ("broker refused the job", _job_the_broker_refused, "5"),
+    ("broker refused or unreachable", _job_the_broker_refused, "5"),
 ]
 
 
@@ -476,3 +476,113 @@ def test_graphql_errors_carry_a_code_and_hide_unexpected_details(
     assert [(e.message, e.extensions) for e in unexpected.value.errors] == [
         ("Unexpected error.", {"code": "internal"})
     ]
+
+
+def test_graphql_sources_keep_the_order_given_and_link_each_citation(
+    graphql: GraphqlClient,
+) -> None:
+    sources = graphql.sources(chunk_ids=["c-2", "unknown", "c-1", "c-2"], fact_ids=["f-1"])
+    assert [
+        (chunk.id, chunk.section.item, chunk.filing.accession_number, chunk.filing.company.ticker)
+        for chunk in sources.chunks
+    ] == [
+        ("c-2", "7", "0000320193-25-000079", "AAPL"),
+        ("c-1", "1A", "0000320193-25-000079", "AAPL"),
+    ]
+    assert [(fact.id, fact.company.ticker) for fact in sources.facts] == [("f-1", "AAPL")]
+
+
+IDS: list[tuple[str, list[str], int | None]] = [
+    ("none", [], 0),
+    ("20, the most it takes", ["c-1", "f-1"] * 10, 1),
+    ("one of 64 characters", ["c" * 64], 0),
+    ("one with another control character", ["c\x01"], 0),
+    ("21", ["c-1"] * 21, None),
+    ("one of 65 characters", ["c" * 65], None),
+    ("an empty one", [""], None),
+    ("one with a NUL", ["c\x00"], None),
+]
+
+
+@pytest.mark.parametrize("kind", ["chunks", "facts"])
+@pytest.mark.parametrize(("ids", "found"), [row[1:] for row in IDS], ids=[row[0] for row in IDS])
+def test_graphql_lookups_take_0_to_20_ids_of_1_to_64_characters(
+    graphql: GraphqlClient, kind: str, ids: list[str], found: int | None
+) -> None:
+    chunk_ids, fact_ids = (ids, []) if kind == "chunks" else ([], ids)
+    if found is None:
+        with pytest.raises(GraphQLClientGraphQLMultiError) as refused:
+            graphql.sources(chunk_ids=chunk_ids, fact_ids=fact_ids)
+        assert [(e.message, e.extensions) for e in refused.value.errors] == [
+            (
+                "ids takes at most 20 ids, each 1 to 64 characters with no NUL.",
+                {"code": "invalid_input"},
+            )
+        ]
+    else:
+        sources = graphql.sources(chunk_ids=chunk_ids, fact_ids=fact_ids)
+        assert len(sources.chunks) + len(sources.facts) == found
+
+
+def test_graphql_links_resolve_off_the_citation_path_too(server_url: str, api_key: str) -> None:
+    # Within depth 6, a cited chunk's filing is where its listed chunks and facts are reached.
+    query = """{ filings(first: 1) { edges { node { company { ticker } } } }
+        chunks(ids: ["c-2"]) { filing {
+          chunks(first: 1) { edges { node { section { item } filing { accessionNumber } } } }
+          facts(first: 1) { edges { node { company { ticker } } } } } } }"""
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    body = response.json()
+    assert "errors" not in body, body["errors"]
+    filing = body["data"]["filings"]["edges"][0]["node"]
+    cited = body["data"]["chunks"][0]["filing"]
+    chunk = cited["chunks"]["edges"][0]["node"]
+    fact = cited["facts"]["edges"][0]["node"]
+    assert (
+        filing["company"]["ticker"],
+        chunk["section"]["item"],
+        chunk["filing"]["accessionNumber"],
+        fact["company"]["ticker"],
+    ) == ("AAPL", "1A", "0000320193-25-000079", "AAPL")
+
+
+def test_graphql_limits_pass_the_deepest_query_the_web_needs(graphql: GraphqlClient) -> None:
+    """Coverage (B2's coverage page and demo export) reaches depth 6 with no alias: the edge."""
+    coverage = graphql.coverage(first=1).companies
+    assert coverage.page_info.has_next_page
+    assert [edge.node.accession_number for edge in coverage.edges[0].node.filings.edges] == [
+        "0000320193-25-000079",
+        "0000320193-25-000073",
+    ]
+
+
+PAST_THE_LIMITS: list[tuple[str, str, str]] = [
+    (
+        "depth 7: Coverage plus each filing's company",
+        "query TooDeep { companies(first: 1) { edges { node { filings(first: 1) { edges { node {"
+        " company { ticker } } } } } } } }",
+        "'TooDeep' exceeds maximum operation depth of 6",
+    ),
+    (
+        "one alias",
+        "{ first: companies(first: 1) { edges { node { ticker } } } }",
+        "1 aliases found. Allowed: 0",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("query", "message"),
+    [row[1:] for row in PAST_THE_LIMITS],
+    ids=[row[0] for row in PAST_THE_LIMITS],
+)
+def test_graphql_refuses_a_query_past_its_limits_before_any_resolver_runs(
+    server_url: str, api_key: str, fake: Any, query: str, message: str
+) -> None:
+    fake.fail_with = RuntimeError("a resolver ran")  # any backend call would add an internal error
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    body = response.json()
+    assert (body.get("data"), [error["message"] for error in body["errors"]]) == (None, [message])
