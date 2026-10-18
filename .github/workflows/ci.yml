@@ -135,6 +135,7 @@ jobs:
           cache: npm
           cache-dependency-path: clients/ts/package-lock.json
       - run: make contracts-check
+      - run: npm --prefix clients/ts test
       - run: make contracts-breaking BASE="$BASE"
         env:
           BASE: ${{ needs.changes.outputs.base }}

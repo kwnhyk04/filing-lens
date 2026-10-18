@@ -21,7 +21,9 @@ from pydantic import BaseModel
 from filinglens_api.backend import (
     AnswerEvents,
     Backend,
+    ChunkSource,
     CompanyKey,
+    FactSource,
     FailureKey,
     FilingKey,
     ItemKey,
@@ -298,6 +300,29 @@ class FakeBackend:
         matching = [f for f in FACTS if concept in (None, f.concept)]
         items, next_cursor = _page(matching, _item_key, ItemKey, limit, cursor)
         return FactPage(items=items, next_cursor=next_cursor)
+
+    async def get_chunks(self, ids: Sequence[str]) -> list[ChunkSource]:
+        self._admit()
+        sections = {section.id: section for section in SECTIONS}
+        found = {
+            chunk.id: ChunkSource(
+                chunk=chunk,
+                section=sections[chunk.section_id],
+                filing=FILINGS[0],
+                company=COMPANIES[0],
+            )
+            for chunk in CHUNKS
+        }
+        return [found[i] for i in dict.fromkeys(ids) if i in found]
+
+    async def get_facts(self, ids: Sequence[str]) -> list[FactSource]:
+        self._admit()
+        found = {fact.id: FactSource(fact=fact, company=COMPANIES[0]) for fact in FACTS}
+        return [found[i] for i in dict.fromkeys(ids) if i in found]
+
+    async def get_company(self, cik: int) -> Company | None:
+        self._admit()
+        return next((company for company in COMPANIES if company.cik == cik), None)
 
     async def search(
         self,

@@ -17,6 +17,8 @@ class AnswerAnswer(BaseModel):
     degraded: bool
     citations: list["AnswerAnswerCitations"]
     usage: "AnswerAnswerUsage"
+    refused: bool
+    warnings: list[str]
 
 
 class AnswerAnswerCitations(BaseModel):

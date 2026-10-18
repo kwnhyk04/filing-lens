@@ -141,6 +141,37 @@ def _filing(row: Row[*tuple[Any, ...]]) -> Filing:
     )
 
 
+def _fact(row: Row[*tuple[Any, ...]], accession_number: str) -> FinancialFact:
+    return FinancialFact(
+        id=str(row.id),
+        concept=f"{row.taxonomy}:{row.concept}",
+        label=row.label,
+        value=float(row.value),
+        unit=row.unit,
+        period_start=row.period_start,
+        period_end=row.period_end,
+        fiscal_year=row.fiscal_year,
+        fiscal_period=row.fiscal_period,
+        accession_number=accession_number,
+    )
+
+
+class ChunkSource(BaseModel):
+    """A chunk with its section, filing and company: what a citation of it shows."""
+
+    chunk: Chunk
+    section: Section
+    filing: Filing
+    company: Company
+
+
+class FactSource(BaseModel):
+    """A fact with its company: what a citation of it shows."""
+
+    fact: FinancialFact
+    company: Company
+
+
 class Backend(Protocol):
     async def create_ingest_job(self, request: IngestJobRequest, idempotency_key: str) -> UUID:
         """Same key and body: the existing job. Same key, other body: IdempotencyKeyReusedError."""
@@ -176,6 +207,16 @@ class Backend(Protocol):
     async def list_facts(
         self, accession_number: str, limit: int, cursor: str | None, *, concept: str | None = None
     ) -> FactPage: ...
+
+    async def get_chunks(self, ids: Sequence[str]) -> list[ChunkSource]:
+        """Chunks of indexed filings among `ids`, once each in the order given; others left out."""
+        ...
+
+    async def get_facts(self, ids: Sequence[str]) -> list[FactSource]:
+        """Facts among `ids`, once each in the order given; others left out."""
+        ...
+
+    async def get_company(self, cik: int) -> Company | None: ...
 
     async def search(
         self,
@@ -445,23 +486,80 @@ class LiveBackend:
                 raise InvalidInputError(UNUSABLE_CURSOR)
             query = query.where(FactRow.id > last)
         rows = await self._rows(query.order_by(FactRow.id).limit(limit + 1))
-        facts = [
-            FinancialFact(
-                id=str(row.id),
-                concept=f"{row.taxonomy}:{row.concept}",
-                label=row.label,
-                value=float(row.value),
-                unit=row.unit,
-                period_start=row.period_start,
-                period_end=row.period_end,
-                fiscal_year=row.fiscal_year,
-                fiscal_period=row.fiscal_period,
-                accession_number=accession_number,
-            )
-            for row in rows
-        ]
+        facts = [_fact(row, accession_number) for row in rows]
         items, next_cursor = _page(facts, limit, lambda f: ItemKey(id=f.id))
         return FactPage(items=items, next_cursor=next_cursor)
+
+    async def get_chunks(self, ids: Sequence[str]) -> list[ChunkSource]:
+        query = (
+            select(
+                ChunkRow.id,
+                ChunkRow.section_id,
+                ChunkRow.text,
+                SectionRow.item,
+                SectionRow.title,
+                FilingRow.accession_number,
+                FilingRow.cik,
+                FilingRow.form_type,
+                FilingRow.filed_on,
+                FilingRow.period_end,
+                FilingRow.fiscal_year,
+                FilingRow.fiscal_period,
+                FilingRow.primary_document,
+                CompanyRow.ticker,
+                CompanyRow.name,
+            )
+            .join(SectionRow, SectionRow.id == ChunkRow.section_id)
+            .join(FilingRow, FilingRow.id == SectionRow.filing_id)
+            .join(CompanyRow, CompanyRow.cik == FilingRow.cik)
+            .where(ChunkRow.id.in_(ids), FilingRow.status == FilingStatus.INDEXED)
+        )
+        found = {
+            row.id: ChunkSource(
+                chunk=Chunk(id=row.id, section_id=str(row.section_id), text=row.text),
+                section=Section(id=str(row.section_id), item=row.item, title=row.title),
+                filing=_filing(row),
+                company=Company(cik=row.cik, ticker=row.ticker, name=row.name),
+            )
+            for row in await self._rows(query)
+        }
+        return [found[i] for i in dict.fromkeys(ids) if i in found]
+
+    async def get_facts(self, ids: Sequence[str]) -> list[FactSource]:
+        row_ids = [row_id for row_id in map(_row_id, ids) if row_id is not None]
+        query = (
+            select(
+                FactRow.id,
+                FactRow.taxonomy,
+                FactRow.concept,
+                FactRow.label,
+                FactRow.value,
+                FactRow.unit,
+                FactRow.period_start,
+                FactRow.period_end,
+                FactRow.fiscal_year,
+                FactRow.fiscal_period,
+                FactRow.accession_number,
+                CompanyRow.cik,
+                CompanyRow.ticker,
+                CompanyRow.name,
+            )
+            .join(CompanyRow, CompanyRow.cik == FactRow.cik)
+            .where(FactRow.id.in_(row_ids))
+        )
+        found = {
+            str(row.id): FactSource(
+                fact=_fact(row, row.accession_number),
+                company=Company(cik=row.cik, ticker=row.ticker, name=row.name),
+            )
+            for row in await self._rows(query)
+        }
+        return [found[i] for i in dict.fromkeys(ids) if i in found]
+
+    async def get_company(self, cik: int) -> Company | None:
+        query = select(CompanyRow.cik, CompanyRow.ticker, CompanyRow.name)
+        rows = await self._rows(query.where(CompanyRow.cik == cik))
+        return Company(cik=rows[0].cik, ticker=rows[0].ticker, name=rows[0].name) if rows else None
 
     async def search(
         self,

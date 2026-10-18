@@ -11,6 +11,16 @@ from .companies import (
     CompaniesCompaniesEdgesNode,
     CompaniesCompaniesPageInfo,
 )
+from .coverage import (
+    Coverage,
+    CoverageCompanies,
+    CoverageCompaniesEdges,
+    CoverageCompaniesEdgesNode,
+    CoverageCompaniesEdgesNodeFilings,
+    CoverageCompaniesEdgesNodeFilingsEdges,
+    CoverageCompaniesEdgesNodeFilingsEdgesNode,
+    CoverageCompaniesPageInfo,
+)
 from .enums import FiscalPeriod, FormType
 from .exceptions import (
     GraphQLClientError,
@@ -35,6 +45,15 @@ from .filings import (
     FilingsFilingsEdgesNodeSections,
     FilingsFilingsPageInfo,
 )
+from .sources import (
+    Sources,
+    SourcesChunks,
+    SourcesChunksFiling,
+    SourcesChunksFilingCompany,
+    SourcesChunksSection,
+    SourcesFacts,
+    SourcesFactsCompany,
+)
 
 __all__ = [
     "Answer",
@@ -49,6 +68,14 @@ __all__ = [
     "CompaniesCompaniesEdges",
     "CompaniesCompaniesEdgesNode",
     "CompaniesCompaniesPageInfo",
+    "Coverage",
+    "CoverageCompanies",
+    "CoverageCompaniesEdges",
+    "CoverageCompaniesEdgesNode",
+    "CoverageCompaniesEdgesNodeFilings",
+    "CoverageCompaniesEdgesNodeFilingsEdges",
+    "CoverageCompaniesEdgesNodeFilingsEdgesNode",
+    "CoverageCompaniesPageInfo",
     "Filings",
     "FilingsFilings",
     "FilingsFilingsEdges",
@@ -70,5 +97,12 @@ __all__ = [
     "GraphQLClientGraphQLMultiError",
     "GraphQLClientHttpError",
     "GraphQLClientInvalidResponseError",
+    "Sources",
+    "SourcesChunks",
+    "SourcesChunksFiling",
+    "SourcesChunksFilingCompany",
+    "SourcesChunksSection",
+    "SourcesFacts",
+    "SourcesFactsCompany",
     "Upload",
 ]

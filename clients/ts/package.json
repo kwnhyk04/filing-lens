@@ -5,9 +5,11 @@
   "exports": "./index.ts",
   "scripts": {
     "codegen": "openapi-typescript ../../contracts/openapi.json --output openapi.d.ts && graphql-codegen --config codegen.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test index.test.ts"
   },
   "dependencies": {
+    "@graphql-typed-document-node/core": "3.2.0",
     "openapi-fetch": "0.17.0"
   },
   "devDependencies": {
