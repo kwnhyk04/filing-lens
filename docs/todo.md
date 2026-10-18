@@ -8,15 +8,10 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 - [ ] (manual, step 7, optional before step 10) GitHub step 5 under Completed, step 7: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
 - [ ] Dependabot's npm group pull request #3 failed CI (public Actions page, 2026-10-18 03:07 Taipei). Not looked into yet.
-- [ ] (manual, user) Commit, push and open the PR for branch `fix-dangling-citation-markers` (uncommitted). It contains three fixes:
-  - validation fails a bracketed marker that names no source (x18's `[12]`);
-  - the eval refuses to judge a sentence that cites a number with no source, before any call;
-  - the nightly's artifact keeps a report that replaced a committed one (`--modified`).
-
-  `make test` (331 passed), `make lint`, `make typecheck` and `make actionlint` pass locally (activity-log.md, 2026-10-18).
-- [ ] (manual, after `fix-dangling-citation-markers` merges) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
+- [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
-  - Until the fix merges, each scheduled run replays the x18 judge error from the reply cache and exits 4. An exit-4 run is not complete, so the gate measures again.
+  - Before #7, a scheduled run would replay the x18 judge error from the reply cache and exit 4. An exit-4 run is not complete, so the gate measures again.
+  - The user reports what the runs showed. Claude Code reads no Actions page and runs no gh (AGENTS.md, Git).
   - A manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. The reply cache carries over, so after the fix only x18's regeneration and judge call go live. A cold cache spends about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit's Groq account) and about 25 Gemini requests.
   - After a complete manual run, a scheduled run with unchanged inputs shows SKIPPED and spends nothing. It still proves that the schedule fires.
 - [ ] (manual, optional) pre-commit keeps its cache on C: (`C:\Users\kwonhyuk\.cache\pre-commit`, gitleaks build included), because `PRE_COMMIT_HOME` is unset. AGENTS.md wants caches on H:: set `PRE_COMMIT_HOME=H:\.cache\pre-commit` for the user, then remove the old folder (found 2026-10-17).
@@ -38,13 +33,114 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - latency at scale.
 
   Nothing is tuned on golden v1's test results.
-- [ ] (before step 9) Chunks from a separate financial section (JPM, CVX, NVDA, PLD, XOM) are labeled with the last item (15 or 16). Detect the MD&A and financial-statement headings inside that section and label those chunks Items 7, 7A and 8, so citations show the right section.
-- [ ] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, demo snapshot shown when the backend is offline; Playwright tests pass. The BFF uses `clients/ts` (`createApiClient`, `executeGraphql`) with `API_KEY` only.
+- [ ] (with golden v2, or before step 10 if production is a fresh ingest; deferred by the user on 2026-10-18, formerly "before step 9") Label the separate financial sections' chunks as Items 7, 7A and 8, so citations show the right item.
+  - **Today:** four 10-Ks keep MD&A or the statements in a separate financial section that Items 7, 7A or 8 only point to, and the parser labels that content with the item heading before it:
+    - JPM `0001628280-26-008131`, Item 15: 813 chunks;
+    - CVX `0000093410-26-000078`, Item 14: 275 chunks;
+    - NVDA `0001045810-26-000021`, Item 15: 84 chunks, its Item 8 content;
+    - PLD `0001193125-26-051453`, Item 16: 201 chunks, its Item 8 content.
+
+    XOM is not in the corpus.
+  - **Needs:**
+    - detection of headings that do not start with "Item", robust to the section's own table of contents and to titles repeated as page headers;
+    - a data-model decision: a section is one range, unique per (filing, item); pointer sections 7, 7A and 8 already exist; and JPM's 7A sits inside its 7;
+    - a re-parse path, since none exists;
+    - fixtures;
+    - golden v2, since re-parsing dev removes 14 of golden v1's gold chunk ids and voids the reply cache.
+  - Findings: memory.md, 2026-10-18.
+- [ ] 9, PR B1, the API lookups (from main after PR A merges, branch `step-9-api-lookups`). Plan: section "PR B1".
+  - GraphQL `chunks(ids)` and `facts(ids)`:
+    - 1 to 20 well-formed ids, otherwise `invalid_input`;
+    - order kept;
+    - unknown ids, and chunks of filings that are not indexed, left out.
+  - `Chunk.section`, `Chunk.filing`, `Filing.company`, `FinancialFact.company`.
+  - `Backend.get_chunks` and `get_facts`: one SQL each in LiveBackend, plus FakeBackend.
+  - The `Coverage` and `Sources` operations, and `Answer` also selecting `refused` and `warnings`.
+  - clients/ts:
+    - `ApiError` (status, code, Retry-After, request id);
+    - `AbortSignal.any`;
+    - a per-call `X-Request-ID`;
+    - the trailing slash;
+    - `.ts` imports;
+    - `@graphql-typed-document-node/core` in dependencies.
+  - Tests: Python unit and integration, and clients/ts `node --test` in CI's contracts job.
+  - Done when every make check passes, the eval check shows no model call (memory.md, Preferences), and the user ships it.
+- [ ] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job. **B2 starts here**, so a fresh session can pick it up:
+  - **Start:** once PR B1 is merged, create branch `step-9-web` from main.
+  - **Read first:**
+    - this item;
+    - the approved plan `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-3f93-add-this-cheerful-spring.md`, sections "PR B2" (B2.1 to B2.6), "Containers" and "What you do by hand";
+    - memory.md "From the step 9 plan" and its 2026-10-18 Preferences;
+    - `web/node_modules/next/dist/docs/` before any Next code (`web/AGENTS.md`).
+  - **Decisions that hold:**
+    - `/demo` is public.
+    - The demo answers are the exam records n01, c02, c12, x02, x04, x12, o02 and t01 (no model call).
+    - The e2e suite runs against `web/e2e/mock-api.ts`.
+    - `@playwright/test` and `@axe-core/playwright` are approved.
+    - Axe, plus keyboard and phone specs.
+    - No model call, and containers only as memory.md allows.
+  - **First task:** the web settings (`lib/settings.ts`, `instrumentation.ts`) and the launcher (`web/scripts/run.mjs`), with their `node --test` tests.
+  - **Then:**
+    1. Session and sign-in, with `hash-password` and `session-secret`.
+    2. `proxy.ts` and the BFF routes.
+    3. Pages and styles.
+    4. `scripts/export_demo.py` and `web/demo/snapshot.json`. Run the mislabel guard, and list each demo citation's company, form, year and item.
+    5. Playwright.
+    6. The CI `web` job.
+    7. Docs.
+  - **Done when:**
+    - in web, `npm run typecheck`, `npm test`, `npm run build` and `npx playwright test` pass;
+    - every make check passes;
+    - `git diff --name-only main -- <EVAL_INPUTS>` is empty, so the eval is skipped;
+    - the user has reviewed the snapshot and ships it.
 - [ ] 10. Deploy: UI on Vercel, backend on the PC via Tailscale Funnel; phone test passes; 401 without API key; demo mode when the PC is off
+  - Notes from the step 9 plan (2026-10-18):
+    - **The sign-in limiter** lives in each Vercel instance's memory, so it does not hold across instances. The Vercel firewall rate-limit rule on `POST /login` (about 10 a minute per IP) covers that.
+    - **The limiter's client key:**
+      - **Locally:** no header is read. The server binds 127.0.0.1, every client is on this PC, and one shared bucket applies, so nothing a client sends changes the key.
+      - **On Vercel** (`VERCEL=1`, a system variable no request can set): `x-real-ip`. Vercel sets it to the connecting client's public IP, the same value as `x-forwarded-for`. Vercel overwrites any `X-Forwarded-For` a client sends and forwards no external IP, "to prevent IP spoofing". The trusted proxy that would allow a custom value is Enterprise-only (Vercel's request-headers doc, updated 2025-12-13).
+    - **FreightAudit's Vercel lessons** (its `docs/deploy.md` and `docs/memory.md`), as a checklist:
+      - only main deploys, through `git.deploymentEnabled` `{"**": false, "main": true}` in `web/vercel.json`, not an `ignoreCommand`;
+      - Root Directory `web`, with "Include files outside the root directory in the Build Step" on, since web imports `clients/ts`;
+      - the function region;
+      - Standard Protection, and Git Fork Protection on;
+      - a firewall rate-limit rule on `POST /login`;
+      - share only the production domain;
+      - after a merge, the user confirms the deploy from the merge commit's GitHub status;
+      - check that `crypto.argon2` works on Vercel's Node.
+    - **Other hardening:**
+      - the api refuses requests with a browser `Origin`;
+      - `/readyz` answers from a short cache behind Funnel;
+      - GraphQL depth limits, and introspection off in production.
 
 ## In Progress
 
-- [ ] 8. Instrumentation (branch `step-8-monitoring`, created 2026-10-18 from main at 5af8fcd when the user said to start Part B; the user committed it as 5c8cb70 and opened a pull request). Done when OpenTelemetry traces span services end to end, the dashboards and alerts are committed with promtool tests, and the screenshots are saved. Plan approved 2026-10-18 with the user's changes, then the design critique's revisions with three user conditions. Paused on 2026-10-18 at the user's request (context at 75%); a fresh session resumes from this checklist.
+- [ ] 9, PR A: GraphQL GET and WebSocket off, Retry-After fixed. It is the step 9 plan's first PR (approved 2026-10-18), on branch `fix/graphql-get-ws-retry-after` from main.
+  - **GET is off entirely**, since nothing sends GraphQL over GET:
+    - both generated clients POST;
+    - there is no GraphiQL page;
+    - web, evals, scripts and tests send no GET.
+  - **The change:** `main.py` keeps only the GraphQL router's POST route, which also drops the unused WebSocket route.
+  - **Done when:**
+    - a GET of `answer` gets 405 and spends nothing: `FakeBackend.answered` stays 0 and no answer token is taken;
+    - a POST of `answer` works;
+    - the app has no WebSocket route, and `/graphql` only POST;
+    - a parametrized test pins which 503s carry Retry-After (none when AI is switched off), and the API description and context.md say the same;
+    - `make codegen`, lint, typecheck, test, test-int, contracts-check, contracts-breaking and actionlint pass;
+    - the eval check shows no model call (memory.md, Preferences);
+    - the user ships it.
+  - [x] Built and checked on 2026-10-18 (uncommitted on the branch, with section 0's docs):
+    - tests first: the GET and route-table tests failed before the change;
+    - `make lint` and `make typecheck` (0 errors) clean;
+    - `make test` 345 passed and `make test-int` 31 passed;
+    - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean;
+    - `make contracts-check` lists only the two regenerated files (`contracts/openapi.json`, `clients/ts/openapi.d.ts`), unstaged until ship commits them;
+    - eval check: of the eval inputs, only `main.py` (router setup, description) and `problems.py` (the 503 doc text) differ from main. The harness imports neither `main` nor that code, so CI's eval replays main's keys.
+  - [ ] (user) Confirm that Actions → Caches lists an `eval-calls-*` entry, then ship with ship.
+
+## Completed
+
+- [x] 8. Instrumentation, merged as pull request #6 (febbe5f, git log, 2026-10-18). Its record follows (branch `step-8-monitoring`, created 2026-10-18 from main at 5af8fcd when the user said to start Part B; the user committed it as 5c8cb70 and opened a pull request). Done when OpenTelemetry traces span services end to end, the dashboards and alerts are committed with promtool tests, and the screenshots are saved. Plan approved 2026-10-18 with the user's changes, then the design critique's revisions with three user conditions. Paused on 2026-10-18 at the user's request (context at 75%); a fresh session resumes from this checklist.
   - **Plan file:** `C:\Users\kwonhyuk\.claude\plans\start-step-8-monitoring-iridescent-sedgewick.md`. It holds the approved Part B plan and, at its end, "Revisions from the design critique".
   - **The approved Part B plan, with the critique's revisions folded in:**
     - **What runs where:**
@@ -179,10 +275,14 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Docs: `docs/monitoring.md`, README, context, memory, activity log (2026-10-18). After the live check: the screenshots, the capture, and any label name it corrects.
   - [x] CI fix (2026-10-18, uncommitted): the PR's eval job stopped at startup, because `ApiSettings` had lost the empty-means-off rule for `OTEL_EXPORTER_OTLP_ENDPOINT` (validator name clash; memory.md). Validators renamed and a test added; `make lint`, `make typecheck` and `make test` (326) pass.
   - [x] Added to this change set (user, 2026-10-18, uncommitted): the docs say CI runs on GitHub and step 7 is merged, with its steps 3 and 4 confirmed, and the nightly cron moved to 19:17 UTC (`make actionlint` passes).
-  - [ ] The user commits and pushes the fix and these additions to `step-8-monitoring`; CI reruns on the same pull request with every job green.
+  - [x] The user committed and pushed the fix and these additions, and the pull request merged as #6 (febbe5f, git log).
 
-## Completed
+- [x] The x18 fix, merged as #7 (f58524b, git log, 2026-10-18):
+  - validation fails a bracketed marker that names no source (x18's `[12]`);
+  - the eval refuses to judge a sentence that cites a number with no source, before any call;
+  - the nightly's artifact keeps a report that replaced a committed one (`--modified`).
 
+  `make test` (331 passed), `make lint`, `make typecheck` and `make actionlint` passed locally (activity-log.md, 2026-10-18).
 - [x] GraphQL answer guards and the SSE in-flight cap (2026-10-18, merged as #5): GraphQL answers take REST's 10-a-minute bucket, budget and 30 s limit through the same code, and an answer counts in flight from admission. `make test` 289 passed, `make test-int` 29 passed.
 - [x] 7. CI/CD (design doc prompt 7). **Merged as pull request #1 (2026-10-18): CI #1 failed on the floor problem fixed with Wilson intervals; CI #2 on its next push and CI #3 on the push to main passed (public Actions page, read 2026-10-18 03:07 Taipei).** **Plan approved 2026-10-17 with all 8 recommendations and five user additions; built and checked locally the same day.** Done when actionlint passes and a test PR shows every job green, with `make contracts-check` and `make contracts-breaking` (against main) among the jobs.
   - **Manual (user, on GitHub):**

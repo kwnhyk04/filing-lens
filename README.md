@@ -146,4 +146,11 @@ Known weaknesses, with v2 ideas (nothing here is tuned on test results):
 - **Judge:** the follow-up check passed one natural unsupported sentence (t07). Calibrate on a larger, human-labeled set of natural negatives.
 - **Scale:** retrieval latency at about 250k chunks (`make seed-fake`), and ingestion timing at 500 filings.
 
+## Known limitations
+
+- **Section labels in four 10-Ks:** JPM, CVX, NVDA and PLD keep MD&A or the financial statements in a separate financial section, which their Items 7, 7A or 8 only point to.
+  - The parser labels that content with the item heading before it: JPM under Item 15, CVX under Item 14, and NVDA and PLD under Items 15 and 16 for their Item 8 content. That is 1,373 of the 11,263 chunks.
+  - The UI shows the item as stored.
+  - The fix waits for the next corpus: relabeling changes chunk ids that golden v1 freezes (`docs/memory.md`, 2026-10-18).
+
 Layout: `services/` (api, ingest), `packages/` (core, db, retrieval, llm, sec_client, telemetry), `contracts/` (exported OpenAPI and GraphQL), `clients/` (generated), `web/`, `evals/`, `infra/`. See `docs/context.md` for the design and `docs/todo.md` for the build plan.

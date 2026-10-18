@@ -365,6 +365,51 @@ From the nightly x18 fix (2026-10-18; branch `fix-dangling-citation-markers`, us
   - Where: `user_prompt` is where the harness and calibrate both build the judge's prompt. Its text for every other answer, `judge.SYSTEM` and `judge.SCHEMA` are unchanged, so the calibration stands.
   - Test: `test_a_number_without_a_source_errors_before_any_judge_call`, on the textual recording's `[12]`. It failed before the change (a judge call was made).
 
+From the step 9 plan (2026-10-18; approved plan: `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-3f93-add-this-cheerful-spring.md`, revision 2):
+
+- 2026-10-18: The financial-section bug (todo.md, formerly "before step 9") is deferred to the next corpus: golden v2, or before step 10 if production is built by a fresh ingest (user decision).
+  - What happened: planning step 9 had to say whether to fix it first. An agent re-parsed and re-chunked the 30 cached 10-Ks offline with the repo's parser (the dev Postgres was stopped, so no SQL ran). The result matched the seeded data: 11,263 chunks, and all 90 golden pool candidates of JPM, CVX, NVDA and PLD reproduced exactly.
+  - Why defer:
+    - A code-only fix changes nothing step 9 shows, because the UI shows the dev database.
+    - Re-parsing dev removes 14 of golden v1's gold chunk ids (x09, x10, x19), because chunk ids hash the item. Every local eval would then exit 3 until golden v2.
+    - Re-parsing also changes the index hash, so every cached router and primary reply would be void. The answer and judge prompts show `Item {item}`, so judge calls would go live too.
+    - CI and the nightly restore corpus-v1, and `services/ingest` is not an eval input, so they gain nothing from an early fix.
+    - The fix itself needs a data-model decision. A section is one range, unique per (filing, item); all four filings already have pointer sections 7, 7A and 8; and JPM's market-risk part sits inside its MD&A. So correct labels probably mean a migration.
+  - What we did: todo.md holds the findings. README and context.md name the four filings. The step 9 demo export refuses any cited chunk inside the four sections, and the UI shows the item as stored.
+- 2026-10-18: Correction to the 2026-10-15 entry on separate financial sections (Known Issues). The cached filings show:
+  - 4 filings, not 5. XOM is not in the corpus; COP replaced it.
+  - JPM (`0001628280-26-008131`) keeps MD&A, market risk and the statements under Item 15: 813 of its 938 chunks.
+  - CVX (`0000093410-26-000078`) keeps them under **Item 14**, not 15 or 16: 275 chunks.
+  - NVDA (`0001045810-26-000021`) and PLD (`0001193125-26-051453`) have real Items 7 and 7A. Only their Item 8 content sits in Item 15 (84 chunks) and Item 16 (201 chunks).
+  - In all, 1,373 chunks, 12.2% of the corpus.
+  - Why the parser does it: the financial section's headings ("Management's discussion and analysis", "Consolidated...", "Notes to...") never start with "Item", so they stay in whichever item heading comes before them.
+- 2026-10-18: Step 9 ships as three pull requests, each from main after the one before merges (user decisions):
+  - **A:** GraphQL over GET off, the unused WebSocket route off, and the Retry-After description fixed.
+  - **B1:** the API lookups by id and links (the step's "resolvers"), the contracts, and the `clients/ts` fixes.
+  - **B2:** the web, BFF, sign-in, demo snapshot, Playwright and axe, and the CI web job.
+  - Why split (user): each diff stays reviewable, the API change is verified on its own, and a fresh session can take B2.
+  - Other decisions:
+    - `/demo` is public and linked from the login page.
+    - The demo answers are 8 records from the exam report `evals/reports/2026-10-17.json`, so no model call is made.
+    - The Playwright suite runs against a mock API that replays the demo snapshot.
+    - Dependencies approved: `@playwright/test` and `@axe-core/playwright` (web devDependencies, exact pins released at least 7 days before).
+- 2026-10-18: GraphQL takes POST only (PR A). User rule: GET stays only if something uses it.
+  - What happened: Strawberry's `GraphQLRouter` registers GET, POST and WebSocket routes. A GET could run `answer` and spend model quota, and the WebSocket route was mounted with no Subscription type.
+  - Why off:
+    - nothing sends GraphQL over GET: both generated clients POST, there is no GraphiQL page (`graphql_ide=None`), and web, evals, scripts and tests send none;
+    - grep found no WebSocket or subscription use.
+  - What we did:
+    - `main.py` keeps only the router's POST route (`graphql_router`), so a GET gets 405 from routing before the key check, the rate limit or a resolver.
+    - Tests: a GET of `answer` spends nothing (no backend call, no answer token) and a POST works; the router has one POST route and no WebSocket route.
+    - Best option: one filter covers both routes, with no Strawberry setting that would leave the route mounted.
+- 2026-10-18: The 503 Retry-After rules were written from the code (PR A).
+  - What happened: the API description and the 503 response doc said every 503 carries Retry-After, but `ai_unavailable` has none when AI is switched off, or when the last model refused the key, has no credits or was retired.
+  - What we did:
+    - Read every 503 raise site (budget.check, LiveBackend, providers.failure with `_final`, Answerer.admit, search paging, the ingest publish).
+    - Rewrote the description and the doc.
+    - Added `test_a_503_carries_retry_after_only_when_waiting_helps`: 12 rows, each raised by the production code and sent through the REST route.
+  - Why it matters: the BFF reads "no Retry-After" as "switched off, show the saved answers".
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -372,6 +417,20 @@ From the nightly x18 fix (2026-10-18; branch `fix-dangling-citation-markers`, us
 - 2026-10-13: Markdown filenames use kebab-case (for example `docs/migrations.md`).
 - 2026-10-17: Never read the user's GitHub token or Git Credential Manager, even for a read-only call (user). Artifact and job-log downloads need authentication (401 and 403 without it), so the user downloads such files and gives a path. Runs, jobs and PR comments are public.
 - 2026-10-18: When a cost estimate grows before a live model call, ask the user first, even on the free tier (user). This followed the twin judge replay: its estimate grew from about 1.8k to about 3.5k tokens, and the call went ahead after only saying so.
+- 2026-10-18: Shipping (user rule, stated 2026-10-18, "since 16:00 today"; also in AGENTS.md, Git):
+  - Claude Code never commits, pushes, opens or merges pull requests, and never runs gh (the GitHub CLI) for anything, read-only commands included.
+  - The user ships with the ship command (`H:\Projects\projects\_tools\ship.ps1`). It commits, pushes, opens the pull request, waits for every check and merges only when all pass.
+  - When you need a CI or pull request result, ask the user.
+- 2026-10-18: Before a PR is reported ready, show that CI's eval makes no model call (user rule, step 9 plan). Either:
+  - its diff touches no `EVAL_INPUTS` path, so the eval is skipped; or
+  - it touches only code the answer suite never runs, so every cache key is the one main's last eval saved. The user then confirms the repo's `eval-calls-*` Actions cache still exists.
+  - If any miss is possible, stop and give the estimate first. A cold dev ci run is about 28K gpt-oss-20b tokens and about 20 Gemini requests.
+- 2026-10-18: Weaknesses found while planning get their own PR before the step, like bugs (user, step 9 plan). An unused route is turned off rather than tested, unless something uses it.
+- 2026-10-18: UI accessibility is checked by axe on every page plus keyboard-only and phone-width specs (user). Reason: axe misses focus order and keyboard-only flows.
+- 2026-10-18: Container go for step 9 (user), also during Triage Copilot's exam window, since neither use makes a model call:
+  - Uses: Testcontainers for `make test-int`, and FilingLens's own dev Postgres (`filinglens-postgres-1`) for `make demo-export`.
+  - Conditions: check ports first; start and stop only FilingLens's own containers, by exact name; never touch FreightAudit's or Triage Copilot's containers or volumes; never stop Docker.
+  - Model calls stay off. Any other container needs a new go.
 
 ## Solved Problems
 
@@ -509,6 +568,10 @@ None yet.
   - A changed validation outcome changes the regeneration prompt, so only that call goes live.
   - Model variation found in one run stays in the cache until a key changes, such as c15's refusal in run 39068994474.
 - 2026-10-18: A nightly job log shows no reply text: evals log at WARNING, and "answer failed validation, regenerating" is info level. A question's failing sentences are only in the run's Actions cache, which cannot be downloaded, and in the report JSON of the artifact.
+
+- 2026-10-18: FastAPI 0.143 keeps an included router as an `_IncludedRouter` entry in `app.routes` (lazy inclusion), so the included routes do not show in `app.routes`.
+  - What happened: PR A's first route-table test found no `/graphql` route at all.
+  - What we did: the test reads the router object we filter (`main.graphql_router.routes`) instead of FastAPI's internals. The 405 test covers the routing behaviour.
 
 ## Rejected Approaches
 

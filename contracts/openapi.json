@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "FilingLens API",
-    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 and 503 carry `Retry-After`; 429 also carries `RateLimit-Limit` and `RateLimit-Remaining`.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
+    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`\nonly when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker\nthat refused a job), and `ai_unavailable` when today's AI budget is used up (until 00:00 UTC),\nthe budget cannot be checked, or the model providers are rate limited. An `ai_unavailable`\nwithout `Retry-After` does not clear by waiting: AI is switched off on this server, or the last\nmodel refused the key, has no credits left or was retired. GraphQL's `answer` reports its limits\nas errors with `extensions.code`, without headers. GraphQL takes POST only.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -122,7 +122,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -132,7 +132,7 @@
             },
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }
@@ -290,7 +290,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -300,7 +300,7 @@
             },
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }
@@ -461,7 +461,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -471,7 +471,7 @@
             },
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }
@@ -664,7 +664,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -674,7 +674,7 @@
             },
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }
@@ -866,7 +866,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -876,7 +876,7 @@
             },
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }
@@ -994,10 +994,10 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }
@@ -1171,10 +1171,10 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later.",
+            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "headers": {
               "Retry-After": {
-                "description": "Seconds to wait before retrying.",
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
                 }

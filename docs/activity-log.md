@@ -15,6 +15,104 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-18: PR A, GraphQL POST only and the 503 Retry-After rules
+
+- Changes:
+  - **Why:** step 9 planning found three API weaknesses, which the user put in their own PR before step 9:
+    - a GraphQL GET could run `answer`;
+    - an unused GraphQL WebSocket route was mounted;
+    - the description said every 503 sends Retry-After.
+  - **What we did, in order:**
+    1. Created branch `fix/graphql-get-ws-retry-after` from main. Section 0's doc changes are on it, uncommitted.
+    2. Checked who uses GraphQL over GET: nothing. Both generated clients POST, there is no GraphiQL page, and web, evals, scripts and tests send none. Grep found no WebSocket or subscription code. So GET goes off entirely, by the user's rule.
+    3. Read every 503 raise site: `budget.check`, `LiveBackend.stream_answer` and `.search`, `create_ingest_job`, `providers.failure` with `answering._final`, and `Answerer.admit`.
+    4. Wrote three tests first in `services/api/tests/test_contract.py`:
+       - the 503 table (12 rows, each raised by the production code and sent through `POST /v1/answers`);
+       - a GET of `answer` (405, nothing spent), then a POST that works;
+       - the router's route table.
+
+       On unchanged code the GET test failed (the GET answered with 200) and the route test failed. The table passed, because it pins behaviour that already existed.
+    5. `main.py`: `graphql_router` keeps only its POST route, which drops GET and WebSocket together. The Errors paragraph now says which 503s carry Retry-After.
+    6. `problems.py`: the 503 response doc says the same, with its own Retry-After header text.
+    7. Ran `make codegen`: the description reached `contracts/openapi.json` and `clients/ts/openapi.d.ts`.
+- Small events, in order:
+  - **Route test:** its first version found no `/graphql` route. FastAPI 0.143 keeps included routers as `_IncludedRouter` entries (memory.md, Known Issues), so the test now reads `main.graphql_router.routes`.
+  - **pyright:** it refused `list[APIRoute]` for the router's `routes` (list invariance). The filter now tests `methods` without an `isinstance`, so the list keeps its type.
+  - **The test's `IngestJobRequest`:** `form_types=["10-K"]` failed pyright, because it wants `FormType`; it now uses the enum.
+  - **Imports:** ruff found the import block unsorted, and `ruff check --fix` sorted it.
+  - **Mistake:** my import edit lost the space in `JOB = IngestJobRequest(` (the edit's text ended in a space). `ruff format --check` caught it, and I put the space back with an edit.
+  - **contracts-check:** it fails locally on the two regenerated files because they are unstaged. That is its designed local behaviour. Nothing was staged, since the user ships with ship.
+  - **Tool containers:** `make contracts-breaking` and `make actionlint` ran their pinned tool images with `--rm`. They are part of the approved plan's checks, with no ports and no model call.
+  - **Testcontainers:** they ran for `make test-int` (the user's go), and none was left afterwards.
+- Files: services/api/src/filinglens_api/{main,problems}.py, services/api/tests/test_contract.py, contracts/openapi.json, clients/ts/openapi.d.ts, docs/{context,memory,todo,activity-log}.md
+- Validation:
+  - `make lint` clean, and `make typecheck` 0 errors;
+  - `make test` 345 passed, and `make test-int` 31 passed;
+  - `make contracts-breaking`: no breaking change;
+  - `make actionlint`: clean;
+  - no model call.
+- Outstanding: the user confirms the `eval-calls-*` Actions cache, then ships PR A. B1 starts from main after the merge.
+
+### 2026-10-18: Step 9 planned; AGENTS.md shipping rule
+
+- Changes:
+  - **What happened (user request):**
+    - Add a shipping line to AGENTS.md.
+    - Plan step 9 (review UI and demo mode), reading and investigating only. The plan was to cover the "(before step 9)" financial-section bug and FreightAudit's web lessons (its `docs/memory.md` and `docs/deploy.md`, read only), and to leave `_design-reference` unopened.
+    - Plan mode was on, so every edit waited for the plan's approval.
+  - **Investigation, in order:**
+    1. Read AGENTS.md, context.md, memory.md, todo.md and the activity log. Git showed #6 (step 8) and #7 (the x18 fix) merged, while the docs still listed them as in progress and uncommitted.
+    2. Read FreightAudit's `docs/memory.md` and `docs/deploy.md`. Nothing was changed there.
+    3. Ran three Explore agents in parallel: the web and TS client, the API surface, and the financial-section bug. The bug agent found the dev Postgres stopped, so instead of querying it, it re-parsed the 30 cached 10-Ks offline with the repo's parser. It reproduced all 11,263 chunks.
+    4. A Plan agent critiqued the draft against Next 16's bundled docs, and its fixes went in:
+       - the CSP nonce needs per-request rendering;
+       - a strict origin rule;
+       - timeouts for page reads and the stream;
+       - GraphQL `internal` counts as offline;
+       - cut: a traceparent, a readyz probe, and hash-password editing `.env`.
+    5. Read Vercel's request-headers doc for the sign-in limiter's client key.
+  - **Findings:**
+    - the API has no lookup by id, and citations carry only ids, quotes and URLs;
+    - GraphQL over GET can run `answer`;
+    - an unused WebSocket route is mounted;
+    - the API description says every 503 sends Retry-After, which is wrong when AI is switched off;
+    - `clients/ts` drops error codes and the caller's signal;
+    - the financial-section bug touches 4 filings and 1,373 chunks. CVX's content sits under Item 14, XOM is not in the corpus, and re-parsing dev would remove 14 of golden v1's gold chunk ids.
+  - **User decisions:**
+    - the bug is deferred;
+    - `/demo` is public;
+    - the three API weaknesses get their own PR first: GET off if nothing uses it, the WebSocket route off, and the Retry-After description fixed with a test;
+    - Playwright and axe, plus keyboard and phone specs.
+  - **The first ExitPlanMode was refused, with 8 revisions:**
+    1. new AGENTS.md text: no gh at all;
+    2. PR B split into B1 (API) and B2 (web), with B2's start written in todo.md;
+    3. check GET use before turning it off;
+    4. prove before each ship that CI's eval replays with 0 misses;
+    5. the demo export refuses mislabeled chunks, and the README lists the four filings;
+    6. a container go with conditions;
+    7. SESSION_SECRET written straight into `.env`;
+    8. step 10 notes on the limiter and its client header.
+
+    Revision 2 was approved.
+  - **Then, in order:**
+    1. AGENTS.md got the shipping line.
+    2. memory.md got the decisions, the correction and the preferences.
+    3. context.md got the status and the corrected limit.
+    4. README got a Known limitations section.
+    5. todo.md got PR A, B1 and B2, the step 10 notes and the rewritten financial-section item, and step 8 and #7 moved to Completed.
+- Small events, in order:
+  - **GateGuard:** the hook asked for facts before the plan file's first write and its full rewrite, before the first PowerShell command, and before the first edit of each changed file. Each retry passed. Expected hook behavior.
+  - **PowerShell quoting:** a `docker ps --format` template naming the label `com.docker.compose.project` failed in PowerShell 5.1 ("function "com" not defined"), because it drops the inner double quotes, as FreightAudit's memory warns. Re-ran with `--filter label=com.docker.compose.project=filinglens` and no template. No container of the project was running.
+  - **Encoding:** the first read of the exam report in PowerShell showed mojibake ("Chinaâ€™s"), because `Get-Content` read UTF-8 as ANSI. Re-read with `-Encoding UTF8`.
+  - **Mistake, corrected in revision 2:** the first plan said a cold PR eval costs about 22K gpt-oss-20b tokens and 16 Gemini requests. That is the 20-question figure; the 25-question ci subset costs about 28K tokens and about 20 requests (memory.md).
+  - **No fail-on-miss mode:**
+    - the harness's `estimate` counts every answer as uncached;
+    - a local replay differs from CI: some cache entries exist only in CI, and o03 ranks differently on the dev database.
+    - So the zero-miss check rests on the cache-key inputs, plus the user confirming that the Actions cache exists.
+- Files: AGENTS.md, README.md, docs/{context,memory,todo,activity-log}.md
+- Validation: documentation only. No code changed, no model call, no container started.
+- Outstanding: PR A (todo.md, In Progress), then B1 and B2.
+
 ### 2026-10-18: The eval refuses to judge a sentence that cites a number with no source
 
 - Changes:
