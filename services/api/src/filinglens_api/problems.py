@@ -124,9 +124,15 @@ PROBLEMS: dict[int, dict[str, Any]] = {
     ),
     502: problem_doc("A model provider failed (upstream_error)."),
     503: problem_doc(
-        "Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false"
-        " or today's AI token budget is used up (ai_unavailable). Retry later.",
-        RETRY_AFTER,
+        "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false,"
+        " today's AI token budget used up or not checkable, rate-limited providers, or a last"
+        " model that refused the key, has no credits or was retired.",
+        {
+            "Retry-After": _int_header(
+                "Seconds to wait before retrying. Absent when waiting will not help: AI is"
+                " switched off, or the last model refused the key, has no credits or was retired."
+            )
+        },
     ),
 }
 

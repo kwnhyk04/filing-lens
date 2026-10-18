@@ -4,12 +4,16 @@ The app runs over an in-memory backend, so these tests pin the contract (paths, 
 bodies, status codes, headers and problem shapes), not the data layer.
 """
 
+import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
+from contextlib import asynccontextmanager
 from datetime import date
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
 
+import httpx2
 import pytest
 from filing_lens_api_client import AuthenticatedClient, errors
 from filing_lens_api_client.api.answers import create_answer, stream_answer
@@ -33,8 +37,22 @@ from filing_lens_api_client.types import UNSET, Response, Unset
 from filing_lens_graphql_client import Client as GraphqlClient
 from filing_lens_graphql_client import GraphQLClientGraphQLMultiError
 from filing_lens_graphql_client.enums import FiscalPeriod, FormType
+from redis.exceptions import RedisError
+from starlette.routing import WebSocketRoute
 
-from filinglens_core.errors import OverloadedError, RateLimitedError, UpstreamError
+from filinglens_api import backend, schemas
+from filinglens_api.answering import Answerer, _final
+from filinglens_api.backend import LiveBackend, SearchKey, encode_cursor
+from filinglens_api.limits import answer_limits_for
+from filinglens_api.main import app, graphql_router
+from filinglens_core.errors import (
+    FilingLensError,
+    OverloadedError,
+    RateLimitedError,
+    UpstreamError,
+)
+from filinglens_llm import budget
+from filinglens_llm.providers import failure
 
 JOB = IngestJobRequest(ciks=[320193], form_types=["10-K", "10-Q"], since=date(2024, 1, 1))
 QUESTION = AnswerRequest(question="What was revenue in fiscal 2025?", company_ids=[320193])
@@ -236,6 +254,162 @@ def test_overload_is_a_503_with_retry_after_even_for_streams(
     response = OPERATIONS[operation](user)
     _problem(response, 503, "overloaded")
     assert response.headers["Retry-After"] == "3"
+
+
+class _Hget:
+    """Redis for budget.check: today's tokens, or a Redis error when there are none."""
+
+    def __init__(self, used: bytes | None = None) -> None:
+        self.used = used
+
+    async def hget(self, key: str, field: str) -> bytes | None:
+        if self.used is None:
+            raise RedisError("Redis is down.")
+        return self.used
+
+
+class _Begun:
+    """An engine whose transaction gives the job a new id and takes any statement."""
+
+    @asynccontextmanager
+    async def begin(self) -> AsyncIterator[Any]:
+        async def execute(statement: Any) -> Any:
+            return SimpleNamespace(scalar_one_or_none=uuid4)
+
+        yield SimpleNamespace(execute=execute)
+
+
+class _Refused:
+    """A discover queue whose broker refuses every publish."""
+
+    def publish(self, job_id: Any, ciks: Any) -> None:
+        raise OSError("Connection refused.")
+
+
+async def _raise(exc: FilingLensError) -> None:
+    raise exc
+
+
+async def _admitted_past_the_cap(_: pytest.MonkeyPatch) -> None:
+    pipeline = Answerer(cast(Any, None), cast(Any, None), cast(Any, None), max_inflight=0)
+    pipeline.admit(schemas.AnswerRequest(question="What was revenue?"))
+
+
+async def _next_page_while_the_reranker_is_busy(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def degraded(*args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(hits=[], degraded=True)
+
+    monkeypatch.setattr(backend, "search", degraded)
+    settings = SimpleNamespace(
+        retrieval_embedding_column="embedding",
+        rerank_model="reranker",
+        rerank_candidates=50,
+        rerank_max_tokens=512,
+        rerank_timeout_ms=500,
+    )
+    cursor = encode_cursor(SearchKey(score=1.0, chunk_id="c-1", index_version="embedding"))
+    live = LiveBackend(cast(Any, None), cast(Any, None), cast(Any, settings))
+    await live.search("revenue", 10, cursor)
+
+
+async def _job_the_broker_refused(_: pytest.MonkeyPatch) -> None:
+    request = schemas.IngestJobRequest(
+        ciks=[320193], form_types=[schemas.FormType.FORM_10K], since=date(2024, 1, 1)
+    )
+    await LiveBackend(cast(Any, _Begun()), cast(Any, _Refused())).create_ingest_job(request, "k")
+
+
+# Every 503 the API sends, raised by the production code that raises it, and its Retry-After:
+# seconds to wait, or None when waiting will not help (the header is then absent).
+type Raise = Callable[[pytest.MonkeyPatch], Coroutine[Any, Any, object]]
+UNAVAILABLE: list[tuple[str, Raise, str | None]] = [
+    (
+        "ai switched off",
+        lambda _: budget.check(cast(Any, None), enabled=False, daily_tokens=1),
+        None,
+    ),
+    (
+        "ai switched off, no answerer",
+        lambda _: LiveBackend(cast(Any, None), cast(Any, None)).stream_answer(
+            schemas.AnswerRequest(question="What was revenue?")
+        ),
+        None,
+    ),
+    (
+        "budget used up",
+        lambda _: budget.check(cast(Any, _Hget(b"5")), enabled=True, daily_tokens=5),
+        "until 00:00 UTC",
+    ),
+    (
+        "budget cannot be checked",
+        lambda _: budget.check(cast(Any, _Hget()), enabled=True, daily_tokens=5),
+        "30",
+    ),
+    ("providers rate limited", lambda _: _raise(_final(failure("groq", 429))), "60"),
+    ("providers ask to wait", lambda _: _raise(_final(failure("groq", 429, "7"))), "7"),
+    ("last model out of credits", lambda _: _raise(_final(failure("nvidia", 402))), None),
+    ("last model retired", lambda _: _raise(_final(failure("nvidia", 410))), None),
+    ("last model refused the key", lambda _: _raise(_final(failure("nvidia", 401))), None),
+    ("too many answers in progress", _admitted_past_the_cap, "2"),
+    ("reranker busy on a later page", _next_page_while_the_reranker_is_busy, "1"),
+    ("broker refused the job", _job_the_broker_refused, "5"),
+]
+
+
+@pytest.mark.parametrize(
+    ("raise_it", "retry_after"),
+    [row[1:] for row in UNAVAILABLE],
+    ids=[row[0] for row in UNAVAILABLE],
+)
+def test_a_503_carries_retry_after_only_when_waiting_helps(
+    user: AuthenticatedClient,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    raise_it: Raise,
+    retry_after: str | None,
+) -> None:
+    with pytest.raises(FilingLensError) as raised:
+        asyncio.run(raise_it(monkeypatch))
+    fake.fail_with = raised.value
+    response = create_answer.sync_detailed(client=user, body=QUESTION)
+    _problem(response, 503, raised.value.code)
+    if retry_after is None:
+        assert "Retry-After" not in response.headers
+    elif retry_after == "until 00:00 UTC":
+        assert 0 < int(response.headers["Retry-After"]) <= 86_400
+    else:
+        assert response.headers["Retry-After"] == retry_after
+
+
+def test_graphql_takes_post_only_so_a_get_of_answer_spends_nothing(
+    server_url: str, fake: Any, api_key: str
+) -> None:
+    taken: list[str] = []
+
+    async def answer_limits() -> None:  # records the answer token a real limit would take
+        taken.append("answers")
+
+    kept = app.dependency_overrides[answer_limits_for]
+    app.dependency_overrides[answer_limits_for] = lambda: answer_limits
+    query = '{ answer(question: "What was revenue?") { answer } }'
+    headers = {"X-API-Key": api_key}
+    try:
+        got = httpx2.get(f"{server_url}/graphql", params={"query": query}, headers=headers)
+        assert got.status_code == 405
+        assert got.json()["code"] == "method_not_allowed"
+        assert (fake.answered, taken) == (0, [])
+        posted = httpx2.post(f"{server_url}/graphql", json={"query": query}, headers=headers)
+        assert posted.status_code == 200
+        assert posted.json()["data"]["answer"]["answer"]
+        assert (fake.answered, taken) == (1, ["answers"])
+    finally:
+        app.dependency_overrides[answer_limits_for] = kept
+
+
+def test_graphql_mounts_one_post_route_and_no_websocket_route() -> None:
+    routes = graphql_router.routes
+    assert [sorted(getattr(route, "methods", None) or []) for route in routes] == [["POST"]]
+    assert not [route for route in routes if isinstance(route, WebSocketRoute)]
 
 
 def test_validation_problem_points_at_each_bad_input(user: AuthenticatedClient) -> None:

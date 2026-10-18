@@ -39,7 +39,13 @@ normal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the
 under `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.
 
 **Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.
-429 and 503 carry `Retry-After`; 429 also carries `RateLimit-Limit` and `RateLimit-Remaining`.
+429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`
+only when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker
+that refused a job), and `ai_unavailable` when today's AI budget is used up (until 00:00 UTC),
+the budget cannot be checked, or the model providers are rate limited. An `ai_unavailable`
+without `Retry-After` does not clear by waiting: AI is switched off on this server, or the last
+model refused the key, has no credits left or was retired. GraphQL's `answer` reports its limits
+as errors with `extensions.code`, without headers. GraphQL takes POST only.
 
 **Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`
 until it is null.
@@ -100,8 +106,15 @@ add_problem_handlers(app)
 app.add_middleware(BodyLimit)
 app.include_router(routes.admin)
 app.include_router(routes.router)
+graphql_router = GraphQLRouter(
+    schema, graphql_ide=None, include_in_schema=False, context_getter=get_context
+)
+# POST only: a GET could spend on `answer`, and no subscription needs the WebSocket route.
+graphql_router.routes = [
+    route for route in graphql_router.routes if getattr(route, "methods", None) == {"POST"}
+]
 app.include_router(
-    GraphQLRouter(schema, graphql_ide=None, include_in_schema=False, context_getter=get_context),
+    graphql_router,
     prefix="/graphql",
     dependencies=[Depends(routes.require_api_key), Depends(rate_limit)],
 )

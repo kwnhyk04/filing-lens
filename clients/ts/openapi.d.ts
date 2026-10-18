@@ -638,10 +638,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -738,10 +738,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -818,10 +818,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -901,10 +901,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -995,10 +995,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -1083,10 +1083,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
@@ -1171,10 +1171,10 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), a dependency is down, or model calls are off: AI_ENABLED=false or today's AI token budget is used up (ai_unavailable). Retry later. */
+            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
-                    /** @description Seconds to wait before retrying. */
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
                     "Retry-After"?: number;
                     [name: string]: unknown;
                 };
