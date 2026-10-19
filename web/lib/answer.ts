@@ -55,6 +55,13 @@ export function locateQuote(text: string, quote: string): { start: number; end: 
 /** GraphQL's form enum as the SEC writes it: FORM_10K reads 10-K. */
 export const formLabel = (form: string) => form.replace(/^FORM_(\d+)([A-Z])$/, "$1-$2");
 
+// A number with a $ before it, or a %, "percent", a scale or USD after it; a bare year never matches.
+const FIGURE =
+  /(\$\s?\d(?:[\d,]*\d)?(?:\.\d+)?(?:\s(?:thousand|million|billion|trillion)\b)?|\d(?:[\d,]*\d)?(?:\.\d+)?(?:\s?%|\s(?:percent|thousand|million|billion|trillion|USD)\b))/;
+
+/** Splits text around its figures: even indexes are text, odd indexes are figures. */
+export const splitFigures = (text: string): string[] => text.split(FIGURE);
+
 /** Splits an answer at its `[n]` markers; n becomes a number when a citation n exists. */
 export function splitMarkers(answer: string, citations: number): (string | number)[] {
   return answer.split(/\[(\d+)\]/).map((part, i) => {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createSseParser, formLabel, locateQuote, splitMarkers } from "./answer.ts";
+import { createSseParser, formLabel, locateQuote, splitFigures, splitMarkers } from "./answer.ts";
 
 function parse(chunks: string[]): string[] {
   const data: string[] = [];
@@ -49,4 +49,23 @@ test("GraphQL's form enum reads as the SEC form", () => {
 
 test("markers become citation numbers; one past the citations stays text", () => {
   assert.deepEqual(splitMarkers("Up [1]. Down [2][3].", 2), ["Up ", 1, ". Down ", 2, "", "[3]", "."]);
+});
+
+test("figures: amounts with a currency, a unit or a scale split out; years, dates and item numbers stay text", () => {
+  const text = "In fiscal 2025, revenue was 416,161,000,000 USD, $402,836,000,000, $3,855 million and 56 percent, up 12.5%.";
+  assert.deepEqual(splitFigures(text), [
+    "In fiscal 2025, revenue was ",
+    "416,161,000,000 USD",
+    ", ",
+    "$402,836,000,000",
+    ", ",
+    "$3,855 million",
+    " and ",
+    "56 percent",
+    ", up ",
+    "12.5%",
+    ".",
+  ]);
+  const none = "A 10-K for fiscal year 2026, Item 7, filed on September 15, 2025.";
+  assert.deepEqual(splitFigures(none), [none]);
 });

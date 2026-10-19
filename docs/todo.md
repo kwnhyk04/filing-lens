@@ -102,17 +102,38 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - **Images:** the GHCR packages public, or the PC logged in to ghcr.io (the manual item above).
     - **Decisions:** whether production reuses the dev database or ingests afresh (a fresh ingest makes the financial-section labelling item due first); and a go, with a cost estimate, for `AI_ENABLED=true` and a live answer smoke once Triage Copilot's exam ends (2026-10-20). Claude Haiku's credits expire on 2026-11-10.
     - **Checks only the user can make:** the phone test on a real phone, and the deploy status on each merge commit.
+- [ ] (candidates from the mockup, 2026-10-19; user decides, none started) What the mockup shows and the app does not have. The mockup style round restyled the existing screens only. Sizes are rough: small is a short web-only change, medium a PR that touches the API or its contracts, large several PRs or new storage. API facts were checked in `contracts/schema.graphql`, `clients/ts/openapi.d.ts` and `packages/db` on 2026-10-19.
+  - **History** (every question, how it was read, answered or refused, tabs by kind, search, answer time): large; needs API work. No table holds questions or answers today, so it needs one (expand, migrate, contract), a write per answer, a keyset list route, and a privacy decision, since questions are user text and no log keeps them now.
+  - **Company and fiscal-year pickers on Ask** (company chips with "+ Add company", a fiscal-year select): medium; needs API work. The answer request takes only `question` and the router finds companies and years itself, so the pickers need request fields that narrow the router. The company list already comes from GraphQL `companies`.
+  - **"Read as" chips** (how the router read the question: kind, company, years, the figures asked for): small to medium; needs API work. The answer carries no router output; it would need a new `Answer` field (a contract change).
+  - **Number-check table** ("Numbers checked against XBRL data": each figure, the reported fact, matches or not): medium; needs API work. The validator's per-figure matches are not in the answer; they would be a new `Answer` field.
+  - **Filings totals** (companies, sections, searchable passages, reported numbers): small; needs API work, since no count is exposed (no `totalCount`, no stats route). The demo could take them from `make demo-export`.
+  - **Filings detail panel** (a company's sections, fiscal year end, indexed date, "Ask about" it, its filings link) with a selected row: medium; little API work. `Filing.sections` and `Filing.periodEnd` already exist in GraphQL; the indexed date does not.
+  - **Filings status pills** ("Indexed", or "Needs a look" with a reason, such as XOM's CIK change): small to medium; needs API work, since no per-filing ingest status is exposed.
+  - **Filings search** ("Find a company or ticker"): small to medium; needs API work for a search across pages, since a filter over the 20 companies shown would mislead.
+  - **Ingest jobs** (admin): large; needs API work. `POST /v1/ingest-jobs` and `GET /v1/ingest-jobs/{job_id}` exist for `ADMIN_API_KEY`, but there is no list route, and the web has no admin role and holds only the normal key. Giving the web the admin key is a security decision.
+  - **Source panel pager** ("Source 1 of 2", previous, next and close; one source at a time): small; no API work. It would replace the scrolling list of every source.
+  - **"Copy answer with sources" and "New question" buttons** under the answer: small; no API work.
+  - **Timings in the answer's header** (first words, complete, sources, "every number checked"): small; some API work. The browser can time the stream; "every number checked" needs the number check.
+  - **Source panel details** (the filing's fiscal year end; "How it was found", the search and the passage's rank; a passage's table drawn as a table with its numbers highlighted): medium; some API work. `Filing.periodEnd` exists; the rank and the search used are not in the answer.
+  - **Header coverage line** ("30 companies · latest 10-Ks"): small; needs API work for a live count, or the snapshot's count on the demo.
+  - **Landing sections** (a hero with call-to-action buttons and a sample answer, "How an answer is made", "Evaluation results" from the eval report, "Architecture" with its stack, nav links including GitHub): medium; no API work. Static text plus the eval report at build time, like the demo snapshot.
 
 ## In Progress
 
-- [ ] Design round (user, 2026-10-19): the web app's own visual design, on branch `step-9-design` from main at 9b829a6 (B3 merged), uncommitted until the user ships it. `_design-reference` was not opened, listed or searched (user rule: the design is compared with one made separately).
-  - [x] The current screens studied from screenshots against the mock API, then the direction written in `docs/design.md`: paper and ink, a serif answer, citations as pills, sources as exhibit cards with the quote highlighted, the answer beside its sources from 64rem (memory.md).
-  - [x] Applied in `web/app/globals.css`, with wrappers and class names only in the markup. Every text, role, test id and focus order is unchanged.
-  - [x] Screenshots: `npm run screens` (after a build) writes 18 screens in light, dark and phone width to `docs/screenshots/ui/`, 54 files, each after an axe check.
-  - [x] Checks: web typecheck clean, `npm test` 78, build with no warning, `npx playwright test` 61 three runs in a row, gitleaks on the changed files clean, the eval skipped.
-  - [ ] (user) Compare it with the design made separately, then ship it.
+- [ ] Mockup style (user, 2026-10-19): the user compared the design round with the separately made mockup and chose the mockup's style, with one change: a bigger sources panel. On branch `step-9-mockup-style` from main at 73bb1c0 (the design round merged as #15), uncommitted until the user ships it. The mockup was read only, from `_design-reference/filinglens/mockup` (12 screenshots and a README), and nothing was copied into the repo.
+  - [x] Restyled every screen in the mockup's look (`web/app/globals.css`): Ask from the mockup's Ask, Coverage from its Filings look, the demo from its landing look (`docs/design.md`).
+  - [x] The change: from 64rem the sources panel takes half the width, runs the full height of the window and scrolls on its own; a citation's jump brings its highlighted words into view in the panel (`components/quote-in-view.tsx`). Test first: red twice (the panel did not fill the window, then the quote stayed out of view), then green.
+  - [x] Figures in the answer under the highlighter (`splitFigures`, its unit test first).
+  - [x] The mockup's features the app does not have, listed under Pending as candidates.
+  - [x] Screenshots retaken: 18 screens in light, dark and phone width in `docs/screenshots/ui/`, each after an axe check.
+  - [x] Checks: listed in activity-log.md (2026-10-19, mockup style).
+  - [x] Fix before shipping (user): at the top of Ask the panel's last 100 px or so sat below the window. It now sticks where it starts, below the header and the title, and ends 16 px above the window's bottom edge (`--panel-top` in `globals.css`). Test first: the panel test, now in a 1024 by 360 window, checks the gap below the panel on the first screen (red: -95.5 px, then 16). Retaken: the 10 screenshots that changed, the five Ask answers with sources in light and dark. Checks: activity-log.md (2026-10-19, the panel fix).
+  - [ ] (user) Ship it.
 
 ## Completed
+
+- [x] Design round (user, 2026-10-19): the web app's own visual design, "paper and ink", built on `step-9-design` from main at 9b829a6, merged as #15 (73bb1c0, git log). `_design-reference` was not opened until the user had compared the two designs. The user then chose the separately made mockup's style, with one change (In Progress, mockup style); `docs/design.md` keeps paper and ink as a dated section.
 
 - [x] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, the demo snapshot when the backend is offline, Playwright passing (done 2026-10-19). Four PRs: A (#8), B1 (#9), B2 (#10) and B3 (below, merged as 9b829a6). Nothing else in step 9 remains: the plan's by-hand steps are done, since `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are in `.env`. Every open item left belongs to step 10, a later corpus or a watch.
 - [x] 9, PR B3: B2's three deferred review minors (2026-10-19), built on branch `step-9-web-b3` from main at e2b581d, merged on 2026-10-19 (9b829a6, git log; its subject names no PR number). Each test first (memory.md):
