@@ -85,7 +85,7 @@ dev = [
     "filing-lens-graphql-client",
     "httpx2>=2.13.1",
     # 6.156 and later ship a Rust extension that this PC's Application Control blocks.
-    "hypothesis>=6.155.7,<6.156",
+    "hypothesis>=6.155.7,<6.170",
     "openapi-python-client>=0.29.1",
     "pre-commit>=4.7.0",
     "psycopg[binary]>=3.3.6",
