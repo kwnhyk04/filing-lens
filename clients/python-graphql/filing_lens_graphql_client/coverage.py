@@ -36,7 +36,12 @@ class CoverageCompaniesEdgesNode(BaseModel):
 
 
 class CoverageCompaniesEdgesNodeFilings(BaseModel):
+    page_info: "CoverageCompaniesEdgesNodeFilingsPageInfo" = Field(alias="pageInfo")
     edges: list["CoverageCompaniesEdgesNodeFilingsEdges"]
+
+
+class CoverageCompaniesEdgesNodeFilingsPageInfo(BaseModel):
+    has_next_page: bool = Field(alias="hasNextPage")
 
 
 class CoverageCompaniesEdgesNodeFilingsEdges(BaseModel):

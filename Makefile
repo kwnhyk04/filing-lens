@@ -30,7 +30,7 @@ SUBSET ?= full
 # Git Bash would rewrite /repo into a Windows path before Docker sees it.
 export MSYS_NO_PATHCONV = 1
 
-.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures corpus-dump corpus-restore actionlint monitoring-check secrets-scan vuln-scan image-scan
+.PHONY: dev down test test-int lint typecheck migrate seed seed-real seed-fake check-parallel-hnsw codegen contracts-check contracts-breaking eval audit label calibrate models smoke record-fixtures demo-export corpus-dump corpus-restore actionlint monitoring-check secrets-scan vuln-scan image-scan
 
 dev: ## build and start the stack; returns once every service is healthy
 	$(COMPOSE) up -d --build --wait
@@ -102,6 +102,9 @@ smoke: ## live: three questions through the answer pipeline (calls the models; n
 
 record-fixtures: ## live: re-record the model replies the answering tests replay
 	uv run --env-file .env python scripts/record_llm_fixtures.py
+
+demo-export: ## dev Postgres: the public demo's snapshot, web/demo/snapshot.json (rebuild the web after)
+	uv run --env-file .env python scripts/export_demo.py
 
 corpus-dump: ## dev stack: golden v1's corpus for CI, rows of the public SEC tables only (evals/corpus.py)
 	uv run --env-file .env python -m evals.corpus dump

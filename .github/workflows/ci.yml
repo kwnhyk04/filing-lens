@@ -140,6 +140,48 @@ jobs:
         env:
           BASE: ${{ needs.changes.outputs.base }}
 
+  # The web's types, unit tests and build, then Playwright against the mock API; no secrets.
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            clients/ts/package-lock.json
+      - run: npm ci # its postinstall installs clients/ts's runtime dependencies
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - id: playwright
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright.outputs.version }}
+      - run: npx playwright install --with-deps --only-shell chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+          if-no-files-found: ignore
+
   security:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -318,7 +360,7 @@ jobs:
   # Runs only on main, after migrations and every check; the build reuses the scanned layers.
   publish:
     if: github.event_name == 'push' && !cancelled() && !failure()
-    needs: [lint, unit, integration, contracts, security, migrations, eval, images]
+    needs: [lint, unit, integration, contracts, web, security, migrations, eval, images]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
@@ -353,7 +395,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, lint, unit, integration, contracts, security, migrations, eval, images, publish]
+    needs: [changes, lint, unit, integration, contracts, web, security, migrations, eval, images, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}

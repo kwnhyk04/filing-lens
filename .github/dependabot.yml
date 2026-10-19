@@ -32,6 +32,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # openapi-typescript 7.13.0, its newest release, accepts only typescript ^5.x, so a typescript 7 bump fails npm ci with ERESOLVE.
+    # Lift this once an openapi-typescript release accepts typescript 7.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]

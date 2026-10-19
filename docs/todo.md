@@ -7,7 +7,11 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 ## Pending
 
 - [ ] (manual, step 7, optional before step 10) GitHub step 5 under Completed, step 7: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
-- [ ] Dependabot's npm group pull request #3 failed CI (public Actions page, 2026-10-18 03:07 Taipei). Not looked into yet.
+- [ ] Dependabot's npm group pull request #3 failed CI (public Actions page, 2026-10-18 03:07 Taipei).
+  - Cause (user, 2026-10-19): it bumps typescript 5.9.3 to 7.0.2, and openapi-typescript 7.13.0, its newest version, accepts only `typescript ^5.x`. So `npm ci` stops with ERESOLVE in the contracts job.
+  - [x] Fixed at the source on `step-9-web-b2` (2026-10-19): the npm entry in `.github/dependabot.yml` ignores typescript's major updates, with a comment saying why and when to lift it (memory.md). No `--legacy-peer-deps` or `--force`.
+  - [ ] (user, after B2 merges) Check that Dependabot's next npm group pull request keeps typescript at 5.x and passes CI. Close #3 if it still holds typescript 7.
+  - [ ] (later) Lift the ignore once an openapi-typescript release accepts typescript 7.
 - [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
   - Before #7, a scheduled run would replay the x18 judge error from the reply cache and exit 4. An exit-4 run is not complete, so the gate measures again.
@@ -48,9 +52,21 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - fixtures;
     - golden v2, since re-parsing dev removes 14 of golden v1's gold chunk ids and voids the reply cache.
   - Findings: memory.md, 2026-10-18.
+- [ ] (B3, user, 2026-10-19) Three minors from B2's final review, moved to B3. The other two, the proxy secret and the snapshot's line endings, were fixed on B2's branch before shipping (memory.md):
+  - **Leaving Ask:** a header link unmounts Ask, but its answer stream keeps running (up to 30 s, and one of the 10 answers a minute). Fix: an AbortController aborted on unmount and before each question.
+  - **Sources failure:** a failed `/api/sources` leaves the cards unnamed with no note, and a network error there relabels a finished answer "The web server could not be reached." Fix: a "Sources could not be loaded" note, and the catch-all for the stream only.
+  - **Log label:** a browser that leaves mid-request logs `api_call` with `failure: offline` at warn. Fix: log `AbortError` and `ResponseAborted` as `client_aborted` at info.
+- [ ] (watch, found 2026-10-19 on B2's branch) One Playwright run got "Internal Server Error" right after sign-in, in the setup project, so 48 specs did not run. Cause not confirmed; it has not come back since.
+  - That run's log held the web servers' stderr (Playwright pipes it by default), but only its summary lines were read, and a later run overwrote the log (memory.md). Their stdout was not piped then.
+  - If it comes back, the run's output holds every line both web servers print, each prefixed `[WebServer]`:
+    - stdout (piped since that run): `signed_in` when the sign-in action finishes, or `sign_in_failed` or `sign_in_locked` when it does not. Then `api_call` with `route: "ping"`, the Ask page's first API call, with `status`, `ms` and `request_id`; when that call fails, it comes at warn with `failure` and the exception's name (`error`).
+    - stderr: Next's own `⨯ Error: ...` line with its stack and `digest`, and `api_key_rejected` on a 401 or 403.
+  - So the output shows which side failed: sign-in, the Ask page's API call, or Next itself. Read the whole log then, not only its summary lines.
+- [ ] (step 10) Batch GraphQL's single-row lookups (a DataLoader per request). B1 estimated that one query within depth 6 can still make about 6,000 of them: about 4,000 `get_chunks` and 2,000 `get_company`, under a cited chunk's filing with `first: 100` (memory.md, 2026-10-18). Batching also ends the two lookups per chunk when `section` and `filing` are both selected. Details: the step 10 notes, "Fan-out".
 - [ ] (flaky test, found 2026-10-18; user decides) `test_twenty_workers_never_exceed_eight_sec_requests_a_second` fails now and then on this PC.
   - The misses: its tightest 9-request span came in 60 and 75 ms under 1 s, against `JITTER_S = 0.05` (`services/ingest/tests/test_pipeline.py:80`). It failed 2 of 4 full `make test-int` runs, and 1 of 5 runs alone.
   - Not B1: the code it runs is identical to main.
+  - 2026-10-19, on B2's branch (its code still identical to main): it failed in the full `make test-int` (tightest span 0.919 s against the 0.95 s floor) and passed when run alone right after.
   - Options: widen `JITTER_S` (the calibration knob) in its own small PR, or leave it, since CI runs it on Linux.
 - [ ] (B1 review minors, 2026-10-18; deferred, user decides) Found by B1's final review, not fixed:
   - **Combined filings:** facts listed under a filing take the filing's CIK (`Filing.facts`). So a combined filing's facts of another registrant would show the wrong company. Latent: none of the 30 companies share a filing.
@@ -61,8 +77,8 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - Nothing pins that facts of a non-indexed filing stay found.
   - **Empty IN:** non-numeric fact ids still run an empty IN query.
   - **`@types/node`:** it comes in at 26 (through `@types/ws`), while CI runs Node 24.
-- [ ] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job. **B2 starts here**, so a fresh session can pick it up:
-  - **Start:** once PR B1 is merged, create branch `step-9-web` from main.
+- [ ] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job. **In progress since 2026-10-19; see Progress at the end of this item.** B2 started here, so a fresh session can pick it up:
+  - **Start:** branch `step-9-web-b2` (the user's name), made on 2026-10-19 from main at a2037af, after B1 merged as #9. Everything on it is uncommitted.
   - **Read first:**
     - this item;
     - the approved plan `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-3f93-add-this-cheerful-spring.md`, sections "PR B2" (B2.1 to B2.6), "Containers" and "What you do by hand";
@@ -105,6 +121,22 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - every make check passes;
     - `git diff --name-only main -- <EVAL_INPUTS>` is empty, so the eval is skipped;
     - the user has reviewed the snapshot and ships it.
+  - **Progress** (2026-10-19). Tick each box as it lands, so a fresh session resumes at the first open one:
+    - [x] The Dependabot fix (its own item above).
+    - [x] B1's leftovers in `clients/ts`: `executeGraphql` throws `ApiError` on a 200 whose body is not JSON or is null, and `Coverage` selects its filings' `pageInfo { hasNextPage }` (then `make codegen`).
+    - [x] Settings, `instrumentation.ts` and the launcher, with tests.
+    - [x] Password, session, `next=`, origin rule, limiter, `hash-password` and `session-secret`, with tests (`lib/guards.ts` holds `next=`, the origin rule and the limiter).
+    - [x] Error classification, the SSE parser and the quote locator, with tests (`lib/errors.ts`, `lib/answer.ts`). `npm test` in web: 72 passed.
+    - [x] `proxy.ts`, `next.config.ts`, the BFF routes and sign-in (`lib/server.ts` holds the server-only glue).
+    - [x] Pages and styles: live, demo, offline, errors. `next build` passes with no settings in the environment.
+    - [x] `scripts/export_demo.py`, `make demo-export`, its tests, and `web/demo/snapshot.json`: 8 answers, 30 companies, every citation resolved, none in the four mislabeled sections. `filinglens-postgres-1` was started for it and stopped after.
+    - [x] Playwright: the mock API, the config and the specs. 49 passed, three runs in a row (4 workers).
+    - [x] The CI `web` job (`make actionlint` clean).
+    - [x] Docs, then every check from the user's 2026-10-19 prompt.
+    - [x] Final review (fresh subagent): no Critical; 3 Important and 2 re-graded Minors fixed test first (memory.md). After the fix pass: `npm test` 76, `npx playwright test` 57, three runs in a row.
+    - [x] Two review minors fixed before shipping (user, 2026-10-19), each test first: the proxy secret and the snapshot's line endings; the snapshot file changed only CRLF to LF (memory.md). Then `make lint` and `make typecheck` clean, `make test` 370, web typecheck clean, `npm test` 77, build with no warning, `npx playwright test` 57, gitleaks on the changed files clean.
+    - [ ] (user) The steps below, review `web/demo/snapshot.json` and the citation list (activity-log.md, 2026-10-19), then ship.
+  - **For the user, in their own PowerShell window** (Claude Code never runs them): `npm --prefix web run hash-password`, then paste the printed line into `.env`; `npm --prefix web run session-secret`; add `API_URL=http://127.0.0.1:4100` to `.env`.
 - [ ] 10. Deploy: UI on Vercel, backend on the PC via Tailscale Funnel; phone test passes; 401 without API key; demo mode when the PC is off
   - Notes from the step 9 plan (2026-10-18):
     - **The sign-in limiter** lives in each Vercel instance's memory, so it does not hold across instances. The Vercel firewall rate-limit rule on `POST /login` (about 10 a minute per IP) covers that.
@@ -133,7 +165,11 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] 9, PR B1, the API lookups. **Handed off mid-way on 2026-10-18, then finished by a fresh session the same day. Built and checked, uncommitted, and waiting for the user to ship it.**
+- [ ] 9, PR B2: built and checked on `step-9-web-b2` (2026-10-19), uncommitted. Its item, decisions and Progress checklist are under Pending ("9, PR B2"). It waits for the user: the snapshot review, the two secrets in `.env`, and shipping.
+
+## Completed
+
+- [x] 9, PR B1, the API lookups, merged as #9 (a2037af, git log). Its record follows. **Handed off mid-way on 2026-10-18, then finished by a fresh session the same day.**
   - **Where:** branch `step-9-api-lookups`, made from main at 35902f3 (PR A merged as #8). Everything below is uncommitted.
   - **Plan:** the approved plan file, section "PR B1".
   - **Spec, with one change from the plan:** a lookup takes **0 to 20** ids, not 1 to 20.
@@ -214,10 +250,8 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make contracts-breaking` reports nothing breaking, and `make actionlint` is clean;
       - `make test-int`: 30 passed, and `test_twenty_workers_never_exceed_eight_sec_requests_a_second` failed by 10 ms. That test is flaky on this PC today: alone it passed 4 of 5. It is unrelated to B1 (memory.md, Pending).
     - **Eval check:** of the eval inputs, still only `backend.py`, `graph.py` and `main.py` differ from main, with no change the eval runs.
-  - [ ] (user) Confirm that Actions → Caches lists an `eval-calls-*` entry, then ship with ship.
+  - [x] (user) Confirm that Actions → Caches lists an `eval-calls-*` entry, then ship with ship. Merged as #9 (a2037af).
   - **Done when:** every make check passes, the eval check shows no model call (memory.md, Preferences), and the user ships it.
-
-## Completed
 
 - [x] 9, PR A: GraphQL GET and WebSocket off, Retry-After fixed, merged as #8 (35902f3, git log, 2026-10-18). It was the step 9 plan's first PR (approved 2026-10-18), on branch `fix/graphql-get-ws-retry-after` from main.
   - **GET is off entirely**, since nothing sends GraphQL over GET:

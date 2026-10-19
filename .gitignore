@@ -14,3 +14,8 @@ node_modules/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+# Playwright: results, reports, the e2e session state, and the Playwright MCP's captures.
+test-results/
+playwright-report/
+web/e2e/.auth/
+.playwright-mcp/

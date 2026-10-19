@@ -5,3 +5,5 @@ clients/** text eol=lf
 # The golden set's manifest holds sha256 hashes of these files; LF keeps them equal everywhere.
 evals/golden/** text eol=lf
 evals/calibration/** text eol=lf
+# The demo snapshot (`make demo-export`) stays LF in every checkout, so its bytes match everywhere.
+web/demo/** text eol=lf

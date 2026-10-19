@@ -117,6 +117,9 @@ query Coverage($first: Int! = 20, $after: String) {
         ticker
         name
         filings(first: 5) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
             node {
               accessionNumber
