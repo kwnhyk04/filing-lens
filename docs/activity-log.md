@@ -15,6 +15,34 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-19: Design round: the web app's own visual design, "paper and ink", with screenshots of every screen (uncommitted)
+
+- Changes:
+  - **Start:** main was clean at 9b829a6 (B3 merged). `git switch -c step-9-design`. The user's rules: the design must be my own, so `H:\Projects\projects\_design-reference` was not opened, listed or searched, and every search stayed inside the repo; no live model or SEC call; containers only by exact name (none were used); no commit.
+  - **Screenshot tool first:** `playwright.screens.config.ts` and `e2e/screens.ts` (`npm run screens`). It reuses the suite's three servers and sign-in, and shoots 18 screens in light, dark and phone width. The "before" set (54 shots, 6.9 MB) went to the scratchpad through `SCREENS_DIR`, to study the current UI.
+  - **Direction** (`docs/design.md`, new): paper and ink. A serif answer, citations as pills, sources as exhibit cards with muted passages and the cited words highlighted, the answer pinned beside its sources from 64rem, system fonts only, one blue accent, light and dark tokens.
+  - **Applied** in `web/app/globals.css`, rewritten. The markup gained only wrappers and class names (memory.md lists them); `sourceLabel` now builds both a card's heading and its `[n]` link's name.
+  - **Screenshots:** 54 in `docs/screenshots/ui/`, 8.6 MB, each after an axe check.
+  - **Docs:** context.md (components, the web's design, status), memory.md (decisions, rulings, a pitfall), todo.md (the design round's item; B3 marked merged), README (the design doc and `npm run screens`).
+- Small events, in order:
+  1. The light and dark tokens were checked with the WCAG formula (a node one-liner) before the CSS was written. Every candidate pair passed.
+  2. Round 1's screenshots showed four flaws: a gap between a citation pill and the punctuation after it; "Sources" about 37 px below "Answer"; the coverage table's mono CIKs sitting above the company names (cells aligned to their top); and no brand on the sign-in and error cards. Round 2 fixed all four (tighter pill padding, a computed offset, baseline-aligned cells, the lens mark on the cards).
+  3. The demo and offline pages are about 9,500 px tall, too small to judge once shrunk to fit. Pillow in a throwaway uv env (`--isolated --no-project --exclude-newer 2026-10-12`) cropped their tops for review, into the scratchpad.
+  4. axe was added to the screenshot run, so a screen is written only if it passes. All 54 passed, including states the suite does not audit (the offline banner, the draft, dark answers).
+  5. The set came to 13 MB, about 8.3 MB of it the six demo and offline full pages. The offline screen is now shot at the top only, since below its banner it is the demo page: 8.6 MB.
+  6. While drafting `docs/design.md`, the spacing scale it describes did not match the CSS (6, 10, 14 and 18 px values). The CSS moved to the 4 px scale, then everything was rebuilt and checked again.
+  7. The first draft of `docs/design.md` gave the lowest contrast as 4.92:1, a pair (labels on the citation pill) that the design never uses. It was corrected to 5.22:1 before the end.
+  8. The edit gate refused the first write of each new or first-touched file; each retry passed (expected behavior). The editor noted that `components/ask.tsx` had changed on disk: only CRLF line endings from the merge checkout (`core.autocrlf=true`), and the diff showed just the two class names.
+  9. After the report, the impeccable design hook (at Stop) flagged `.note`'s 3 px left border (`globals.css` L499) as a "side-tab", which it calls a tell of AI-made UIs. It was a real problem by the direction's own rule (no decoration), and three more elements carried the same stripe. So: banners and boxes became a tint with a hairline in their own color, a note took the draft's dashed outline, and the jumped-to card a full blue outline. Nothing was suppressed. The passage's thin quote rule stayed (typography, not a card's tab). Then everything was rebuilt and checked again, and the screenshots were taken again (memory.md, design.md).
+- Files: `web/app/globals.css`, `web/components/answer-view.tsx`, `web/components/ask.tsx`, `web/components/chrome.tsx`, `web/components/coverage-table.tsx`, `web/app/demo/page.tsx`, `web/package.json` (the `screens` script), `web/playwright.screens.config.ts` and `web/e2e/screens.ts` (new), `docs/design.md` (new), `docs/screenshots/ui/*.png` (54, new), docs (context, memory, todo, this log), `README.md`.
+- Validation:
+  - web, after the last CSS change (event 9): `npm run typecheck` clean; `npm test` 78 passed; `npm run build` with no warning; `npx playwright test` 61 passed, three runs in a row (16.0, 16.7 and 16.2 s); `npm run screens` 55 passed (54 screens and the sign-in setup), each screen through axe.
+  - gitleaks (`dir --redact`, the binary pre-commit built from its pinned rev v8.30.1) on each of the 69 changed or new files, the 54 screenshots included, after the docs were written: no leaks.
+  - Eval check: no tracked change and no untracked file under `EVAL_INPUTS`, so CI skips the eval.
+  - Not run (not asked, and no Python, contract or workflow file changed): `make lint`, `make typecheck`, `make test`, `make test-int`, `make contracts-check`, `make actionlint`.
+  - No live model or SEC call, and no container.
+- Outstanding: the user compares this design with the one made separately, then ships it.
+
 ### 2026-10-19: Step 9 PR B3: leaving Ask aborts its stream, a failed sources lookup gets a note, the client_aborted log label; docs tidied, step 9 done (uncommitted)
 
 - Changes:

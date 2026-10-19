@@ -132,7 +132,7 @@ export function Ask() {
 
   return (
     <>
-      <form onSubmit={ask} className="stack">
+      <form onSubmit={ask} className="stack ask-form">
         <label htmlFor="question">Your question</label>
         <textarea id="question" name="question" rows={3} required minLength={3} maxLength={1000} aria-describedby="question-help" />
         <p id="question-help" className="help">
@@ -166,7 +166,7 @@ export function Ask() {
         </section>
       )}
       {answer && (
-        <section aria-labelledby="answer-title" data-testid="answer">
+        <section className="result" aria-labelledby="answer-title" data-testid="answer">
           <h2 id="answer-title">Answer</h2>
           <AnswerView answer={answer} sources={sources} sourcesFailed={sourcesFailed} />
         </section>

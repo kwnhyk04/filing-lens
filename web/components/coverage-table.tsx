@@ -21,9 +21,9 @@ export function CoverageTable({ companies, first, next }: { companies: Company[]
             {companies.map((company) => (
               <tr key={company.cik}>
                 <th scope="row">
-                  {company.name} ({company.ticker})
+                  {company.name} <span className="ticker">({company.ticker})</span>
                 </th>
-                <td>{company.cik}</td>
+                <td className="cik">{company.cik}</td>
                 <td>
                   <ul className="filings">
                     {company.filings.edges.map(({ node: filing }) => (

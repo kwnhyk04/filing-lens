@@ -62,7 +62,7 @@ export async function DemoHeader({ page }: { page: "answers" | "coverage" }) {
 
 export function DemoBanner({ offline }: { offline: boolean }) {
   return (
-    <div className="banner" role="note" data-testid="demo-banner">
+    <div className={offline ? "banner offline" : "banner"} role="note" data-testid="demo-banner">
       {offline && (
         <p>
           <strong>The live service is offline,</strong> so you are seeing the saved demo.

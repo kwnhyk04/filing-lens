@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"lib/*.test.ts\" \"scripts/*.test.mjs\"",
     "e2e": "playwright test",
+    "screens": "playwright test -c playwright.screens.config.ts",
     "hash-password": "node scripts/hash-password.mjs",
     "session-secret": "node scripts/session-secret.mjs",
     "postinstall": "npm --prefix ../clients/ts ci --omit=dev --ignore-scripts --no-audit --no-fund"
