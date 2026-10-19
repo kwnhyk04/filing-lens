@@ -12,6 +12,12 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Fixed at the source on `step-9-web-b2` (2026-10-19): the npm entry in `.github/dependabot.yml` ignores typescript's major updates, with a comment saying why and when to lift it (memory.md). No `--legacy-peer-deps` or `--force`.
   - [ ] (user, after B2 merges) Check that Dependabot's next npm group pull request keeps typescript at 5.x and passes CI. Close #3 if it still holds typescript 7.
   - [ ] (later) Lift the ignore once an openapi-typescript release accepts typescript 7.
+- [ ] Dependabot follow-ups (user, 2026-10-19), on branch `fix/dependabot-follow-ups` from main at ab325a2 (B2 merged as #10). Uncommitted until the user ships it. No live model call.
+  - [x] The docker entry ignores the python image's minor and major updates, so only 3.12 patch releases and digest refreshes come. Its comment says why (a move to a new Python changes `.python-version`, the uv lock, CI and the image together) and when to lift it (memory.md).
+  - [x] The npm entry ignores `@types/node` 25 and up, since the app runs on Node 24. Its comment says to lift it when the runtime moves.
+  - [x] graphql 17.0.2 taken in `clients/ts`, so no graphql rule: every graphql peer range in its lock accepts `^17.0.0`, codegen changed no generated file's content, and the clients/ts tests pass (memory.md).
+  - [ ] (user) Ship it.
+  - [ ] (user, after the merge) Check that #2 (the Python 3.14 image) and #11 close or are replaced; next 16.4.0 can come back on its own. If #2 is still open after Dependabot's next docker run, the python rule did not work as expected (memory.md).
 - [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
   - Before #7, a scheduled run would replay the x18 judge error from the reply cache and exit 4. An exit-4 run is not complete, so the gate measures again.
@@ -76,7 +82,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - "No lookup on an empty list" has no test.
     - Nothing pins that facts of a non-indexed filing stay found.
   - **Empty IN:** non-numeric fact ids still run an empty IN query.
-  - **`@types/node`:** it comes in at 26 (through `@types/ws`), while CI runs Node 24.
+  - **`@types/node`:** it comes in at 26 (through `@types/ws`), while CI runs Node 24. Dependabot's `@types/node` rule (2026-10-19) does not cover it: with no `allow` option, version updates touch only direct dependencies, here web's.
 - [ ] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job. **In progress since 2026-10-19; see Progress at the end of this item.** B2 started here, so a fresh session can pick it up:
   - **Start:** branch `step-9-web-b2` (the user's name), made on 2026-10-19 from main at a2037af, after B1 merged as #9. Everything on it is uncommitted.
   - **Read first:**
