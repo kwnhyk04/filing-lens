@@ -7,17 +7,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 ## Pending
 
 - [ ] (manual, step 7, optional before step 10) GitHub step 5 under Completed, step 7: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
-- [ ] Dependabot's npm group pull request #3 failed CI (public Actions page, 2026-10-18 03:07 Taipei).
-  - Cause (user, 2026-10-19): it bumps typescript 5.9.3 to 7.0.2, and openapi-typescript 7.13.0, its newest version, accepts only `typescript ^5.x`. So `npm ci` stops with ERESOLVE in the contracts job.
-  - [x] Fixed at the source on `step-9-web-b2` (2026-10-19): the npm entry in `.github/dependabot.yml` ignores typescript's major updates, with a comment saying why and when to lift it (memory.md). No `--legacy-peer-deps` or `--force`.
-  - [ ] (user, after B2 merges) Check that Dependabot's next npm group pull request keeps typescript at 5.x and passes CI. Close #3 if it still holds typescript 7.
-  - [ ] (later) Lift the ignore once an openapi-typescript release accepts typescript 7.
-- [ ] Dependabot follow-ups (user, 2026-10-19), on branch `fix/dependabot-follow-ups` from main at ab325a2 (B2 merged as #10). Uncommitted until the user ships it. No live model call.
-  - [x] The docker entry ignores the python image's minor and major updates, so only 3.12 patch releases and digest refreshes come. Its comment says why (a move to a new Python changes `.python-version`, the uv lock, CI and the image together) and when to lift it (memory.md).
-  - [x] The npm entry ignores `@types/node` 25 and up, since the app runs on Node 24. Its comment says to lift it when the runtime moves.
-  - [x] graphql 17.0.2 taken in `clients/ts`, so no graphql rule: every graphql peer range in its lock accepts `^17.0.0`, codegen changed no generated file's content, and the clients/ts tests pass (memory.md).
-  - [ ] (user) Ship it.
-  - [ ] (user, after the merge) Check that #2 (the Python 3.14 image) and #11 close or are replaced; next 16.4.0 can come back on its own. If #2 is still open after Dependabot's next docker run, the python rule did not work as expected (memory.md).
+- [ ] (later) Lift Dependabot's typescript-major ignore once an openapi-typescript release accepts typescript 7, and its `@types/node` rule when the runtime moves past Node 24 (both comments in `.github/dependabot.yml`).
 - [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
   - Before #7, a scheduled run would replay the x18 judge error from the reply cache and exit 4. An exit-4 run is not complete, so the gate measures again.
@@ -58,10 +48,6 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - fixtures;
     - golden v2, since re-parsing dev removes 14 of golden v1's gold chunk ids and voids the reply cache.
   - Findings: memory.md, 2026-10-18.
-- [ ] (B3, user, 2026-10-19) Three minors from B2's final review, moved to B3. The other two, the proxy secret and the snapshot's line endings, were fixed on B2's branch before shipping (memory.md):
-  - **Leaving Ask:** a header link unmounts Ask, but its answer stream keeps running (up to 30 s, and one of the 10 answers a minute). Fix: an AbortController aborted on unmount and before each question.
-  - **Sources failure:** a failed `/api/sources` leaves the cards unnamed with no note, and a network error there relabels a finished answer "The web server could not be reached." Fix: a "Sources could not be loaded" note, and the catch-all for the stream only.
-  - **Log label:** a browser that leaves mid-request logs `api_call` with `failure: offline` at warn. Fix: log `AbortError` and `ResponseAborted` as `client_aborted` at info.
 - [ ] (watch, found 2026-10-19 on B2's branch) One Playwright run got "Internal Server Error" right after sign-in, in the setup project, so 48 specs did not run. Cause not confirmed; it has not come back since.
   - That run's log held the web servers' stderr (Playwright pipes it by default), but only its summary lines were read, and a later run overwrote the log (memory.md). Their stdout was not piped then.
   - If it comes back, the run's output holds every line both web servers print, each prefixed `[WebServer]`:
@@ -83,66 +69,6 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - Nothing pins that facts of a non-indexed filing stay found.
   - **Empty IN:** non-numeric fact ids still run an empty IN query.
   - **`@types/node`:** it comes in at 26 (through `@types/ws`), while CI runs Node 24. Dependabot's `@types/node` rule (2026-10-19) does not cover it: with no `allow` option, version updates touch only direct dependencies, here web's.
-- [ ] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job. **In progress since 2026-10-19; see Progress at the end of this item.** B2 started here, so a fresh session can pick it up:
-  - **Start:** branch `step-9-web-b2` (the user's name), made on 2026-10-19 from main at a2037af, after B1 merged as #9. Everything on it is uncommitted.
-  - **Read first:**
-    - this item;
-    - the approved plan `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-3f93-add-this-cheerful-spring.md`, sections "PR B2" (B2.1 to B2.6), "Containers" and "What you do by hand";
-    - memory.md "From the step 9 plan" and its 2026-10-18 Preferences;
-    - `web/node_modules/next/dist/docs/` before any Next code (`web/AGENTS.md`).
-  - **Decisions that hold:**
-    - `/demo` is public.
-    - The demo answers are the exam records n01, c02, c12, x02, x04, x12, o02 and t01 (no model call).
-    - The e2e suite runs against `web/e2e/mock-api.ts`.
-    - `@playwright/test` and `@axe-core/playwright` are approved.
-    - Axe, plus keyboard and phone specs.
-    - No model call, and containers only as memory.md allows.
-  - **From B1** (memory.md, 2026-10-18):
-    - **tsconfig:** web's tsconfig needs `allowImportingTsExtensions`, because `clients/ts` imports end in `.ts`.
-    - **Calls:** the BFF uses:
-      - `executeGraphql(base, key, document, variables, { signal, timeoutMs, requestId })`;
-      - `createApiClient(base, key, timeoutMs)`, passing a per-call `signal` and `X-Request-ID` header. It throws a REST error reply as `ApiError` itself; `readApiError` is only for a raw `fetch` reply.
-    - **Errors:** failures arrive as `ApiError` (`status`, `code`, `retryAfterS`, `requestId`).
-      - A GraphQL error has status 200 and its `extensions.code`, so `internal` there is the offline case.
-      - Any other reply gives `unexpected_response`.
-    - **GraphQL limits:** queries go at most 6 levels deep and use no alias. Coverage sits at the limit, so a deeper B2 operation needs the limit raised, together with its test.
-    - **Sources:** at most 20 ids per call.
-      - An answer can cite more than 20 facts: one per company and year, while chunks stop at 12.
-      - So send fact ids in batches of 20. A 21st id fails the whole query, because both root fields are non-null.
-    - **Left for B2 by B1's final review:**
-      - `executeGraphql` throws `SyntaxError` or `TypeError`, not `ApiError`, on a 200 whose body is not JSON or is null.
-      - `Coverage` selects `filings(first: 5)` without `pageInfo`, so it cuts a company's filings at 5.
-      - A caller's `requestId` should match the API's `[A-Za-z0-9._-]{1,64}`. Otherwise the API replaces it, and the logs do not join.
-  - **First task:** the web settings (`lib/settings.ts`, `instrumentation.ts`) and the launcher (`web/scripts/run.mjs`), with their `node --test` tests.
-  - **Then:**
-    1. Session and sign-in, with `hash-password` and `session-secret`.
-    2. `proxy.ts` and the BFF routes.
-    3. Pages and styles.
-    4. `scripts/export_demo.py` and `web/demo/snapshot.json`. Run the mislabel guard, and list each demo citation's company, form, year and item.
-    5. Playwright.
-    6. The CI `web` job.
-    7. Docs.
-  - **Done when:**
-    - in web, `npm run typecheck`, `npm test`, `npm run build` and `npx playwright test` pass;
-    - every make check passes;
-    - `git diff --name-only main -- <EVAL_INPUTS>` is empty, so the eval is skipped;
-    - the user has reviewed the snapshot and ships it.
-  - **Progress** (2026-10-19). Tick each box as it lands, so a fresh session resumes at the first open one:
-    - [x] The Dependabot fix (its own item above).
-    - [x] B1's leftovers in `clients/ts`: `executeGraphql` throws `ApiError` on a 200 whose body is not JSON or is null, and `Coverage` selects its filings' `pageInfo { hasNextPage }` (then `make codegen`).
-    - [x] Settings, `instrumentation.ts` and the launcher, with tests.
-    - [x] Password, session, `next=`, origin rule, limiter, `hash-password` and `session-secret`, with tests (`lib/guards.ts` holds `next=`, the origin rule and the limiter).
-    - [x] Error classification, the SSE parser and the quote locator, with tests (`lib/errors.ts`, `lib/answer.ts`). `npm test` in web: 72 passed.
-    - [x] `proxy.ts`, `next.config.ts`, the BFF routes and sign-in (`lib/server.ts` holds the server-only glue).
-    - [x] Pages and styles: live, demo, offline, errors. `next build` passes with no settings in the environment.
-    - [x] `scripts/export_demo.py`, `make demo-export`, its tests, and `web/demo/snapshot.json`: 8 answers, 30 companies, every citation resolved, none in the four mislabeled sections. `filinglens-postgres-1` was started for it and stopped after.
-    - [x] Playwright: the mock API, the config and the specs. 49 passed, three runs in a row (4 workers).
-    - [x] The CI `web` job (`make actionlint` clean).
-    - [x] Docs, then every check from the user's 2026-10-19 prompt.
-    - [x] Final review (fresh subagent): no Critical; 3 Important and 2 re-graded Minors fixed test first (memory.md). After the fix pass: `npm test` 76, `npx playwright test` 57, three runs in a row.
-    - [x] Two review minors fixed before shipping (user, 2026-10-19), each test first: the proxy secret and the snapshot's line endings; the snapshot file changed only CRLF to LF (memory.md). Then `make lint` and `make typecheck` clean, `make test` 370, web typecheck clean, `npm test` 77, build with no warning, `npx playwright test` 57, gitleaks on the changed files clean.
-    - [ ] (user) The steps below, review `web/demo/snapshot.json` and the citation list (activity-log.md, 2026-10-19), then ship.
-  - **For the user, in their own PowerShell window** (Claude Code never runs them): `npm --prefix web run hash-password`, then paste the printed line into `.env`; `npm --prefix web run session-secret`; add `API_URL=http://127.0.0.1:4100` to `.env`.
 - [ ] 10. Deploy: UI on Vercel, backend on the PC via Tailscale Funnel; phone test passes; 401 without API key; demo mode when the PC is off
   - Notes from the step 9 plan (2026-10-18):
     - **The sign-in limiter** lives in each Vercel instance's memory, so it does not hold across instances. The Vercel firewall rate-limit rule on `POST /login` (about 10 a minute per IP) covers that.
@@ -168,12 +94,35 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
           - Still open: a DataLoader for the per-item lookups. Within depth 6, one request can still make roughly 6,000 of them, under a cited chunk's filing with `first: 100`. The DataLoader also ends the two lookups per chunk when `section` and `filing` are both selected.
         - **Input echoes:** GraphQL-core's coercion errors echo the input value.
         - **NUL:** a NUL in `concept` reaches Postgres and comes back as `internal`. Chunk ids with a NUL are refused since B1.
+  - **Needs from the user** (listed 2026-10-19, after step 9). Claude Code never handles the secret values:
+    - **Accounts:** Vercel and Tailscale (the manual item above).
+    - **Local `.env`:** replace the example passwords (the manual item above). The web's `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are already there (names checked, values not read).
+    - **Vercel:** the project's settings from the checklist above, and its four web variables, which the startup check requires: `API_URL` (the Funnel address), `API_KEY` (the API's key), `SESSION_SECRET` and `LOGIN_PASSWORD_HASH`.
+    - **Tailscale:** the PC logged in, and Funnel switched on for the API's port.
+    - **Images:** the GHCR packages public, or the PC logged in to ghcr.io (the manual item above).
+    - **Decisions:** whether production reuses the dev database or ingests afresh (a fresh ingest makes the financial-section labelling item due first); and a go, with a cost estimate, for `AI_ENABLED=true` and a live answer smoke once Triage Copilot's exam ends (2026-10-20). Claude Haiku's credits expire on 2026-11-10.
+    - **Checks only the user can make:** the phone test on a real phone, and the deploy status on each merge commit.
 
 ## In Progress
 
-- [ ] 9, PR B2: built and checked on `step-9-web-b2` (2026-10-19), uncommitted. Its item, decisions and Progress checklist are under Pending ("9, PR B2"). It waits for the user: the snapshot review, the two secrets in `.env`, and shipping.
+- [ ] (user) Ship PR B3 from `step-9-web-b3`. Its record is under Completed, with step 9.
 
 ## Completed
+
+- [x] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, the demo snapshot when the backend is offline, Playwright passing (done 2026-10-19). Four PRs: A (#8), B1 (#9), B2 (#10) and B3 (below; the user ships it). Nothing else in step 9 remains: the plan's by-hand steps are done, since `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are in `.env`. Every open item left belongs to step 10, a later corpus or a watch.
+- [x] 9, PR B3: B2's three deferred review minors (2026-10-19), on branch `step-9-web-b3` from main at e2b581d, uncommitted until the user ships it. Each test first (memory.md):
+  - **Leaving Ask:** one AbortController per question. Leaving Ask, or a new question, aborts the stream and the sources lookup, and an aborted request shows nothing. Test: leaving through the Coverage link makes the mock API see its stream cut short (`GET /e2e/cut`; red: never cut). The abort before a new question has no test of its own (memory.md, ruling).
+  - **Sources failure:** an error reply or a network error from `/api/sources` keeps the answer, and adds "Sources could not be loaded." under Sources and to the status line. "The web server could not be reached." now covers only the stream. Tests: both failures through `page.route` (red: no note), and a guard that the stream's own network error still shows the catch-all.
+  - **Log label:** `failureLabel` in `lib/errors.ts` logs `AbortError` and `ResponseAborted` as `client_aborted` at info; other failures keep their class at warn. Test: one row each (red: `offline` at warn).
+  - Checks: `make lint` and `make typecheck` clean, `make test` 370, web typecheck clean, `npm test` 78, build with no warning, `npx playwright test` 61 three runs in a row, gitleaks on the changed files clean, the eval skipped (no `EVAL_INPUTS` change).
+- [x] 9, PR B2: web, BFF, sign-in, demo, Playwright, CI web job, merged as #10 (ab325a2, git log). Built on `step-9-web-b2` from main at a2037af (2026-10-19); the full record is in activity-log.md and memory.md.
+  - Decisions that held: `/demo` is public; the demo answers are the exam records n01, c02, c12, x02, x04, x12, o02 and t01 (no model call); the e2e suite runs against `web/e2e/mock-api.ts`; axe plus keyboard and phone specs.
+  - Before shipping: `make lint` and `make typecheck` clean, `make test` 370, web typecheck clean, `npm test` 77, build with no warning, `npx playwright test` 57 (three runs in a row after the review fixes), gitleaks on the changed files clean, the eval skipped.
+  - Final review (fresh subagent): no Critical; 3 Important and 2 re-graded Minors fixed test first. Two more minors were fixed before shipping (the proxy secret, the snapshot's line endings), and three went to B3.
+  - The user's steps: the snapshot review, then `hash-password`, `session-secret` and `API_URL` in `.env`.
+- [x] Dependabot follow-ups, merged as #12 (e2b581d, git log): the python image's minor and major updates and `@types/node` 25+ ignored, graphql 17.0.2 taken in `clients/ts` (memory.md). The user checked that #2 (the Python 3.14 image) and #11 closed or were replaced (2026-10-19).
+- [x] Dependabot's python group, merged as #4 (93f464d, git log): hypothesis 6.155.7 to 6.169.0, and uv_build's upper bound from `<0.13.0` to `<0.14.0`.
+- [x] Dependabot's npm group pull request #3's CI failure (typescript 7.0.2 against openapi-typescript's `typescript ^5.x`): obsolete (user, 2026-10-19). The typescript-major ignore merged with B2 (#10).
 
 - [x] 9, PR B1, the API lookups, merged as #9 (a2037af, git log). Its record follows. **Handed off mid-way on 2026-10-18, then finished by a fresh session the same day.**
   - **Where:** branch `step-9-api-lookups`, made from main at 35902f3 (PR A merged as #8). Everything below is uncommitted.

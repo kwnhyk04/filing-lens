@@ -15,7 +15,7 @@ import {
   type SourcesQuery,
   type TypedDocumentString,
 } from "../../clients/ts/index.ts";
-import { classify, type Failure } from "./errors.ts";
+import { classify, failureLabel, type Failure } from "./errors.ts";
 import { createLimiter, isSameOrigin } from "./guards.ts";
 import { log } from "./log.ts";
 import { SESSION_COOKIE, verifySession } from "./session.ts";
@@ -74,9 +74,10 @@ async function call<T>(route: string, run: (requestId: string) => Promise<T>): P
     return { ok: true, data };
   } catch (error) {
     const failure = classify(error);
+    const { label, level } = failureLabel(error, failure);
     const status = error instanceof ApiError ? error.status : undefined;
     const name = status === undefined ? (error as Error).name : undefined;
-    log("api_call", { route, status, failure: failure.kind, error: name, ms: ms(), request_id: requestId }, "warn");
+    log("api_call", { route, status, failure: label, error: name, ms: ms(), request_id: requestId }, level);
     if (failure.kind === "misconfigured") log("api_key_rejected", { route, status, request_id: requestId }, "error");
     return { ok: false, failure };
   }

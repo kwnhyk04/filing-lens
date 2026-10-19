@@ -1,7 +1,7 @@
 "use client";
 // Ask: streams a draft through the BFF, then shows the validated answer and its sources.
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { createSseParser, type Answer, type AnswerEvent } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
@@ -54,8 +54,13 @@ export function Ask() {
   const [draft, setDraft] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [sources, setSources] = useState<Sources>();
+  const [sourcesFailed, setSourcesFailed] = useState(false);
   const [problem, setProblem] = useState<Notice | null>(null);
   const [status, setStatus] = useState("");
+  const running = useRef<AbortController | null>(null);
+
+  // Leaving Ask, through a header link, stops its answer stream and its sources lookup.
+  useEffect(() => () => running.current?.abort(), []);
 
   function fail(failure: Notice) {
     setDraft(null);
@@ -63,14 +68,39 @@ export function Ask() {
     setStatus(failure.text);
   }
 
+  /** The cited chunks and facts. A failure keeps the answer and adds a note; it never throws. */
+  async function showSources(done: Answer, signal: AbortSignal) {
+    const chunkIds = done.citations.flatMap((c) => (c.chunk_id ? [c.chunk_id] : []));
+    const factIds = done.citations.flatMap((c) => (c.fact_id ? [c.fact_id] : []));
+    if (!chunkIds.length && !factIds.length) return;
+    try {
+      const found = await fetch("/api/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chunkIds, factIds }),
+        signal,
+      });
+      if (found.ok) return setSources((await found.json()) as Sources);
+    } catch {
+      if (signal.aborted) return;
+    }
+    setSourcesFailed(true);
+    setStatus((ready) => `${ready} Sources could not be loaded.`);
+  }
+
   async function ask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     const question = String(new FormData(event.currentTarget).get("question") ?? "").trim();
+    running.current?.abort(); // a new question stops the one before
+    const controller = new AbortController();
+    running.current = controller;
+    const { signal } = controller;
     setBusy(true);
     setDraft("");
     setAnswer(null);
     setSources(undefined);
+    setSourcesFailed(false);
     setProblem(null);
     setStatus("Answering.");
     try {
@@ -78,6 +108,7 @@ export function Ask() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
+        signal,
       });
       if (response.status === 401) return window.location.assign("/login?next=/");
       if (!response.ok || !response.body) {
@@ -90,20 +121,12 @@ export function Ask() {
       setAnswer(done);
       const count = done.citations.length;
       setStatus(done.refused ? "Not answered; the reason is below." : `Answer ready, with ${count} source${count === 1 ? "" : "s"}.`);
-      const chunkIds = done.citations.flatMap((c) => (c.chunk_id ? [c.chunk_id] : []));
-      const factIds = done.citations.flatMap((c) => (c.fact_id ? [c.fact_id] : []));
-      if (chunkIds.length || factIds.length) {
-        const found = await fetch("/api/sources", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chunkIds, factIds }),
-        });
-        if (found.ok) setSources((await found.json()) as Sources);
-      }
+      await showSources(done, signal);
     } catch {
-      fail({ text: "The web server could not be reached.", demo: true });
+      // Only the stream lands here, since showSources keeps its own failures; an abort shows nothing.
+      if (!signal.aborted) fail({ text: "The web server could not be reached.", demo: true });
     } finally {
-      setBusy(false);
+      if (!signal.aborted) setBusy(false);
     }
   }
 
@@ -145,7 +168,7 @@ export function Ask() {
       {answer && (
         <section aria-labelledby="answer-title" data-testid="answer">
           <h2 id="answer-title">Answer</h2>
-          <AnswerView answer={answer} sources={sources} />
+          <AnswerView answer={answer} sources={sources} sourcesFailed={sourcesFailed} />
         </section>
       )}
     </>

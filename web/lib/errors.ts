@@ -22,3 +22,11 @@ export function classify(error: unknown): Failure {
   if (code === "internal" || code === "unexpected_response") return { kind: "offline" };
   return { kind: "problem", status, code, detail, retryAfterS, requestId };
 }
+
+/** `api_call`'s failure label and log level: a browser that left is no warning. */
+export function failureLabel(error: unknown, failure: Failure): { label: string; level: "info" | "warn" } {
+  // The browser's own abort, or Next's `ResponseAborted` when the browser disconnects mid-request.
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "AbortError" || name === "ResponseAborted") return { label: "client_aborted", level: "info" };
+  return { label: failure.kind, level: "warn" };
+}
