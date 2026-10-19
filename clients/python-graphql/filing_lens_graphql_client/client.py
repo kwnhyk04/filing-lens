@@ -193,6 +193,9 @@ class Client(BaseClient):
                     ticker
                     name
                     filings(first: 5) {
+                      pageInfo {
+                        hasNextPage
+                      }
                       edges {
                         node {
                           accessionNumber

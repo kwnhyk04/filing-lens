@@ -189,6 +189,26 @@ test("a GraphQL error without a code, such as a bad query, is an unexpected resp
   assert.equal(fields(error).code, "unexpected_response");
 });
 
+const NOT_GRAPHQL: [string, () => Response][] = [
+  ["a body that is not JSON", () => new Response("<html>proxy</html>", { status: 200 })],
+  ["a null body", () => Response.json(null)],
+  ["a reply without data or errors", () => Response.json({ data: null })],
+];
+
+for (const [name, response] of NOT_GRAPHQL) {
+  test(`a 200 with ${name} is an unexpected response`, async () => {
+    reply(response);
+    const call = executeGraphql(BASE, KEY, CompaniesDocument, { first: 1 }, { requestId: "req-5" });
+    assert.deepEqual(fields(await call.catch((e) => e)), {
+      status: 200,
+      code: "unexpected_response",
+      detail: "HTTP 200",
+      retryAfterS: undefined,
+      requestId: "req-5",
+    });
+  });
+}
+
 test("an HTTP error on the GraphQL route keeps the request id sent", async () => {
   reply(() => new Response("Bad Gateway", { status: 502 }));
   const call = executeGraphql(BASE, KEY, CompaniesDocument, { first: 1 }, { requestId: "req-4" });

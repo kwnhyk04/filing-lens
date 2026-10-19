@@ -51,7 +51,7 @@ export type CoverageQueryVariables = Exact<{
 }>;
 
 
-export type CoverageQuery = { companies: { pageInfo: { hasNextPage: boolean, endCursor: string | null }, edges: Array<{ node: { cik: number, ticker: string, name: string, filings: { edges: Array<{ node: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string } }> } } }> } };
+export type CoverageQuery = { companies: { pageInfo: { hasNextPage: boolean, endCursor: string | null }, edges: Array<{ node: { cik: number, ticker: string, name: string, filings: { pageInfo: { hasNextPage: boolean }, edges: Array<{ node: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string } }> } } }> } };
 
 export type SourcesQueryVariables = Exact<{
   chunkIds: Array<string | number> | string | number;
@@ -198,6 +198,9 @@ export const CoverageDocument = new TypedDocumentString(`
         ticker
         name
         filings(first: 5) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
             node {
               accessionNumber

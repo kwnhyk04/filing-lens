@@ -103,19 +103,24 @@ export async function executeGraphql<TResult, TVariables>(
     signal: callSignal(signal, timeoutMs),
   });
   if (!response.ok) throw await readApiError(response, requestId);
-  const body = (await response.json()) as {
-    data?: TResult;
+  const replyId = response.headers.get("X-Request-ID") ?? requestId;
+  const body = (await response.json().catch(() => null)) as {
+    data?: TResult | null;
     errors?: { message: string; extensions?: { code?: unknown } }[];
-  };
-  if (body.errors?.length) {
+  } | null;
+  if (body?.errors?.length) {
     const code = body.errors[0].extensions?.code;
     throw new ApiError(
       response.status,
       typeof code === "string" ? code : UNEXPECTED,
       body.errors.map((error) => error.message).join("; "),
       undefined,
-      response.headers.get("X-Request-ID") ?? requestId,
+      replyId,
     );
   }
-  return body.data as TResult;
+  // A body that is not JSON, or JSON without data, is no GraphQL reply (a proxy's page, say).
+  if (body?.data == null) {
+    throw new ApiError(response.status, UNEXPECTED, `HTTP ${response.status}`, undefined, replyId);
+  }
+  return body.data;
 }

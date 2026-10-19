@@ -19,6 +19,7 @@ from .coverage import (
     CoverageCompaniesEdgesNodeFilings,
     CoverageCompaniesEdgesNodeFilingsEdges,
     CoverageCompaniesEdgesNodeFilingsEdgesNode,
+    CoverageCompaniesEdgesNodeFilingsPageInfo,
     CoverageCompaniesPageInfo,
 )
 from .enums import FiscalPeriod, FormType
@@ -75,6 +76,7 @@ __all__ = [
     "CoverageCompaniesEdgesNodeFilings",
     "CoverageCompaniesEdgesNodeFilingsEdges",
     "CoverageCompaniesEdgesNodeFilingsEdgesNode",
+    "CoverageCompaniesEdgesNodeFilingsPageInfo",
     "CoverageCompaniesPageInfo",
     "Filings",
     "FilingsFilings",

@@ -70,7 +70,7 @@ testpaths = ["packages", "services", "evals"]
 markers = [
     "unit: no Docker and no network; conftest.py adds it to every test without another marker",
     "integration: needs Docker; starts throwaway containers with Testcontainers",
-    "e2e: drives the running stack or the UI end to end (none yet; Playwright in step 9)",
+    "e2e: drives the running stack end to end (none; the web's Playwright suite is in web/e2e)",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

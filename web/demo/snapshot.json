@@ -1,0 +1,1132 @@
+{
+  "answers": [
+    {
+      "answer": {
+        "answer": "Apple's total revenue in fiscal 2025 was 416,161,000,000 USD [1].",
+        "citations": [
+          {
+            "chunk_id": null,
+            "fact_id": "37437",
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/",
+            "quote": "416,161,000,000 USD"
+          }
+        ],
+        "degraded": false,
+        "refused": false,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 1369,
+          "output_tokens": 140
+        },
+        "warnings": []
+      },
+      "category": "numeric",
+      "id": "n01",
+      "question": "What was Apple's total revenue in fiscal 2025?"
+    },
+    {
+      "answer": {
+        "answer": "Alphabet's total revenue in fiscal 2025 was $402,836,000,000 [1]. Meta's total revenue in fiscal 2025 was $200,966,000,000 [2]. Therefore, Alphabet's total revenue was higher in fiscal 2025 [1][2].",
+        "citations": [
+          {
+            "chunk_id": null,
+            "fact_id": "380121",
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000018/",
+            "quote": "402,836,000,000 USD"
+          },
+          {
+            "chunk_id": null,
+            "fact_id": "206185",
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1326801/000162828026003942/",
+            "quote": "200,966,000,000 USD"
+          }
+        ],
+        "degraded": false,
+        "refused": false,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 7102,
+          "output_tokens": 216
+        },
+        "warnings": []
+      },
+      "category": "comparison",
+      "id": "c02",
+      "question": "Which was higher in fiscal 2025: Alphabet's or Meta's total revenue?"
+    },
+    {
+      "answer": {
+        "answer": "In fiscal 2025, Tesla's net income attributable to the parent was 3,794,000,000 USD [1]. This compared to a net income attributable to the parent of 7,091,000,000 USD in fiscal 2024 [2]. Total net income was $3,855 million for fiscal 2025 and $7,153 million for fiscal 2024 [3]. Net income attributable to common stockholders was $3,794 million in fiscal 2025 and $7,091 million in fiscal 2024 [4].",
+        "citations": [
+          {
+            "chunk_id": null,
+            "fact_id": "330860",
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/",
+            "quote": "3,794,000,000 USD"
+          },
+          {
+            "chunk_id": null,
+            "fact_id": "330746",
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/",
+            "quote": "7,091,000,000 USD"
+          },
+          {
+            "chunk_id": "6271b56260475f67f80e0f3993ede2f3deea1ed7d8d3b69b0d2fe2df29ed607f",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm",
+            "quote": "Net income | $ | 3,855 | $ | 7,153"
+          },
+          {
+            "chunk_id": "f7ca44227ba748b0ab8ab40be4db74c48e7a5ef6567cb1cb0c165e0d4c85b4dc",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm",
+            "quote": "Net income attributable to common stockholders | $ | 3,794 | $ | 7,091"
+          }
+        ],
+        "degraded": false,
+        "refused": false,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 7285,
+          "output_tokens": 338
+        },
+        "warnings": []
+      },
+      "category": "comparison",
+      "id": "c12",
+      "question": "How did Tesla's net income in fiscal 2025 compare with fiscal 2024?"
+    },
+    {
+      "answer": {
+        "answer": "U.S. export controls have effectively foreclosed NVIDIA from competing in China's data center computing/compute market as of the end of fiscal year 2026 [1]. Because of these complex rules, NVIDIA is unable to create and deliver a competitive product for China's data center market that receives approval from both the U.S. government and the Chinese government [1]. Additionally, compliance with U.S. export controls has required NVIDIA to offer degraded products to the Chinese market, prompting China's antitrust regulators to publish a preliminary finding that this discriminated unfairly against customers in China [2].",
+        "citations": [
+          {
+            "chunk_id": "647a3f705893066fa1dee9f45d0eb4518619d44eeb7a2a36b7c57b5034dbb803",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm",
+            "quote": "As of the end of fiscal year 2026, we were effectively foreclosed from competing in China's data center computing/compute market"
+          },
+          {
+            "chunk_id": "d74a2e1eda993a50f506e76457e43b3d4fed3180df277676aa7abf1e8bd11cd6",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm",
+            "quote": "On September 15, 2025, China’s antitrust regulators published their preliminary finding that our compliance with applicable U.S. export controls, which required us to offer degraded products to the Chinese market, discriminated unfairly against customers in the China market"
+          }
+        ],
+        "degraded": false,
+        "refused": false,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 10423,
+          "output_tokens": 869
+        },
+        "warnings": [
+          "The draft failed validation, so the answer was written again.",
+          "Removed 1 sentence(s) whose citations or amounts did not check out."
+        ]
+      },
+      "category": "textual",
+      "id": "x02",
+      "question": "How do U.S. export controls affect NVIDIA's sales to China?"
+    },
+    {
+      "answer": {
+        "answer": "Amazon organizes its operations into three reportable segments: North America, International, and Amazon Web Services (AWS) [1]. These segments reflect the way the company evaluates its business performance and manages its operations [1].",
+        "citations": [
+          {
+            "chunk_id": "505d27e7afa0665cf1f20707b386a1c143aecc25493cbf4a093025233b20f809",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm",
+            "quote": "We have organized our operations into three segments: North America, International, and Amazon Web Services (“AWS”)."
+          }
+        ],
+        "degraded": false,
+        "refused": false,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 6050,
+          "output_tokens": 142
+        },
+        "warnings": []
+      },
+      "category": "textual",
+      "id": "x04",
+      "question": "What are Amazon's reportable segments?"
+    },
+    {
+      "answer": {
+        "answer": "In 2025, volume increases and lower realized prices in the U.S. were primarily driven by Mounjaro and Zepbound [1]. Outside the U.S., volume increases in 2025 were primarily driven by Mounjaro [1]. Mounjaro and Zepbound together accounted for 56 percent of total revenues in 2025 [2].",
+        "citations": [
+          {
+            "chunk_id": "559dacc203979e432a434697c2e1a798229d19414663d9193949976e98018d70",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm",
+            "quote": "In the U.S., the volume increase and the lower realized prices in 2025 were primarily driven by Mounjaro and Zepbound."
+          },
+          {
+            "chunk_id": "199cf89618390bec8c012051f88d2a0755a846d6b36a381b40c236a99008fc6b",
+            "fact_id": null,
+            "filing_url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm",
+            "quote": "In particular, Mounjaro and Zepbound accounted for 56 percent of our total revenues in 2025, and we expect cardiometabolic health products will continue to represent a significant and growing portion of our business, revenues, and prospects."
+          }
+        ],
+        "degraded": false,
+        "refused": false,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 6766,
+          "output_tokens": 269
+        },
+        "warnings": []
+      },
+      "category": "textual",
+      "id": "x12",
+      "question": "Which products drove Eli Lilly's revenue growth in 2025?"
+    },
+    {
+      "answer": {
+        "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+        "citations": [],
+        "degraded": false,
+        "refused": true,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 1025,
+          "output_tokens": 49
+        },
+        "warnings": []
+      },
+      "category": "unanswerable",
+      "id": "o02",
+      "question": "Should I buy Tesla shares this month?"
+    },
+    {
+      "answer": {
+        "answer": "Tesla, Inc. (TSLA) has filed no 10-K for fiscal 2026; its latest is fiscal 2025.",
+        "citations": [],
+        "degraded": false,
+        "refused": true,
+        "usage": {
+          "cost_usd": 0.0,
+          "input_tokens": 1029,
+          "output_tokens": 71
+        },
+        "warnings": []
+      },
+      "category": "time_trap",
+      "id": "t01",
+      "question": "What was Tesla's total revenue in fiscal 2026?"
+    }
+  ],
+  "commit": "a2037afc8d9e2cb824ca482787a003ae1dd1622e",
+  "companies": [
+    {
+      "cik": 18230,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000018230-26-000008",
+              "filedOn": "2026-02-13",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/cat-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "CATERPILLAR INC",
+      "ticker": "CAT"
+    },
+    {
+      "cik": 19617,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-008131",
+              "filedOn": "2026-02-13",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/jpm-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "JPMorgan Chase & Co.",
+      "ticker": "JPM"
+    },
+    {
+      "cik": 21344,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-010047",
+              "filedOn": "2026-02-20",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/21344/000162828026010047/ko-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "COCA COLA CO",
+      "ticker": "KO"
+    },
+    {
+      "cik": 59478,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000059478-26-000013",
+              "filedOn": "2026-02-12",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "ELI LILLY & Co",
+      "ticker": "LLY"
+    },
+    {
+      "cik": 70858,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000070858-26-000157",
+              "filedOn": "2026-02-25",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/70858/000007085826000157/bac-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "BANK OF AMERICA CORP /DE/",
+      "ticker": "BAC"
+    },
+    {
+      "cik": 78003,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000078003-26-000026",
+              "filedOn": "2026-02-26",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/78003/000007800326000026/pfe-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "PFIZER INC",
+      "ticker": "PFE"
+    },
+    {
+      "cik": 80424,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000080424-26-000103",
+              "filedOn": "2026-08-04",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2026,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/80424/000008042426000103/pg-20260630.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "PROCTER & GAMBLE Co",
+      "ticker": "PG"
+    },
+    {
+      "cik": 93410,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000093410-26-000078",
+              "filedOn": "2026-02-24",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/93410/000009341026000078/cvx-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "CHEVRON CORP",
+      "ticker": "CVX"
+    },
+    {
+      "cik": 100885,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000100885-26-000037",
+              "filedOn": "2026-02-06",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/100885/000010088526000037/unp-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "UNION PACIFIC CORP",
+      "ticker": "UNP"
+    },
+    {
+      "cik": 104169,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000104169-26-000055",
+              "filedOn": "2026-03-13",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2026,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/104169/000010416926000055/wmt-20260131.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Walmart Inc.",
+      "ticker": "WMT"
+    },
+    {
+      "cik": 200406,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000200406-26-000016",
+              "filedOn": "2026-02-11",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/200406/000020040626000016/jnj-20251228.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "JOHNSON & JOHNSON",
+      "ticker": "JNJ"
+    },
+    {
+      "cik": 320193,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000320193-25-000079",
+              "filedOn": "2025-10-31",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Apple Inc.",
+      "ticker": "AAPL"
+    },
+    {
+      "cik": 354950,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-019436",
+              "filedOn": "2026-03-18",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/354950/000162828026019436/hd-20260201.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "HOME DEPOT, INC.",
+      "ticker": "HD"
+    },
+    {
+      "cik": 731766,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000731766-26-000062",
+              "filedOn": "2026-03-02",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/731766/000073176626000062/unh-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "UNITEDHEALTH GROUP INC",
+      "ticker": "UNH"
+    },
+    {
+      "cik": 732712,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000732712-26-000007",
+              "filedOn": "2026-02-17",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/732712/000073271226000007/vz-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "VERIZON COMMUNICATIONS INC",
+      "ticker": "VZ"
+    },
+    {
+      "cik": 753308,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000753308-26-000015",
+              "filedOn": "2026-02-13",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/753308/000075330826000015/nee-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "NEXTERA ENERGY INC",
+      "ticker": "NEE"
+    },
+    {
+      "cik": 789019,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001193125-26-323660",
+              "filedOn": "2026-07-29",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2026,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Microsoft Corporation",
+      "ticker": "MSFT"
+    },
+    {
+      "cik": 831259,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000831259-26-000012",
+              "filedOn": "2026-02-13",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/831259/000083125926000012/fcx-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "FREEPORT-MCMORAN INC",
+      "ticker": "FCX"
+    },
+    {
+      "cik": 886982,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0000886982-26-000091",
+              "filedOn": "2026-02-25",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/886982/000088698226000091/gs-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "GOLDMAN SACHS GROUP INC",
+      "ticker": "GS"
+    },
+    {
+      "cik": 936468,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-004195",
+              "filedOn": "2026-01-29",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/936468/000162828026004195/lmt-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "LOCKHEED MARTIN CORP",
+      "ticker": "LMT"
+    },
+    {
+      "cik": 1018724,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001018724-26-000004",
+              "filedOn": "2026-02-06",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Amazon.com, Inc.",
+      "ticker": "AMZN"
+    },
+    {
+      "cik": 1045609,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001193125-26-051453",
+              "filedOn": "2026-02-13",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1045609/000119312526051453/pld-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Prologis, Inc.",
+      "ticker": "PLD"
+    },
+    {
+      "cik": 1045810,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001045810-26-000021",
+              "filedOn": "2026-02-25",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2026,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "NVIDIA Corporation",
+      "ticker": "NVDA"
+    },
+    {
+      "cik": 1163165,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001163165-26-000009",
+              "filedOn": "2026-02-17",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1163165/000116316526000009/cop-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "CONOCOPHILLIPS",
+      "ticker": "COP"
+    },
+    {
+      "cik": 1318605,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-003952",
+              "filedOn": "2026-01-29",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Tesla, Inc.",
+      "ticker": "TSLA"
+    },
+    {
+      "cik": 1326160,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001326160-26-000014",
+              "filedOn": "2026-02-26",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1326160/000132616026000014/duk-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Duke Energy CORP",
+      "ticker": "DUK"
+    },
+    {
+      "cik": 1326801,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-003942",
+              "filedOn": "2026-01-29",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1326801/000162828026003942/meta-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Meta Platforms, Inc.",
+      "ticker": "META"
+    },
+    {
+      "cik": 1403161,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001403161-25-000089",
+              "filedOn": "2025-11-06",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1403161/000140316125000089/v-20250930.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "VISA INC.",
+      "ticker": "V"
+    },
+    {
+      "cik": 1652044,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001652044-26-000018",
+              "filedOn": "2026-02-05",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000018/goog-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "Alphabet Inc.",
+      "ticker": "GOOGL"
+    },
+    {
+      "cik": 1707925,
+      "filings": {
+        "edges": [
+          {
+            "node": {
+              "accessionNumber": "0001628280-26-011430",
+              "filedOn": "2026-02-25",
+              "fiscalPeriod": "FY",
+              "fiscalYear": 2025,
+              "formType": "FORM_10K",
+              "url": "https://www.sec.gov/Archives/edgar/data/1707925/000162828026011430/lin-20251231.htm"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      },
+      "name": "LINDE PLC",
+      "ticker": "LIN"
+    }
+  ],
+  "recorded_at": "2026-10-18T20:18:20+00:00",
+  "report": "evals/reports/2026-10-17.json",
+  "source": "Answers recorded in the golden set v1 test run of 2026-10-17 (Gemini 3.5 Flash-Lite, free tier), with sources and coverage from the dev database.",
+  "sources": {
+    "chunks": [
+      {
+        "filing": {
+          "accessionNumber": "0000059478-26-000013",
+          "company": {
+            "cik": 59478,
+            "name": "ELI LILLY & Co",
+            "ticker": "LLY"
+          },
+          "filedOn": "2026-02-12",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2025,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm"
+        },
+        "id": "199cf89618390bec8c012051f88d2a0755a846d6b36a381b40c236a99008fc6b",
+        "section": {
+          "id": "321",
+          "item": "1A",
+          "title": "Risk Factors"
+        },
+        "text": "that collectively accounted for 82 percent of our total revenues in 2025. In particular, Mounjaro and Zepbound accounted for 56 percent of our total revenues in 2025, and we expect cardiometabolic health products will continue to represent a significant and growing portion of our business, revenues, and prospects. Factors such as loss of patent protection, changes in prescription rates, material product liability or pricing claims or litigation, unexpected side effects or safety concerns, significant changes or fluctuations in demand, channel dynamics, regulatory proceedings and investigations, negative publicity affecting doctor or patient confidence, pressure from existing or new competitive products, pipeline developments by us or our competitors, counterfeit and illegally compounded drugs, changes in labeling, pricing, and insufficient access, or reimbursement, or actual or perceived supply shortages, imbalances, or disruptions for these products or any of our other major products could materially impact our results of operations or result in significant and sudden declines or volatility in the trading price of our common stock and market capitalization.\nIn addition, in the U.S., most of our products are distributed through a limited number of wholesalers. If one of these significant wholesalers encounters financial or other difficulties or otherwise is unable or unwilling to support distribution of our products, it could cause disruption to our supply chain or we might be unable to timely collect the amounts that the wholesaler owes us, which could negatively impact our results of operations. See Item 1, \"Business—Marketing and Distribution,\" for more details. Challenges to U.S."
+      },
+      {
+        "filing": {
+          "accessionNumber": "0001018724-26-000004",
+          "company": {
+            "cik": 1018724,
+            "name": "Amazon.com, Inc.",
+            "ticker": "AMZN"
+          },
+          "filedOn": "2026-02-06",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2025,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm"
+        },
+        "id": "505d27e7afa0665cf1f20707b386a1c143aecc25493cbf4a093025233b20f809",
+        "section": {
+          "id": "277",
+          "item": "1",
+          "title": "Business"
+        },
+        "text": "Item 1. | Business\nThis Annual Report on Form 10-K and the documents incorporated herein by reference contain forward-looking statements based on expectations, estimates, and projections as of the date of this filing. Actual results and outcomes may differ materially from those expressed in forward-looking statements. See Item 1A of Part I — “Risk Factors.” As used herein, “Amazon.com,” “we,” “our,” and similar terms include Amazon.com, Inc. and its subsidiaries, unless the context indicates otherwise.\nGeneral\nWe seek to be Earth’s most customer-centric company. We are guided by four principles: customer obsession rather than competitor focus, passion for invention, commitment to operational excellence, and long-term thinking. In each of our segments, we serve our primary customer sets, consisting of consumers, sellers, developers, enterprises, content creators, advertisers, and employees.\nWe have organized our operations into three segments: North America, International, and Amazon Web Services (“AWS”). These segments reflect the way the Company evaluates its business performance and manages its operations. Information on our net sales is contained in Item 8 of Part II, “Financial Statements and Supplementary Data — Note 10 — Segment Information.”\nConsumers\nWe serve consumers through our online and physical stores and focus on selection, price, and convenience. We design our stores to enable hundreds of millions of unique products to be sold by us and by third parties across dozens of product categories. Customers access our offerings through our websites, mobile apps, Alexa, devices, streaming, and physically visiting our stores. We also manufacture and sell electronic devices, including Kindle, Fire tablet, Fire TV, Echo, Ring, Blink, and eero, and we develop and produce media content."
+      },
+      {
+        "filing": {
+          "accessionNumber": "0000059478-26-000013",
+          "company": {
+            "cik": 59478,
+            "name": "ELI LILLY & Co",
+            "ticker": "LLY"
+          },
+          "filedOn": "2026-02-12",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2025,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm"
+        },
+        "id": "559dacc203979e432a434697c2e1a798229d19414663d9193949976e98018d70",
+        "section": {
+          "id": "329",
+          "item": "7",
+          "title": "Management's Discussion and Analysis of Financial Condition and Results of Operations"
+        },
+        "text": ".S. | Consolidated\nVolume | 53 | % | 46 | % | 50 | %\nPrice | (10) | % | — | % | (6) | %\nForeign exchange rates | — | % | 2 | % | 1 | %\nPercent change | 43 | % | 48 | % | 45 | %\nIn the U.S., the volume increase and the lower realized prices in 2025 were primarily driven by Mounjaro and Zepbound.\nOutside the U.S., the volume increase in 2025 was primarily driven by Mounjaro.\nThe following table summarizes our revenue, including net product revenue and collaboration and other revenue, by product in 2025 compared with 2024:\nYear Ended December 31,\n2025 | 2024 | Percent Change\nU.S. | Outside U.S. | Total | Total\nMounjaro | $ | 13,651 | $ | 9,315 | $ | 22,965 | $ | 11,540 | 99\nZepbound(1)\n13,484 | 58 | 13,542 | 4,926 | 175\nVerzenio | 3,464 | 2,259 | 5,723 | 5,307 | 8\nOther products | 12,882 | 10,066 | 22,949 | 23,270 | (1)\nRevenue | $ | 43,481 | $ | 21,698 | $ | 65,179 | $ | 45,043 | 45\n(1) Tirzepatide is marketed for obesity under the brand name Zepbound in Canada, Japan, and the U.S."
+      },
+      {
+        "filing": {
+          "accessionNumber": "0001628280-26-003952",
+          "company": {
+            "cik": 1318605,
+            "name": "Tesla, Inc.",
+            "ticker": "TSLA"
+          },
+          "filedOn": "2026-01-29",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2025,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm"
+        },
+        "id": "6271b56260475f67f80e0f3993ede2f3deea1ed7d8d3b69b0d2fe2df29ed607f",
+        "section": {
+          "id": "81",
+          "item": "8",
+          "title": "Financial Statements and Supplementary Data"
+        },
+        "text": "an integral part of these consolidated financial statements.\nTesla, Inc.\nConsolidated Statements of Comprehensive Income\n(in millions)\nYear Ended December 31,\n2025 | 2024 | 2023\nNet income | $ | 3,855 | $ | 7,153 | $ | 14,974\nOther comprehensive income (loss):\nForeign currency translation adjustment | 1,038 | (539) | 198\nUnrealized net (loss) gain on investments, net of tax | (7) | 12 | 16\nNet loss realized and included in net income | — | — | 4\nTotal other comprehensive income (loss): | 1,031 | (527) | 218\nComprehensive income | 4,886 | 6,626 | 15,192\nLess: Comprehensive income (loss) attributable to noncontrolling interests and redeemable noncontrolling interests in subsidiaries | 61 | 62 | (23)\nComprehensive income attributable to common stockholders | $ | 4,825 | $ | 6,564 | $ | 15,215\nThe accompanying notes are an integral part of these consolidated financial statements.\nTesla, Inc.\nConsolidated Statements of Redeemable Noncontrolling Interests and Equity\n(in millions)\nRedeemable\nNoncontrolling\nInterests\nCommon Stock\nAdditional\nPaid-In\nCapital\nAccumulated\nOther\nComprehensive\n(Loss) Income\nRetained\nEarnings\nTotal\nStockholders’\nEquity\nNoncontrolling\nInterests in\nSubsidiaries\nTotal\nEquity\nShares | Amount\nBalance as of December 31, 2022 | $ | 409 | 3,164 | $ | 3 | $ | 32,177 | $ | (361) | $ | 12,885 | $ | 44,704 | $ | 785 | $ | 45,489\nIssuance of common stock for equity incentive awards | — | 21 | — | 700 | — | — | 700 | — | 700"
+      },
+      {
+        "filing": {
+          "accessionNumber": "0001045810-26-000021",
+          "company": {
+            "cik": 1045810,
+            "name": "NVIDIA Corporation",
+            "ticker": "NVDA"
+          },
+          "filedOn": "2026-02-25",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2026,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+        },
+        "id": "647a3f705893066fa1dee9f45d0eb4518619d44eeb7a2a36b7c57b5034dbb803",
+        "section": {
+          "id": "2",
+          "item": "1A",
+          "title": "Risk Factors"
+        },
+        "text": "know whether any imports will be allowed into China. The license requires that the H200s go through an inspection process in the United States prior to any shipment to the customer. As a result, any H200 shipped under the new licensing program will be subject to a 25% tariff upon importation into the United States.\nIn the event that we are able to sell licensed products into the China market, we may not be able to pass along all or any of the tariff to our customers, and may be subject to litigation, increased costs, and a harmed competitive position.\nThe export controls applicable to China are complex and address a variety of parameters, including the total processing performance of a chip, the “performance density” of a chip, the interconnect bandwidth of a chip, and the memory bandwidth of a chip. Under the current rules and geopolitical landscape, we are unable to create and deliver a competitive product for China’s data center market that receives approval from both the USG and the Chinese government. As of the end of fiscal year 2026, we were effectively foreclosed from competing in China's data center computing/compute market, and our effective foreclosure from the China market helped our competitors build larger developer and customer ecosystems to challenge us worldwide. Unless we are able to return with a product that meets the approval of both the USG and the Chinese government, our lost opportunity and the benefit to our competitors will have a material and adverse impact on our business, operating results, and financial condition.\nIn addition to controls targeting D:1, D:4 and D:5 countries, the USG has also imposed worldwide export controls impacting our products, and may impose additional controls in the future."
+      },
+      {
+        "filing": {
+          "accessionNumber": "0001045810-26-000021",
+          "company": {
+            "cik": 1045810,
+            "name": "NVIDIA Corporation",
+            "ticker": "NVDA"
+          },
+          "filedOn": "2026-02-25",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2026,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+        },
+        "id": "d74a2e1eda993a50f506e76457e43b3d4fed3180df277676aa7abf1e8bd11cd6",
+        "section": {
+          "id": "2",
+          "item": "1A",
+          "title": "Risk Factors"
+        },
+        "text": "controls has and could in the future lead to excess inventory or cause us to incur related supply charges. Additional unilateral or multilateral controls are also likely to include deemed export control limitations that negatively impact the ability of our research and development teams to execute our roadmap or other objectives in a timely manner. Additional export restrictions may not only impact our ability to serve overseas markets, but also provoke responses from foreign governments, including China, that negatively impact our supply chain or our ability to provide our products and services to customers in all markets worldwide, which could also substantially reduce our revenue. Regulators in China have inquired about our sales and efforts to supply the China market and our fulfillment of the commitments we entered at the close of our Mellanox acquisition. On September 15, 2025, China’s antitrust regulators published their preliminary finding that our compliance with applicable U.S. export controls, which required us to offer degraded products to the Chinese market, discriminated unfairly against customers in the China market and therefore violated the terms of China’s approval of our Mellanox acquisition. If regulators conclude that we have failed to fulfill the terms of our Mellanox acquisition or we have violated any applicable law in China, we could be subject to financial penalties, restrictions on our ability to conduct our business, restrictions or other orders regarding our networking business, products, and services, or otherwise impact our operations in China, any of which could have a material and adverse impact on our business, operating results and financial condition.\nOver the past three years, we have been subject to a series of shifting and expanding export control restrictions, impacting our ability to serve customers outside the United States."
+      },
+      {
+        "filing": {
+          "accessionNumber": "0001628280-26-003952",
+          "company": {
+            "cik": 1318605,
+            "name": "Tesla, Inc.",
+            "ticker": "TSLA"
+          },
+          "filedOn": "2026-01-29",
+          "fiscalPeriod": "FY",
+          "fiscalYear": 2025,
+          "formType": "FORM_10K",
+          "url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm"
+        },
+        "id": "f7ca44227ba748b0ab8ab40be4db74c48e7a5ef6567cb1cb0c165e0d4c85b4dc",
+        "section": {
+          "id": "81",
+          "item": "8",
+          "title": "Financial Statements and Supplementary Data"
+        },
+        "text": ",800\nRestructuring and other | 494 | 684 | —\nTotal operating expenses | 12,739 | 10,374 | 8,769\nIncome from operations | 4,355 | 7,076 | 8,891\nInterest income | 1,680 | 1,569 | 1,066\nInterest expense | (338) | (350) | (156)\nOther (expense) income, net | (419) | 695 | 172\nIncome before income taxes | 5,278 | 8,990 | 9,973\nProvision for (benefit from) income taxes | 1,423 | 1,837 | (5,001)\nNet income | 3,855 | 7,153 | 14,974\nNet income (loss) attributable to noncontrolling interests and redeemable noncontrolling interests in subsidiaries | 61 | 62 | (23)\nNet income attributable to common stockholders | $ | 3,794 | $ | 7,091 | $ | 14,997\nNet income per share of common stock attributable to common stockholders\nBasic | $ | 1.18 | $ | 2.23 | $ | 4.73\nDiluted | $ | 1.08 | $ | 2.04 | $ | 4.30\nWeighted average shares used in computing net income per share of common stock\nBasic | 3,225 | 3,197 | 3,174\nDiluted | 3,528 | 3,498 | 3,485\nThe accompanying notes are an integral part of these consolidated financial statements.\nTesla, Inc.\nConsolidated Statements of Comprehensive Income\n(in millions)\nYear Ended December 31,\n2025 | 2024 | 2023\nNet income | $ | 3,855 | $ | 7,153 | $ | 14,974\nOther comprehensive income (loss):"
+      }
+    ],
+    "facts": [
+      {
+        "accessionNumber": "0001628280-26-003942",
+        "company": {
+          "cik": 1326801,
+          "name": "Meta Platforms, Inc.",
+          "ticker": "META"
+        },
+        "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+        "fiscalPeriod": "FY",
+        "fiscalYear": 2025,
+        "id": "206185",
+        "label": "Revenue from Contract with Customer, Excluding Assessed Tax",
+        "periodEnd": "2025-12-31",
+        "periodStart": "2025-01-01",
+        "unit": "USD",
+        "value": 200966000000.0
+      },
+      {
+        "accessionNumber": "0001628280-26-003952",
+        "company": {
+          "cik": 1318605,
+          "name": "Tesla, Inc.",
+          "ticker": "TSLA"
+        },
+        "concept": "us-gaap:NetIncomeLoss",
+        "fiscalPeriod": "FY",
+        "fiscalYear": 2025,
+        "id": "330746",
+        "label": "Net Income (Loss) Attributable to Parent",
+        "periodEnd": "2024-12-31",
+        "periodStart": "2024-01-01",
+        "unit": "USD",
+        "value": 7091000000.0
+      },
+      {
+        "accessionNumber": "0001628280-26-003952",
+        "company": {
+          "cik": 1318605,
+          "name": "Tesla, Inc.",
+          "ticker": "TSLA"
+        },
+        "concept": "us-gaap:NetIncomeLoss",
+        "fiscalPeriod": "FY",
+        "fiscalYear": 2025,
+        "id": "330860",
+        "label": "Net Income (Loss) Attributable to Parent",
+        "periodEnd": "2025-12-31",
+        "periodStart": "2025-01-01",
+        "unit": "USD",
+        "value": 3794000000.0
+      },
+      {
+        "accessionNumber": "0000320193-25-000079",
+        "company": {
+          "cik": 320193,
+          "name": "Apple Inc.",
+          "ticker": "AAPL"
+        },
+        "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+        "fiscalPeriod": "FY",
+        "fiscalYear": 2025,
+        "id": "37437",
+        "label": "Revenue from Contract with Customer, Excluding Assessed Tax",
+        "periodEnd": "2025-09-27",
+        "periodStart": "2024-09-29",
+        "unit": "USD",
+        "value": 416161000000.0
+      },
+      {
+        "accessionNumber": "0001652044-26-000018",
+        "company": {
+          "cik": 1652044,
+          "name": "Alphabet Inc.",
+          "ticker": "GOOGL"
+        },
+        "concept": "us-gaap:Revenues",
+        "fiscalPeriod": "FY",
+        "fiscalYear": 2025,
+        "id": "380121",
+        "label": "Revenues",
+        "periodEnd": "2025-12-31",
+        "periodStart": "2025-01-01",
+        "unit": "USD",
+        "value": 402836000000.0
+      }
+    ]
+  }
+}
