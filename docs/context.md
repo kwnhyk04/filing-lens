@@ -264,7 +264,7 @@ Without it, waiting does not help: AI is switched off, or the last model refused
     - It fails when the table of contents holds any other table's rows or sequence values.
     - It fails when the value of a secret-named variable or the SEC contact appears in its SQL.
     - Made 2026-10-17: 46.5 MB. gitleaks found nothing in its 257.6 MB of SQL. A restore takes about 11 s.
-  - Dependabot: uv, Docker, GitHub Actions and npm, weekly, grouped, with a 7-day cooldown. The npm entry ignores typescript's major updates until openapi-typescript accepts typescript 7 (2026-10-19, memory.md).
+  - Dependabot: uv, Docker, GitHub Actions and npm, weekly, grouped, with a 7-day cooldown. It ignores (memory.md, 2026-10-19): typescript's major updates until openapi-typescript accepts typescript 7; `@types/node` 25 and up while the app runs on Node 24; the python image's minor and major updates, since a move to a new Python changes `.python-version`, the uv lock, CI and the image together.
   - main: ruleset 25308468 (active; user, from GitHub's API on 2026-10-18) requires a pull request (0 approvals) and the `ci-ok` check, not strict (a branch need not be up to date with main to merge). It blocks force pushes and deletion.
 - Tests:
   - `make test` runs the unit tests (marker `unit`: no Docker, no network; about 10 s) and `make test-int` the integration tests (`integration`: Testcontainers with the compose images of Postgres with pgvector, RabbitMQ and Redis, on 127.0.0.1; about 1 min 50 s). The root `conftest.py` marks every test without `integration` or `e2e` as `unit`; `e2e` is registered but unused: the web's Playwright suite is TypeScript, in `web/e2e`. `async def` tests run under pytest-asyncio (auto mode).

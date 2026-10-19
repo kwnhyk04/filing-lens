@@ -15,6 +15,33 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-19: Dependabot follow-ups: the python image's and `@types/node`'s majors ignored, graphql 17.0.2 taken in `clients/ts` (uncommitted)
+
+- Changes:
+  - **Start:** B2 had merged as #10, and main was clean at ab325a2. `git switch -c fix/dependabot-follow-ups`. The user's three items, with no live model call: ignore `@types/node` majors above Node 24; check graphql 17.0.2 for `clients/ts` and take it if the code generator supports it and the checks pass, else ignore graphql majors; ignore the python image's minors and majors.
+  - **Docker entry:** ignores `python`'s minor and major updates (`update-types`), so 3.12 patch releases and digest refreshes still come. The comment says why (a new Python changes `.python-version`, the uv lock, CI and the image together) and when to lift it: the rule follows the current tag, so the planned move needs no edit, and it is lifted only if new Pythons should come as Dependabot PRs again (ruling in memory.md).
+  - **npm entry:** ignores `@types/node` `>=25`, with a comment saying to lift it when the runtime moves. The typescript rule's comment moved into its list item, so each comment sits above its rule.
+  - **graphql 17.0.2:** taken in `clients/ts` (`package.json`, `package-lock.json`), so no graphql rule. The evidence is in memory.md.
+- Small events, in order:
+  1. The gate hook refused the first Bash call and the first write of each touched file, and held both `git checkout` calls as destructive until the files, a rollback and the user's instruction were named. Each retry passed (expected behavior).
+  2. Reading the codegen packages' peer ranges from `clients/ts/node_modules` failed with `MODULE_NOT_FOUND`: only the runtime packages were installed there (web's postinstall runs `npm ci --omit=dev`). The ranges were read from `clients/ts/package-lock.json` instead.
+  3. Loading npm's `semver` from `npm root -g` failed: npm sits in Node's install folder, not in the global root. It loaded from `C:\Program Files\nodejs\node_modules\npm\node_modules\semver`.
+  4. `make contracts-check` exited 2 (its check exits 1). It listed this branch's two package files, unstaged as expected, and three ariadne files (`__init__.py`, `client.py`, `coverage.py`). Those three differed from HEAD only in line endings: each was larger than HEAD's by exactly its CR count (110, 273 and 65 bytes), and `git diff` showed no content change. Every ariadne file and `contracts/schema.graphql` had been written with CRLF (memory.md, 2026-10-14); git listed only three because it counted the rest unchanged.
+  5. `git checkout HEAD --` on those paths rewrote only the three listed files, because git skips files whose index entries it already counts as clean. After `touch` on the other nine, `git checkout --` rewrote them too. All twelve now match HEAD byte for byte (`cmp`), and `git status` lists only the two package files. Why: the working tree is left as it was before the run, and the PR's review sees no line-ending noise.
+  6. The checks ended with `npm --prefix clients/ts ci --omit=dev`, so `clients/ts/node_modules` again holds only its runtime packages, as before.
+  7. git warned that `.github/dependabot.yml`'s working copy, written with LF, will become CRLF the next time git checks it out (`core.autocrlf=true`, and `.gitattributes` sets no eol for `.github/`). The committed blob stays LF, and its diff shows only the changed lines. Nothing was done.
+- Files: `.github/dependabot.yml`, `clients/ts/package.json`, `clients/ts/package-lock.json`, docs (context, memory, todo, this log).
+- Validation:
+  - `dependabot.yml` parses (PyYAML) and passes check-jsonschema 0.38.2's built-in Dependabot schema (`--builtin-schema vendor.dependabot`, in a throwaway uv env with `--exclude-newer 2026-10-12`).
+  - `make contracts-check` (codegen first): openapi-typescript, graphql-codegen and `tsc` passed under graphql 17.0.2, and no generated file changed in content (events 4 and 5).
+  - `npm --prefix clients/ts test`: 18 passed.
+  - web, after `npm --prefix clients/ts ci --omit=dev` (what its postinstall runs): `npm run typecheck` clean, `npm test` 77 passed.
+  - Eval check: no tracked change and no untracked file under `EVAL_INPUTS`, so CI skips the eval.
+  - gitleaks (`dir --redact`, the binary pre-commit built from its pinned rev v8.30.1) on each of the 7 changed files: no leaks.
+  - Not run: `make lint`, `make typecheck` and `make test` (no Python change); web's build and Playwright (web imports no graphql, and CI's web job runs both); `make actionlint` (no workflow change); `make contracts-breaking` (contracts unchanged).
+  - No live model or SEC call, and no container.
+- Outstanding: the user ships it; after the merge, the user checks #2 and #11 (todo.md).
+
 ### 2026-10-19: B2 before shipping: two review minors fixed (proxy secret, snapshot line endings) (uncommitted)
 
 - Changes:

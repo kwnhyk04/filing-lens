@@ -17,6 +17,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # A move to a new Python changes .python-version, the uv lock, CI and this image together, so only patch releases of the current Python (3.12) come here.
+      # The rule follows the image's current tag, so that planned move needs no edit here; lift it only if new Pythons should come as Dependabot PRs again.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directories: ["/", "/.github/actions/setup"]
     schedule:
@@ -32,11 +37,15 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
-    # openapi-typescript 7.13.0, its newest release, accepts only typescript ^5.x, so a typescript 7 bump fails npm ci with ERESOLVE.
-    # Lift this once an openapi-typescript release accepts typescript 7.
     ignore:
+      # openapi-typescript 7.13.0, its newest release, accepts only typescript ^5.x, so a typescript 7 bump fails npm ci with ERESOLVE.
+      # Lift this once an openapi-typescript release accepts typescript 7.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # @types/node's major follows the Node the app runs on: 24 (CI's node-version, web's engines).
+      # Lift this when the runtime moves to a newer Node.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
     groups:
       npm:
         patterns: ["*"]
