@@ -15,6 +15,32 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-19: Step 9 PR B3: leaving Ask aborts its stream, a failed sources lookup gets a note, the client_aborted log label; docs tidied, step 9 done (uncommitted)
+
+- Changes:
+  - **Start:** main was clean at e2b581d (B2 as #10, the python group as #4, the Dependabot follow-ups as #12). `git switch -c step-9-web-b3`. The user's rules: no live model or SEC call (Triage Copilot's exam runs until 2026-10-20), containers only by exact name (none were used), no commit.
+  - **Leaving Ask:** one AbortController per question in a ref, aborted by a `useEffect` cleanup and before each new question; both fetches take its signal, and an aborted request shows nothing (`components/ask.tsx`). The mock API records streams the web cut short and answers `GET /e2e/cut`; it streams `e2e: slow ...` questions for about 3 s (`e2e/mock-api.ts`).
+  - **Sources failure:** `showSources` keeps its own failures: "Sources could not be loaded." under Sources (`components/answer-view.tsx`, new optional `sourcesFailed` prop) and in the status line. The catch-all covers the stream only.
+  - **Log label:** `failureLabel` (`lib/errors.ts`), used by `call()` (`lib/server.ts`): `AbortError` and `ResponseAborted` log `client_aborted` at info.
+  - **Docs tidy:** #10, #4 and #12 marked merged; #3's item closed as obsolete, and #2 and #11 recorded as closed or replaced (both from the user). B2's block left Pending for a condensed record under Completed, and the B3 minors became B3's record. Step 9 is marked done; step 10 has a "Needs from the user" list. Rulings and the pitfall are in memory.md.
+- Small events, in order:
+  1. `git rev-parse --short HEAD main` failed ("fatal: Needed a single revision"): `--short` implies `--verify`, which takes one revision. The log printed just before showed main at e2b581d, so nothing was redone.
+  2. The unit test first failed on its missing seam (no `failureLabel` export). The seam went in returning today's label and level, wired into `call()`. Then the real red (`offline` at warn for an abort), then green.
+  3. The first e2e red run: both sources specs failed for the right reason (no note), but the leaving spec passed without the fix. It had waited for the request to end as `net::ERR_ABORTED`. A temporary spec (`e2e/zz-diag.spec.ts`) printed the timeline: with and without leaving, the stream ended as `requestfailed net::ERR_ABORTED` at its natural end (3,332 and 3,334 ms), while leaving's soft navigation finished at 244 ms. So Chromium's error text cannot tell an abort apart. The spec was rewritten to ask the mock whether the stream was cut, failed (never cut), and passed after the fix. The temporary spec was deleted.
+  4. The edit gate refused the first edit of each touched web file and the temporary spec's first write; each retry passed (expected behavior).
+  5. The rtk output filter condensed two outputs (the red run's failure text, a Next docs grep); `rtk recall` and `rtk proxy` showed them whole.
+  6. The `note` class has no CSS rule. The degraded note uses the same bare class, so the new note does too; axe passed on it.
+  7. To check the plan's by-hand steps, `.env` was read for variable names only (`grep -oE '^[A-Z][A-Z0-9_]*='`), with no value printed: `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are there.
+- Files: `web/components/ask.tsx`, `web/components/answer-view.tsx`, `web/lib/errors.ts`, `web/lib/errors.test.ts`, `web/lib/server.ts`, `web/e2e/ask.spec.ts`, `web/e2e/mock-api.ts`, docs (context, memory, todo, this log).
+- Validation:
+  - `make lint` clean (136 files formatted); `make typecheck` 0 errors; `make test` 370 passed.
+  - web: `npm run typecheck` clean; `npm test` 78 passed (one new); `npm run build` with no warning; `npx playwright test` 61 passed (four new), three runs in a row (16.3, 18.4 and 16.9 s).
+  - gitleaks (`dir --redact`, the binary pre-commit built from its pinned rev v8.30.1) on each of the 11 changed files: no leaks.
+  - Eval check: no tracked change and no untracked file under `EVAL_INPUTS`, so CI skips the eval.
+  - Not run (not asked, and nothing they cover changed): `make test-int`, `make contracts-check`, `make contracts-breaking`, `make actionlint`, `npm --prefix clients/ts test`.
+  - No live model or SEC call, and no container.
+- Outstanding: the user ships B3; step 10's needs from the user are listed under step 10 in todo.md.
+
 ### 2026-10-19: Dependabot follow-ups: the python image's and `@types/node`'s majors ignored, graphql 17.0.2 taken in `clients/ts` (uncommitted)
 
 - Changes:

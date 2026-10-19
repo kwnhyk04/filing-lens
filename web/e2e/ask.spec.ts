@@ -1,5 +1,9 @@
-import { question } from "./env.ts";
-import { ask, expect, test } from "./fixtures.ts";
+import { randomUUID } from "node:crypto";
+
+import type { Route } from "@playwright/test";
+
+import { API_KEY, MOCK, question } from "./env.ts";
+import { ask, audit, expect, test } from "./fixtures.ts";
 
 test("numeric: the draft streams, then the checked answer links its fact card", async ({ page }) => {
   await ask(page, question("n01"));
@@ -56,3 +60,43 @@ for (const [text, message, demoLink] of ERRORS) {
     await expect(page.getByTestId("ask-status")).toHaveText(message);
   });
 }
+
+test("a network error on the stream itself says the web server could not be reached", async ({ page }) => {
+  await page.route("**/api/answers", (route) => route.abort());
+  await ask(page, question("n01"));
+  const error = page.getByTestId("ask-error");
+  await expect(error).toContainText("The web server could not be reached.");
+  await expect(error.getByRole("link", { name: "See the saved answers" })).toHaveCount(1);
+  await expect(page.getByTestId("ask-status")).toHaveText("The web server could not be reached.");
+});
+
+const SOURCES_FAILURES: [string, (route: Route) => Promise<void>][] = [
+  ["an error reply", (route) => route.fulfill({ status: 503, json: { code: "offline", detail: "The API is offline." } })],
+  ["a network error", (route) => route.abort()],
+];
+
+for (const [name, failure] of SOURCES_FAILURES) {
+  test(`sources: ${name} keeps the answer and says its sources could not be loaded`, async ({ page }) => {
+    await page.route("**/api/sources", failure);
+    await ask(page, question("n01"));
+    await expect(page.getByTestId("sources-error")).toHaveText("Sources could not be loaded.");
+    await expect(page.getByTestId("ask-status")).toHaveText("Answer ready, with 1 source. Sources could not be loaded.");
+    await expect(page.getByTestId("ask-error")).toHaveCount(0);
+    await expect(page.locator("#source-1").getByRole("heading")).toHaveText("Source 1");
+    await audit(page);
+  });
+}
+
+test("leaving Ask through a header link stops its answer stream at the API", async ({ page, request }) => {
+  const slow = `e2e: slow ${randomUUID()}`; // the mock streams it for about 3 s
+  await ask(page, slow);
+  await expect(page.getByTestId("draft")).toBeVisible();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Coverage" }).click();
+  await expect(page).toHaveURL(/\/coverage$/);
+  // Chromium reports even a finished stream as net::ERR_ABORTED, so the mock says whether it was cut.
+  const cut = async () => {
+    const reply = await request.get(`${MOCK}/e2e/cut?question=${encodeURIComponent(slow)}`, { headers: { "X-API-Key": API_KEY } });
+    return ((await reply.json()) as { cut: boolean }).cut;
+  };
+  await expect.poll(cut).toBe(true);
+});

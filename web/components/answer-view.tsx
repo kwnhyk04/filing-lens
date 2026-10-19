@@ -94,7 +94,17 @@ function SourceCard({ n, citation, sources, prefix }: { n: number; citation: Cit
   );
 }
 
-export function AnswerView({ answer, sources, prefix = "" }: { answer: Answer; sources?: Sources; prefix?: string }) {
+export function AnswerView({
+  answer,
+  sources,
+  sourcesFailed = false,
+  prefix = "",
+}: {
+  answer: Answer;
+  sources?: Sources;
+  sourcesFailed?: boolean;
+  prefix?: string;
+}) {
   const parts = splitMarkers(answer.answer, answer.citations.length);
   const { input_tokens: input, output_tokens: output, cost_usd: cost } = answer.usage;
   return (
@@ -132,6 +142,11 @@ export function AnswerView({ answer, sources, prefix = "" }: { answer: Answer; s
       {answer.citations.length > 0 && (
         <section className="sources" aria-labelledby={`${prefix}sources-title`}>
           <h3 id={`${prefix}sources-title`}>Sources</h3>
+          {sourcesFailed && (
+            <p className="note" data-testid="sources-error">
+              Sources could not be loaded.
+            </p>
+          )}
           {answer.citations.map((citation, i) => (
             <SourceCard key={i} n={i + 1} citation={citation} sources={sources} prefix={prefix} />
           ))}

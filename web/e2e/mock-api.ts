@@ -9,6 +9,7 @@ type AnswerEvent = Schemas["AnswerDelta"] | Schemas["AnswerCompleted"] | Schemas
 type Answer = Schemas["Answer"];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const cut = new Set<string>(); // questions whose stream the web closed before it finished
 const cursor = (index: number) => Buffer.from(String(index)).toString("base64url");
 const answerOf = (id: string) => snapshot.answers.find((item) => item.id === id)?.answer as Answer;
 
@@ -48,6 +49,9 @@ async function stream(res: ServerResponse, question: string) {
     return send(res, status, problem(status, code, detail), retryAfter ? { "Retry-After": retryAfter } : {});
   }
   res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store" });
+  res.on("close", () => {
+    if (!res.writableFinished) cut.add(question);
+  });
   const emit = (event: AnswerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   if (question === "e2e: failed") {
     emit({ type: "delta", text: "A draft that never finishes" });
@@ -56,9 +60,10 @@ async function stream(res: ServerResponse, question: string) {
     return res.end();
   }
   const rewritten = question === "e2e: rewritten"; // x02's answer carries validation warnings
+  const slow = question.startsWith("e2e: slow"); // about 3 s of draft, so a test can leave mid-answer
   const recorded = snapshot.answers.find((item) => item.question === question)?.answer as Answer | undefined;
   const answer = rewritten ? answerOf("x02") : (recorded ?? answerOf("o02"));
-  const draft = rewritten ? "A first draft that validation will rewrite." : answer.answer;
+  const draft = slow ? "Still drafting. ".repeat(50) : rewritten ? "A first draft that validation will rewrite." : answer.answer;
   for (const piece of draft.match(/[\s\S]{1,40}/g) ?? []) {
     emit({ type: "delta", text: piece });
     res.write(": ping\n\n");
@@ -103,6 +108,10 @@ const server = createServer(async (req, res) => {
   res.setHeader("X-Request-ID", String(req.headers["x-request-id"] ?? "mock"));
   if (req.url === "/healthz") return send(res, 200, { status: "ok" });
   if (req.headers["x-api-key"] !== API_KEY) return rejected(res);
+  const url = new URL(req.url ?? "/", MOCK);
+  if (req.method === "GET" && url.pathname === "/e2e/cut") {
+    return send(res, 200, { cut: cut.has(url.searchParams.get("question") ?? "") });
+  }
   const body = await readJson(req);
   if (req.method === "POST" && req.url === "/graphql") return graphql(res, body);
   if (req.method === "POST" && req.url === "/v1/answers/stream") return stream(res, String(body.question ?? ""));

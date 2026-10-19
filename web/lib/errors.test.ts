@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ApiError } from "../../clients/ts/index.ts";
-import { classify } from "./errors.ts";
+import { classify, failureLabel } from "./errors.ts";
 
 const CASES: [string, unknown, ReturnType<typeof classify>][] = [
   ["a network error", new TypeError("fetch failed"), { kind: "offline" }],
@@ -35,3 +35,12 @@ for (const [name, error, expected] of CASES) {
     assert.deepEqual(classify(error), expected);
   });
 }
+
+test("a browser that left is logged as client_aborted at info; a stalled or unreachable API stays offline at warn", () => {
+  // Next aborts a route's request.signal with an Error named ResponseAborted when the browser disconnects.
+  const left = [new DOMException("The operation was aborted.", "AbortError"), Object.assign(new Error("aborted"), { name: "ResponseAborted" })];
+  for (const error of left) assert.deepEqual(failureLabel(error, classify(error)), { label: "client_aborted", level: "info" });
+  for (const error of [new DOMException("timed out", "TimeoutError"), new TypeError("fetch failed")]) {
+    assert.deepEqual(failureLabel(error, classify(error)), { label: "offline", level: "warn" });
+  }
+});
