@@ -24,6 +24,25 @@ test("textual: a chunk card names its filing and item, and marks the quote", asy
   await expect(card.locator("mark")).toContainText("three segments");
 });
 
+test("the source panel fits the window from the first screen, and a citation brings its quote into view in it", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 360 }); // the narrowest two columns; short, so the quote starts below the card's first screen
+  await ask(page, question("x02"));
+  await expect(page.locator("#source-1").getByRole("heading")).toContainText("NVDA");
+  const gapBelowPanel = () => page.evaluate(() => innerHeight - document.querySelector("section.sources")!.getBoundingClientRect().bottom);
+  expect(await gapBelowPanel()).toBeCloseTo(16, 0); // its bottom edge on screen at once, 1rem above the window's
+  await page.getByTestId("answer").getByRole("link", { name: /^Source 1:/ }).first().click();
+  const shown = () =>
+    page.evaluate(() => {
+      const panel = document.querySelector("section.sources")!.getBoundingClientRect();
+      const quote = document.querySelector("#source-1 mark")!.getBoundingClientRect();
+      return {
+        panelOnScreen: panel.top >= 0 && panel.bottom <= innerHeight,
+        quoteInPanel: quote.top >= panel.top && quote.bottom <= panel.bottom,
+      };
+    });
+  await expect.poll(shown).toEqual({ panelOnScreen: true, quoteInPanel: true });
+});
+
 test("comparison: one fact card per company", async ({ page }) => {
   await ask(page, question("c02"));
   await expect(page.locator("#source-1").getByRole("heading")).toContainText("GOOGL fact");
@@ -35,7 +54,7 @@ test("a refusal says it is not answered, with its reason and no sources", async 
   const answer = page.getByTestId("answer");
   await expect(answer).toContainText("Not answered");
   await expect(answer).toContainText("SEC filings cannot answer this question");
-  await expect(answer.getByRole("heading", { name: "Sources" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Sources" })).toHaveCount(0);
 });
 
 test("an answer validation rewrote shows its warnings", async ({ page }) => {

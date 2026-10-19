@@ -5,7 +5,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { createSseParser, type Answer, type AnswerEvent } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
-import { AnswerView } from "./answer-view.tsx";
+import { AnswerMain, SourceList } from "./answer-view.tsx";
+import { QuoteInView } from "./quote-in-view.tsx";
 
 interface Problem {
   code?: string;
@@ -130,47 +131,52 @@ export function Ask() {
     }
   }
 
+  // From 64rem the sources panel sits beside the whole column; the DOM order is the reading order.
   return (
-    <>
-      <form onSubmit={ask} className="stack ask-form">
-        <label htmlFor="question">Your question</label>
-        <textarea id="question" name="question" rows={3} required minLength={3} maxLength={1000} aria-describedby="question-help" />
-        <p id="question-help" className="help">
-          About the tracked companies&apos; filings, such as &ldquo;What was Apple&apos;s total revenue in fiscal
-          2025?&rdquo; 3 to 1,000 characters.
+    <div className="ask">
+      <div className="ask-main">
+        <form onSubmit={ask} className="stack ask-form">
+          <label htmlFor="question">Your question</label>
+          <textarea id="question" name="question" rows={3} required minLength={3} maxLength={1000} aria-describedby="question-help" />
+          <p id="question-help" className="help">
+            About the tracked companies&apos; filings, such as &ldquo;What was Apple&apos;s total revenue in fiscal
+            2025?&rdquo; 3 to 1,000 characters.
+          </p>
+          {/* aria-disabled, not disabled: a disabled button would drop the keyboard user's focus */}
+          <button type="submit" aria-disabled={busy || undefined}>
+            {busy ? "Answering…" : "Ask"}
+          </button>
+        </form>
+        <p role="status" className="status" data-testid="ask-status">
+          {status}
         </p>
-        {/* aria-disabled, not disabled: a disabled button would drop the keyboard user's focus */}
-        <button type="submit" aria-disabled={busy || undefined}>
-          {busy ? "Answering…" : "Ask"}
-        </button>
-      </form>
-      <p role="status" className="status" data-testid="ask-status">
-        {status}
-      </p>
-      {problem && (
-        <div className="problem" data-testid="ask-error">
-          <p>{problem.text}</p>
-          {problem.demo && (
-            <p>
-              <Link href="/demo">See the saved answers</Link>
-            </p>
-          )}
-        </div>
-      )}
-      {draft !== null && (
-        <section className="draft" aria-busy="true" aria-labelledby="draft-title" data-testid="draft">
-          <h2 id="draft-title">
-            Draft <span className="tag">citations not checked yet</span>
-          </h2>
-          <p>{draft}</p>
-        </section>
-      )}
-      {answer && (
-        <section className="result" aria-labelledby="answer-title" data-testid="answer">
-          <h2 id="answer-title">Answer</h2>
-          <AnswerView answer={answer} sources={sources} sourcesFailed={sourcesFailed} />
-        </section>
-      )}
-    </>
+        {problem && (
+          <div className="problem" data-testid="ask-error">
+            <p>{problem.text}</p>
+            {problem.demo && (
+              <p>
+                <Link href="/demo">See the saved answers</Link>
+              </p>
+            )}
+          </div>
+        )}
+        {draft !== null && (
+          <section className="draft" aria-busy="true" aria-labelledby="draft-title" data-testid="draft">
+            <h2 id="draft-title">
+              Draft <span className="tag">citations not checked yet</span>
+            </h2>
+            <p>{draft}</p>
+          </section>
+        )}
+        {answer && (
+          <section className="result" aria-labelledby="answer-title" data-testid="answer">
+            <h2 id="answer-title">Answer</h2>
+            <AnswerMain answer={answer} sources={sources} />
+          </section>
+        )}
+      </div>
+      {answer && <SourceList answer={answer} sources={sources} sourcesFailed={sourcesFailed} />}
+      <QuoteInView />
+    </div>
   );
 }

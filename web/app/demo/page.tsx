@@ -1,5 +1,6 @@
 import { AnswerView } from "../../components/answer-view.tsx";
 import { DemoBanner, DemoHeader } from "../../components/chrome.tsx";
+import { QuoteInView } from "../../components/quote-in-view.tsx";
 import { demo } from "../../lib/demo.ts";
 
 export const metadata = { title: "Demo: saved answers" };
@@ -11,7 +12,7 @@ export default async function DemoPage({ searchParams }: Props) {
   return (
     <>
       <DemoHeader page="answers" />
-      <main id="main">
+      <main id="main" className="demo">
         <DemoBanner offline={offline === "1"} />
         <h1>Saved answers</h1>
         <p>Questions from the evaluation&apos;s test split, each with its recorded answer and sources.</p>
@@ -28,6 +29,7 @@ export default async function DemoPage({ searchParams }: Props) {
             <AnswerView answer={item.answer} sources={demo.sources} prefix={`${item.id}-`} />
           </section>
         ))}
+        <QuoteInView />
       </main>
     </>
   );

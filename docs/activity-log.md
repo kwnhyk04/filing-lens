@@ -15,6 +15,51 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-19: Mockup style, fix before shipping: Ask's sources panel fits the window from the first screen (uncommitted)
+
+- Changes:
+  - **The problem** (user, before shipping): at the top of Ask, the panel's last 100 px or so sat below the window until a small scroll. Cause, measured: the panel was the window's height less 32 px, but on the first screen it starts 127.5 px down (the 56 px header, main's 24 px top padding, the title's 27.5 px line and the 20 px gap). `top: 1rem` only applied once the page had scrolled about 112 px.
+  - **The fix** (`web/app/globals.css`): from 64rem the panel sticks where it starts, `top: var(--panel-top)`, the sum of those four, and is the window's height less that and 16 px. Its bottom edge sits 16 px above the window's from the first screen, and the panel no longer moves while the page scrolls. The demo's panels are unchanged.
+  - **Test** (`web/e2e/ask.spec.ts`): the panel test now runs in a 1024 by 360 window, the narrowest two-column width, and checks the gap below the panel on the first screen, before the citation's click. After the click it checks that the panel is on screen, instead of "fills the window", and that the quote is in it.
+  - **Docs:** design.md (the change, the test, the known limit replaced), todo.md (the step), memory.md (the ruling and the pitfall), context.md.
+- Small events, in order:
+  1. Bash's first command and each file's first edit were held by the gate until their facts were given; each retry passed.
+  2. The build in `web/.next` was newer than `globals.css`, so the red run used it as it stood. The new check failed at -95.5 px, the offset exactly.
+  3. After the CSS change: `npm run build`, then the test passed with a 16 px gap.
+  4. A probe in the scratchpad, a Playwright config that extends the suite's and starts its servers in `web/`, first failed to load: with no `package.json` there, Playwright compiled the imports as CommonJS, and `e2e/env.ts`'s `import.meta` broke. A `{ "type": "module" }` package.json beside it fixed that. It then measured six windows, 1024 by 360 to 2560 by 1440, with x02 and c12. On the first screen the panel's top was 127.5 px, level with the question box, and its gap 16 px, every time. After a citation's click and at the page's end it stayed on screen, with a gap of 16 to 64 px.
+  5. Screenshots: `npm run screens` with `SCREENS_DIR` in the scratchpad, then a pixel comparison (sharp, already installed with Next) against `docs/screenshots/ui`. 38 were byte-identical. 10 changed as expected and were copied in: ask-comparison, ask-numeric, ask-sources-failed and ask-textual, now 112 px shorter since the panel is, and ask-warnings, in the panel's bottom rows; each in light and dark. Six differed only because of the run: ask-draft in all three variants (how much draft had streamed) and config-error in all three (a random request id). They were left as they were, since this fix does not touch them.
+- Files: `web/app/globals.css`, `web/e2e/ask.spec.ts`, 10 screenshots in `docs/screenshots/ui/`, docs (design, todo, memory, context, this log).
+- Validation:
+  - web: `npm run typecheck` clean; `npm test` 79 passed; `npm run build` with no warning; `npx playwright test` 62 passed, three runs in a row (18.0, 18.8 and 16.8 s); `npm run screens` 55 passed, each screen through axe in its theme.
+  - gitleaks (`dir --redact`) on each changed file, the 10 screenshots included, and on this log after writing it: no leaks.
+  - Eval: no `EVAL_INPUTS` path changed (0), so CI's eval is skipped. Python checks were not run: no Python changed.
+- Outstanding: the user ships it.
+
+### 2026-10-19: Mockup style: the separately made mockup's look on every screen, with a bigger sources panel (uncommitted)
+
+- Changes:
+  - **Start:** main was clean at 73bb1c0 (the design round merged as #15). `git switch -c step-9-mockup-style`. The user's rules: open `_design-reference/filinglens/mockup` read only and copy nothing from it; style only, no new feature or API change; no live model or SEC call; containers only by exact name (none were used); no commit.
+  - **Restyle** (`web/app/globals.css`, rewritten): the mockup's palette in light and dark, the header with green-underlined tabs, white cards on a pale green-grey page, a serif answer with figures under the highlighter and citations as small numbered boxes, the sources panel, and the Filings table look on Coverage. The demo takes the landing look: a serif title and lead, numbered question cards on a full-width white band.
+  - **The user's change:** from 64rem Ask's sources panel sits beside the whole column, half the width, the window's full height, with its own scroll. A citation's jump now also brings its highlighted words into view in the panel (`web/components/quote-in-view.tsx`, new). The demo's panels do the same, as tall as their sources need.
+  - **Markup:** `AnswerMain` and `SourceList` in `answer-view.tsx`, so Ask can place Sources beside its column; `span.figure` around figures (`splitFigures` in `lib/answer.ts`); each citation's brackets in zero-size spans; `className="demo"` on the demo's `main`. The DOM, heading and focus order are unchanged.
+  - **Tests:** a unit test for `splitFigures`; a Playwright test that the panel fills the window and a citation brings its quote into view; the refusal test now looks for "Sources" on the whole page.
+  - **Docs:** design.md (the new direction, paper and ink kept as a dated section), todo.md (the round, the design round moved to Completed as #15, 15 candidates from the mockup with sizes and API needs), context.md, memory.md.
+- Small events, in order:
+  1. The mockup's 12 screenshots and README were read. Nothing else in `_design-reference` was opened.
+  2. `splitFigures`'s test failed first on the missing export, then passed.
+  3. The panel test failed on the old layout: the panel was taller than the window. It passed `quoteInPanel` there only because the old section was the whole tall column. After the layout change it failed again, on the quote out of view, as planned. It passed once `QuoteInView` was in.
+  4. The first full Playwright run: 1 of 62 failed. The numeric spec timed out because the paragraph took the click on its citation link. The trace showed Playwright aiming at a 1 by 1 px box, a visually hidden bracket's. A probe page in the scratchpad (web's Playwright Chromium) confirmed it, and showed that those spans also split `innerText` over three lines. The brackets became zero-size spans; then 62 passed.
+  5. The gate refused an `rm -rf` of a scratch folder before unzipping that trace, as destructive. The trace went into a new scratch folder instead, so nothing needed deleting.
+  6. The first screenshots went to the scratchpad (`SCREENS_DIR`) for review. A crop helper in the scratchpad (web's Playwright Chromium) cut full-size views of the 5,725 px demo page. The review found one flaw: a figure broke across lines ("$3,855 / million"), so figures got `white-space: nowrap`. Then the final set went to `docs/screenshots/ui/`.
+  7. After the user's `/login` mid-round, the edit gate asked for its facts again on files it had already let through, and Bash's first-command check came back too. Cause not confirmed (its state seems to reset with the session's login). Each retry passed.
+  8. The candidate list's API facts were checked in `contracts/schema.graphql`, `clients/ts/openapi.d.ts` and `packages/db` before writing them.
+- Files: `web/app/globals.css`, `web/components/answer-view.tsx`, `web/components/ask.tsx`, `web/components/quote-in-view.tsx` (new), `web/app/demo/page.tsx`, `web/lib/answer.ts`, `web/lib/answer.test.ts`, `web/e2e/ask.spec.ts`, `docs/screenshots/ui/*.png` (54, retaken), docs (design, context, memory, todo, this log).
+- Validation:
+  - web, after the last CSS change: `npm run typecheck` clean; `npm test` 79 passed; `npm run build` with no warning; `npx playwright test` 62 passed, three runs in a row (18.1, 16.7 and 16.6 s); `npm run screens` 55 passed (54 screens and the sign-in setup), each screen through axe in its theme, 7.1 MB.
+  - gitleaks (`dir --redact`, the binary pre-commit built from its pinned rev v8.30.1) on each of the 66 changed or new files, the screenshots included, after the docs were written: no leaks.
+  - Eval: no `EVAL_INPUTS` path changed (the diff against main and the untracked files: 0), so CI's eval is skipped. Python checks were not run: no Python changed.
+- Outstanding: the user ships it. The mockup's other features wait as candidates in todo.md.
+
 ### 2026-10-19: Design round: the web app's own visual design, "paper and ink", with screenshots of every screen (uncommitted)
 
 - Changes:
