@@ -11,16 +11,21 @@ function find(citation: Citation, sources?: Sources) {
   };
 }
 
-/** "Source 1: NVDA 10-K FY2026, Item 1A", or "Source 1" until the sources load. */
-function sourceName(n: number, citation: Citation, sources?: Sources): string {
+/** "NVDA 10-K FY2026, Item 1A", or undefined until the sources load. */
+function sourceLabel(citation: Citation, sources?: Sources): string | undefined {
   const { chunk, fact } = find(citation, sources);
   if (chunk) {
     const { company, formType, fiscalYear } = chunk.filing;
-    return `Source ${n}: ${company.ticker} ${formLabel(formType)} FY${fiscalYear}, Item ${chunk.section.item}`;
+    return `${company.ticker} ${formLabel(formType)} FY${fiscalYear}, Item ${chunk.section.item}`;
   }
   // A fact's fiscal year is its reporting filing's, so the period end names the value's own date.
-  if (fact) return `Source ${n}: ${fact.company.ticker} fact, ${fact.label}, period ending ${fact.periodEnd}`;
-  return `Source ${n}`;
+  if (fact) return `${fact.company.ticker} fact, ${fact.label}, period ending ${fact.periodEnd}`;
+}
+
+/** "Source 1: NVDA 10-K FY2026, Item 1A", or "Source 1" until the sources load. */
+function sourceName(n: number, citation: Citation, sources?: Sources): string {
+  const label = sourceLabel(citation, sources);
+  return label ? `Source ${n}: ${label}` : `Source ${n}`;
 }
 
 function Highlighted({ text, quote }: { text: string; quote: string }) {
@@ -40,9 +45,13 @@ const number = (value: number) => value.toLocaleString("en-US", { maximumFractio
 function SourceCard({ n, citation, sources, prefix }: { n: number; citation: Citation; sources?: Sources; prefix: string }) {
   const id = `${prefix}source-${n}`;
   const { chunk, fact } = find(citation, sources);
+  const label = sourceLabel(citation, sources);
   return (
     <article id={id} className="card" aria-labelledby={`${id}-title`} tabIndex={-1}>
-      <h4 id={`${id}-title`}>{sourceName(n, citation, sources)}</h4>
+      <h4 id={`${id}-title`}>
+        <span className="source-n">Source {n}</span>
+        {label && `: ${label}`}
+      </h4>
       {chunk ? (
         <>
           <p className="meta">
@@ -58,7 +67,7 @@ function SourceCard({ n, citation, sources, prefix }: { n: number; citation: Cit
             <dt>Label</dt>
             <dd>{fact.label}</dd>
           </div>
-          <div>
+          <div className="value">
             <dt>Value</dt>
             <dd>
               {number(fact.value)} {fact.unit}
@@ -68,7 +77,7 @@ function SourceCard({ n, citation, sources, prefix }: { n: number; citation: Cit
             <dt>Period</dt>
             <dd>{fact.periodStart ? `${fact.periodStart} to ${fact.periodEnd}` : fact.periodEnd}</dd>
           </div>
-          <div>
+          <div className="accession">
             <dt>Accession</dt>
             <dd>{fact.accessionNumber}</dd>
           </div>
@@ -109,36 +118,38 @@ export function AnswerView({
   const { input_tokens: input, output_tokens: output, cost_usd: cost } = answer.usage;
   return (
     <div className="answer">
-      {answer.refused && <p className="tag">Not answered</p>}
-      <p className="answer-text" id={`${prefix}answer-text`} tabIndex={-1}>
-        {parts.map((part, i) =>
-          typeof part === "number" ? (
-            <a key={i} href={`#${prefix}source-${part}`} aria-label={sourceName(part, answer.citations[part - 1], sources)}>
-              [{part}]
-            </a>
-          ) : (
-            part
-          ),
+      <div className="answer-main">
+        {answer.refused && <p className="tag">Not answered</p>}
+        <p className="answer-text" id={`${prefix}answer-text`} tabIndex={-1}>
+          {parts.map((part, i) =>
+            typeof part === "number" ? (
+              <a key={i} href={`#${prefix}source-${part}`} aria-label={sourceName(part, answer.citations[part - 1], sources)}>
+                [{part}]
+              </a>
+            ) : (
+              part
+            ),
+          )}
+        </p>
+        {answer.warnings.length > 0 && (
+          <div className="warnings" data-testid="warnings">
+            <p>
+              <strong>Checks:</strong> validation changed the draft.
+            </p>
+            <ul>
+              {answer.warnings.map((warning, i) => (
+                <li key={i}>{warning}</li>
+              ))}
+            </ul>
+          </div>
         )}
-      </p>
-      {answer.warnings.length > 0 && (
-        <div className="warnings" data-testid="warnings">
-          <p>
-            <strong>Checks:</strong> validation changed the draft.
-          </p>
-          <ul>
-            {answer.warnings.map((warning, i) => (
-              <li key={i}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {answer.degraded && (
-        <p className="note">Search skipped the reranker after a timeout, so passages keep their first order.</p>
-      )}
-      <p className="usage">
-        {input.toLocaleString("en-US")} tokens in, {output.toLocaleString("en-US")} out, cost ${cost.toFixed(2)}
-      </p>
+        {answer.degraded && (
+          <p className="note">Search skipped the reranker after a timeout, so passages keep their first order.</p>
+        )}
+        <p className="usage">
+          {input.toLocaleString("en-US")} tokens in, {output.toLocaleString("en-US")} out, cost ${cost.toFixed(2)}
+        </p>
+      </div>
       {answer.citations.length > 0 && (
         <section className="sources" aria-labelledby={`${prefix}sources-title`}>
           <h3 id={`${prefix}sources-title`}>Sources</h3>

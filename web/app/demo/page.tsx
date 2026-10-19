@@ -23,7 +23,7 @@ export default async function DemoPage({ searchParams }: Props) {
           ))}
         </ol>
         {demo.answers.map((item) => (
-          <section key={item.id} id={`q-${item.id}`} aria-labelledby={`q-${item.id}-title`} className="answer">
+          <section key={item.id} id={`q-${item.id}`} aria-labelledby={`q-${item.id}-title`} className="saved">
             <h2 id={`q-${item.id}-title`}>{item.question}</h2>
             <AnswerView answer={item.answer} sources={demo.sources} prefix={`${item.id}-`} />
           </section>

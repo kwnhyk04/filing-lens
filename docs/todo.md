@@ -105,12 +105,17 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] (user) Ship PR B3 from `step-9-web-b3`. Its record is under Completed, with step 9.
+- [ ] Design round (user, 2026-10-19): the web app's own visual design, on branch `step-9-design` from main at 9b829a6 (B3 merged), uncommitted until the user ships it. `_design-reference` was not opened, listed or searched (user rule: the design is compared with one made separately).
+  - [x] The current screens studied from screenshots against the mock API, then the direction written in `docs/design.md`: paper and ink, a serif answer, citations as pills, sources as exhibit cards with the quote highlighted, the answer beside its sources from 64rem (memory.md).
+  - [x] Applied in `web/app/globals.css`, with wrappers and class names only in the markup. Every text, role, test id and focus order is unchanged.
+  - [x] Screenshots: `npm run screens` (after a build) writes 18 screens in light, dark and phone width to `docs/screenshots/ui/`, 54 files, each after an axe check.
+  - [x] Checks: web typecheck clean, `npm test` 78, build with no warning, `npx playwright test` 61 three runs in a row, gitleaks on the changed files clean, the eval skipped.
+  - [ ] (user) Compare it with the design made separately, then ship it.
 
 ## Completed
 
-- [x] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, the demo snapshot when the backend is offline, Playwright passing (done 2026-10-19). Four PRs: A (#8), B1 (#9), B2 (#10) and B3 (below; the user ships it). Nothing else in step 9 remains: the plan's by-hand steps are done, since `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are in `.env`. Every open item left belongs to step 10, a later corpus or a watch.
-- [x] 9, PR B3: B2's three deferred review minors (2026-10-19), on branch `step-9-web-b3` from main at e2b581d, uncommitted until the user ships it. Each test first (memory.md):
+- [x] 9. Review UI and demo mode: resolvers, login, backend-for-frontend, the demo snapshot when the backend is offline, Playwright passing (done 2026-10-19). Four PRs: A (#8), B1 (#9), B2 (#10) and B3 (below, merged as 9b829a6). Nothing else in step 9 remains: the plan's by-hand steps are done, since `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are in `.env`. Every open item left belongs to step 10, a later corpus or a watch.
+- [x] 9, PR B3: B2's three deferred review minors (2026-10-19), built on branch `step-9-web-b3` from main at e2b581d, merged on 2026-10-19 (9b829a6, git log; its subject names no PR number). Each test first (memory.md):
   - **Leaving Ask:** one AbortController per question. Leaving Ask, or a new question, aborts the stream and the sources lookup, and an aborted request shows nothing. Test: leaving through the Coverage link makes the mock API see its stream cut short (`GET /e2e/cut`; red: never cut). The abort before a new question has no test of its own (memory.md, ruling).
   - **Sources failure:** an error reply or a network error from `/api/sources` keeps the answer, and adds "Sources could not be loaded." under Sources and to the status line. "The web server could not be reached." now covers only the stream. Tests: both failures through `page.route` (red: no note), and a guard that the stream's own network error still shows the catch-all.
   - **Log label:** `failureLabel` in `lib/errors.ts` logs `AbortError` and `ResponseAborted` as `client_aborted` at info; other failures keep their class at warn. Test: one row each (red: `offline` at warn).
