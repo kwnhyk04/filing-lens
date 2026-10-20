@@ -7,6 +7,7 @@ import {
   createSseParser,
   formLabel,
   locateQuote,
+  periodEnded,
   splitFigures,
   splitMarkers,
   timingLine,
@@ -54,6 +55,12 @@ test("a changed word, digit or letter case is not found", () => {
 
 test("GraphQL's form enum reads as the SEC form", () => {
   assert.deepEqual(["FORM_10K", "FORM_10Q"].map(formLabel), ["10-K", "10-Q"]);
+});
+
+test("a filing's period end: its fiscal year for a 10-K, its quarter for a 10-Q, as a long date in UTC", () => {
+  assert.equal(periodEnded("FY", "2025-09-27"), "Fiscal year ended September 27, 2025");
+  assert.equal(periodEnded("FY", "2025-12-31"), "Fiscal year ended December 31, 2025");
+  assert.equal(periodEnded("Q2", "2025-03-29"), "Quarter ended March 29, 2025");
 });
 
 test("markers become citation numbers; one past the citations stays text", () => {

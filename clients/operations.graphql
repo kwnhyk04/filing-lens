@@ -151,6 +151,7 @@ query Sources($chunkIds: [ID!]!, $factIds: [ID!]!) {
       fiscalYear
       fiscalPeriod
       filedOn
+      periodEnd
       url
       company {
         cik

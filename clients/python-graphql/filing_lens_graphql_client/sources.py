@@ -34,6 +34,7 @@ class SourcesChunksFiling(BaseModel):
     fiscal_year: int = Field(alias="fiscalYear")
     fiscal_period: FiscalPeriod = Field(alias="fiscalPeriod")
     filed_on: date = Field(alias="filedOn")
+    period_end: date = Field(alias="periodEnd")
     url: str
     company: "SourcesChunksFilingCompany"
 

@@ -82,6 +82,7 @@ A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius and controls 6 px;
 - **The answer card:** a header strip ("Answer", and on Ask the timings), the answer, warnings in amber, notes in a dashed outline, and the token count and cost in a grey footer strip, which on Ask also holds Copy and New question.
 - **The sources panel:** a header strip ("Sources"), then each source in turn, divided by hairlines:
   - "Source n" in green, then what the source is, and the filing line (company, section, filing date) in a grey box;
+  - for a passage, its filing's period just under the heading, as in the mockup: "Fiscal year ended December 31, 2025", or "Quarter ended …" for a 10-Q, a long date in UTC, in secondary text at 14 px (8.96:1 on the card, 7.71:1 on the tinted card, light; 10.12:1 and 8.28:1, dark). It comes from the filing's `periodEnd`, SEC's period of report (2026-10-20). A fact card keeps its Period row, the value's own period, since a fact has no link to its filing;
   - a passage in serif behind a thin rule, the cited words under the highlighter with an underline, so colour is not the only cue;
   - a fact as label and value rows, the value in mono under the highlighter;
   - "Filing on sec.gov ↗" (the arrow has empty alt text, so no name changed) and "Back to the answer".
