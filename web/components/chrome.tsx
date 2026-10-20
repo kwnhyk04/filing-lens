@@ -1,7 +1,7 @@
 // Page chrome: the signed-in and demo headers, the demo banner, the configuration-error page.
 import Link from "next/link";
 
-import { demo } from "../lib/demo.ts";
+import { demo, demoCoverageLine } from "../lib/demo.ts";
 import { hasSession } from "../lib/server.ts";
 
 const current = (on: boolean) => (on ? ("page" as const) : undefined);
@@ -49,13 +49,17 @@ export async function DemoHeader({ page }: { page: "answers" | "coverage" }) {
           Coverage
         </Link>
       </nav>
-      {signedIn ? (
-        <SignOut />
-      ) : (
-        <Link href="/login" className="button" prefetch={false}>
-          Sign in
-        </Link>
-      )}
+      {/* Counted from the snapshot; the live header has no line, since the API gives no count. */}
+      <div className="site-end">
+        <p>{demoCoverageLine}</p>
+        {signedIn ? (
+          <SignOut />
+        ) : (
+          <Link href="/login" className="button" prefetch={false}>
+            Sign in
+          </Link>
+        )}
+      </div>
     </header>
   );
 }

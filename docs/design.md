@@ -20,6 +20,19 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - On the demo page, each saved answer gets the same panel, as tall as its sources need up to the window's height.
 - Below 64rem everything stacks as before: the question, the answer, then the sources.
 
+## Mockup features, first set (2026-10-20)
+
+Five of the mockup's features, each showing only what the app knows. What needs data the API does not give is left out and listed in `docs/todo.md`.
+
+- **The answer's header strip** shows, on the right, what the browser timed from the question's send: "First words in 0.9 s · complete in 2.6 s · 2 sources". First words is the first draft text, and complete the checked answer. A reply with no draft text shows only "Complete in", and a refusal shows no count. Label grey at 13 px; on a phone it wraps below "Answer". Left out: the mockup's "every number checked", which needs the number check.
+- **The footer strip** goes on below the usage line with two quiet outlined buttons, as in the mockup: "Copy answer with sources" (only when the answer cites a source) and "New question". On a phone they stack.
+  - Copy puts the answer on the clipboard with its `[n]` markers, then "Sources" and one line per source: its name once its card has loaded, the quoted words and the filing's link. The status line says "Copied the answer with its sources.", or that copying failed.
+  - New question stops a sources lookup still running, clears the answer and the question box, and puts the focus in it.
+- **Coverage:** each filing ends with a green "Indexed" pill (the accent on the tint, fully round, 12 px semibold). The API lists indexed filings only, so that is the one status it knows. Left out: "Needs a look" and its reason, since the API exposes no per-filing ingest status.
+- **The demo header** shows what the snapshot covers, "30 companies · 30 filings", in label grey before Sign in or Sign out, where the mockup's app header has its line. The pair wraps as one, so on a phone it takes the third row, at the right. Left out: the live header's line (the API gives no count) and the mockup's "latest" (nothing records that a filing is its company's latest).
+- **Contrast:** the pill reaches 6.55:1 in light and 7.31:1 in dark, the timings and the coverage line 5.82:1 and 6.58:1, and the buttons' borders 3.42:1 and 4.19:1 against the footer strip.
+- **Markup:** Ask's answer section gains a `div.result-head` (the h2 and `p.timings`) and a `div.actions` after `AnswerMain`; the demo header a `div.site-end` (the line and the button); each filing a `span.pill`. The reading and keyboard order is unchanged: the new buttons come after the answer's citations and before the sources panel, where they sit on screen, and the line and the pill take no focus.
+
 ## Layout
 
 - **Header:** the mark and the name, then tabs with the current one underlined in green on the header's edge, then Sign out as a quiet outlined button. The demo's Sign in is a green button, like the mockup's landing call to action. On a phone the header takes three rows, as in the mockup: the name, the tabs, then the button.
@@ -66,7 +79,7 @@ A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius and controls 6 px;
 
 - **Citations:** the number in a small green outlined box, filled on hover. It stays inline in its sentence, which the 24 px target rule exempts, and its name stays "Source 1: AMZN 10-K FY2025, Item 1". The brackets stay in the page at zero size, so copied text still reads "[1]".
 - **Figures:** amounts with a $, a %, "percent", a scale (thousand to trillion) or USD sit under the highlighter (`splitFigures` in `web/lib/answer.ts`). Years and dates do not.
-- **The answer card:** a header strip ("Answer"), the answer, warnings in amber, notes in a dashed outline, and the token count and cost in a grey footer strip.
+- **The answer card:** a header strip ("Answer", and on Ask the timings), the answer, warnings in amber, notes in a dashed outline, and the token count and cost in a grey footer strip, which on Ask also holds Copy and New question.
 - **The sources panel:** a header strip ("Sources"), then each source in turn, divided by hairlines:
   - "Source n" in green, then what the source is, and the filing line (company, section, filing date) in a grey box;
   - a passage in serif behind a thin rule, the cited words under the highlighter with an underline, so colour is not the only cue;
@@ -96,6 +109,8 @@ Screens: `sign-in`, `sign-in-error`, `ask`, `ask-draft`, `ask-numeric`, `ask-tex
 - When the answer column is shorter than the panel, the page can still scroll 48 px (main's bottom padding), and the panel moves up with it, so its bottom edge then sits 64 px above the window's. The end of a long page does the same.
 - What the mockup shows and the app does not have (History, the pickers, "Read as", the number check, the Filings totals and detail panel, ingest jobs and more) is listed as candidates in `docs/todo.md`.
 - Fonts differ from system to system, by choice: no web font is downloaded.
+- From 641 px to about 690 px wide (measured with Windows fonts), the demo header's coverage line and its button wrap together below the tabs, so the header looks cramped there. Nothing overlaps.
+- The screenshots' timings come from the mock API, which streams at once, so they read "First words in 0.0 s". The demo shows no timings, since the snapshot records none.
 
 ## Earlier direction: paper and ink (design round, 2026-10-19, merged as #15)
 

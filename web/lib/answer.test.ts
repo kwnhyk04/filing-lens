@@ -2,7 +2,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createSseParser, formLabel, locateQuote, splitFigures, splitMarkers } from "./answer.ts";
+import {
+  answerWithSources,
+  createSseParser,
+  formLabel,
+  locateQuote,
+  splitFigures,
+  splitMarkers,
+  timingLine,
+  type Answer,
+} from "./answer.ts";
 
 function parse(chunks: string[]): string[] {
   const data: string[] = [];
@@ -68,4 +77,42 @@ test("figures: amounts with a currency, a unit or a scale split out; years, date
   ]);
   const none = "A 10-K for fiscal year 2026, Item 7, filed on September 15, 2025.";
   assert.deepEqual(splitFigures(none), [none]);
+});
+
+test("timings: first words, completion and the source count, in seconds to one decimal", () => {
+  assert.equal(timingLine(940, 2610, 2), "First words in 0.9 s · complete in 2.6 s · 2 sources");
+  assert.equal(timingLine(30, 310, 1), "First words in 0.0 s · complete in 0.3 s · 1 source");
+});
+
+test("timings: no draft text means no first words, and a refusal counts no sources", () => {
+  assert.equal(timingLine(undefined, 870, 0), "Complete in 0.9 s");
+});
+
+const CITED: Answer = {
+  answer: "Revenue was $1.2 billion [1], up 5% [2].",
+  citations: [
+    { chunk_id: "c-1", fact_id: null, quote: "$1.2 billion", filing_url: "https://www.sec.gov/a" },
+    { chunk_id: null, fact_id: "f-1", quote: "5%", filing_url: "https://www.sec.gov/b" },
+  ],
+  degraded: false,
+  refused: false,
+  usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0 },
+  warnings: [],
+};
+
+test("copied text: the answer with its markers, then each source's name, quote and link", () => {
+  assert.equal(
+    answerWithSources(CITED, ["AAPL 10-K FY2025, Item 7", "AAPL fact, Revenues, period ending 2025-09-27"]),
+    [
+      "Revenue was $1.2 billion [1], up 5% [2].",
+      "",
+      "Sources",
+      '[1] AAPL 10-K FY2025, Item 7: "$1.2 billion" https://www.sec.gov/a',
+      '[2] AAPL fact, Revenues, period ending 2025-09-27: "5%" https://www.sec.gov/b',
+    ].join("\n"),
+  );
+});
+
+test("copied text: a source whose card has not loaded keeps its quote and link", () => {
+  assert.equal(answerWithSources(CITED, []).split("\n").at(-1), '[2] "5%" https://www.sec.gov/b');
 });

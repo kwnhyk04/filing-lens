@@ -31,6 +31,13 @@ test("a cursor the snapshot lacks goes to the demo's first page", async ({ page 
   await expect(page.locator("tbody tr")).toHaveCount(20);
 });
 
+test("the demo header says what the snapshot covers", async ({ page }) => {
+  for (const path of ["/demo", "/demo/coverage"]) {
+    await page.goto(path);
+    await expect(page.getByRole("banner")).toContainText("30 companies · 30 filings");
+  }
+});
+
 test("the demo pages its coverage like the live one", async ({ page }) => {
   await page.goto("/demo/coverage");
   await page.getByRole("link", { name: "Next page" }).click();
