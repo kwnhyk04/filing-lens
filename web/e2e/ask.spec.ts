@@ -2,8 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import type { Route } from "@playwright/test";
 
-import { API_KEY, MOCK, question } from "./env.ts";
+import { API_KEY, MOCK, question, snapshot } from "./env.ts";
 import { ask, audit, expect, test } from "./fixtures.ts";
+
+/** A recorded answer's text and its first citation. */
+function recorded(id: string) {
+  const { answer, citations } = snapshot.answers.find((item) => item.id === id)!.answer;
+  return { answer, cited: citations[0] as { quote: string; filing_url: string } };
+}
 
 test("numeric: the draft streams, then the checked answer links its fact card", async ({ page }) => {
   await ask(page, question("n01"));
@@ -55,6 +61,51 @@ test("a refusal says it is not answered, with its reason and no sources", async 
   await expect(answer).toContainText("Not answered");
   await expect(answer).toContainText("SEC filings cannot answer this question");
   await expect(page.getByRole("heading", { name: "Sources" })).toHaveCount(0);
+});
+
+test("the answer's header says when its first words came, when it was complete, and how many sources it has", async ({ page }) => {
+  await ask(page, question("c12"));
+  await expect(page.getByTestId("timings")).toHaveText(/^First words in \d+\.\d s · complete in \d+\.\d s · 4 sources$/);
+});
+
+test("Copy answer with sources puts the answer on the clipboard, then each source's name, quote and link", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await ask(page, question("x04"));
+  await expect(page.locator("#source-1").getByRole("heading")).toContainText("AMZN");
+  await page.getByRole("button", { name: "Copy answer with sources" }).click();
+  await expect(page.getByTestId("ask-status")).toHaveText("Copied the answer with its sources.");
+  const { answer, cited } = recorded("x04");
+  const copied = (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n"); // CRLF on Windows
+  expect(copied).toBe(`${answer}\n\nSources\n[1] AMZN 10-K FY2025, Item 1: "${cited.quote}" ${cited.filing_url}`);
+});
+
+test("a refusal offers New question, and nothing to copy", async ({ page }) => {
+  await ask(page, question("o02"));
+  await expect(page.getByTestId("answer")).toContainText("Not answered");
+  await expect(page.getByRole("button", { name: "New question" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy answer with sources" })).toHaveCount(0);
+});
+
+test("New question clears the answer and the question box, and puts the focus there", async ({ page }) => {
+  await ask(page, question("n01"));
+  await expect(page.locator("#source-1").getByRole("heading")).toContainText("AAPL");
+  await page.getByRole("button", { name: "New question" }).click();
+  const box = page.getByLabel("Your question");
+  await expect(box).toBeFocused();
+  await expect(box).toHaveValue("");
+  await expect(page.getByTestId("answer")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Sources" })).toHaveCount(0);
+  await expect(page.getByTestId("ask-status")).toHaveText("");
+});
+
+test("New question while the sources still load stops their lookup, and the next question runs", async ({ page }) => {
+  await page.route("**/api/sources", () => {}); // never answers
+  await ask(page, question("n01"));
+  await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD");
+  await page.getByRole("button", { name: "New question" }).click();
+  await page.getByLabel("Your question").fill(question("x04"));
+  await page.getByRole("button", { name: "Ask" }).click();
+  await expect(page.getByTestId("answer")).toContainText("three reportable segments");
 });
 
 test("an answer validation rewrote shows its warnings", async ({ page }) => {

@@ -210,19 +210,23 @@ main.narrow::before {
 }
 
 .site form,
-.site > .button {
+.site .button,
+.site-end {
   align-self: center;
   margin-left: auto;
 }
 
-/* Sign out is a quiet outlined button; the demo's Sign in stays the page's green call to action. */
+/* Sign out, and Ask's Copy and New question, are quiet outlined buttons; the demo's Sign in stays the
+   page's green call to action. */
 .site button,
-.site > .button {
+.site .button,
+.actions button {
   padding: 0.375rem 0.875rem;
   font-size: 0.875rem;
 }
 
-.site button {
+.site button,
+.actions button {
   border-color: var(--field);
   background: var(--sheet);
   color: var(--ink);
@@ -231,6 +235,18 @@ main.narrow::before {
 
 .site button:hover {
   background: var(--sunk);
+}
+
+/* The demo's coverage line, then Sign in or Sign out: a pair that wraps as one, like the mockup's. */
+.site-end {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.site-end p {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
 }
 
 main {
@@ -432,7 +448,7 @@ button[aria-disabled="true"] {
 }
 
 .draft h2,
-.result > h2,
+.result-head h2,
 .sources > h3 {
   display: flex;
   flex-wrap: wrap;
@@ -442,8 +458,10 @@ button[aria-disabled="true"] {
   font-weight: 650;
 }
 
-/* Pills: amber for "Not answered" and the unchecked draft, as the mockup marks a refusal. */
-.tag {
+/* Pills: amber for "Not answered" and the unchecked draft, as the mockup marks a refusal; green for an
+   indexed filing, as it marks one. */
+.tag,
+.pill {
   display: inline-block;
   justify-self: start;
   padding: 0.125rem 0.5rem;
@@ -454,6 +472,11 @@ button[aria-disabled="true"] {
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.4;
+}
+
+.pill {
+  background: var(--tint);
+  color: var(--accent);
 }
 
 /* Ask, and each saved answer: one column, or the answer and its sources panel side by side from 64rem. */
@@ -483,9 +506,20 @@ button[aria-disabled="true"] {
   display: grid;
 }
 
-.result > h2 {
+/* Its header strip: "Answer", and on the right what the browser timed. */
+.result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--rule);
+}
+
+.timings {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
 }
 
 .answer-main {
@@ -549,6 +583,24 @@ button[aria-disabled="true"] {
   font-family: var(--mono);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* On Ask the footer strip goes on below the usage, with Copy and New question. */
+.result .usage {
+  border-radius: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding: 0 1.25rem 0.875rem;
+  border-radius: 0 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px);
+  background: var(--sunk);
+}
+
+.actions button:hover {
+  background: var(--rule);
 }
 
 /* Something left incomplete, like the draft: a dashed outline. */
@@ -904,8 +956,8 @@ tbody th {
     padding-block: 0.625rem;
   }
 
-  .site form,
-  .site > .button {
+  .site > form,
+  .site-end {
     margin-block: 0.25rem 0.75rem;
   }
 

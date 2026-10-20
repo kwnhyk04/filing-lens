@@ -52,6 +52,24 @@ test("ask, jump to a citation and back, then sign out, by keyboard alone", async
   await expect(page).toHaveURL("/login");
 });
 
+test("after an answer, Tab goes from its citations to Copy and New question, which returns to the question box", async ({ page }) => {
+  await page.goto("/");
+  await tab(page, 6);
+  await page.keyboard.type(question("x04"));
+  await tab(page);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#source-1").getByRole("heading")).toContainText("AMZN");
+  const order: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    await tab(page);
+    order.push(await focused(page));
+  }
+  const cite = "Source 1: AMZN 10-K FY2025, Item 1"; // x04 cites its source twice
+  expect(order).toEqual([cite, cite, "Copy answer with sources", "New question"]);
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Your question")).toBeFocused();
+});
+
 test.describe("signed out", () => {
   test.use(signedOut);
 

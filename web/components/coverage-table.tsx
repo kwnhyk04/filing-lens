@@ -1,4 +1,5 @@
 // Companies and their filings, with keyset paging links; the live and demo coverage pages share it.
+// Each filing shown is indexed, since the API lists no other status.
 import Link from "next/link";
 
 import { formLabel } from "../lib/answer.ts";
@@ -32,7 +33,7 @@ export function CoverageTable({ companies, first, next }: { companies: Company[]
                           {formLabel(filing.formType)} FY{filing.fiscalYear}
                           {filing.fiscalPeriod === "FY" ? "" : ` ${filing.fiscalPeriod}`}
                         </a>
-                        , filed {filing.filedOn}
+                        , filed {filing.filedOn} <span className="pill">Indexed</span>
                       </li>
                     ))}
                     {company.filings.edges.length === 0 && <li>None indexed yet</li>}

@@ -1,4 +1,5 @@
-// Answer display helpers, safe in the browser: SSE framing, quote highlighting, citation markers.
+// Answer display helpers, safe in the browser: SSE framing, quote highlighting, citation markers, the
+// timing line and the copied text.
 import type { components } from "../../clients/ts/index.ts";
 
 type Schemas = components["schemas"];
@@ -61,6 +62,26 @@ const FIGURE =
 
 /** Splits text around its figures: even indexes are text, odd indexes are figures. */
 export const splitFigures = (text: string): string[] => text.split(FIGURE);
+
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+
+/** "First words in 0.9 s · complete in 2.6 s · 2 sources", as the browser timed the stream. */
+export function timingLine(firstWordsMs: number | undefined, completeMs: number, sources: number): string {
+  const parts = [`complete in ${seconds(completeMs)}`];
+  if (firstWordsMs !== undefined) parts.unshift(`First words in ${seconds(firstWordsMs)}`);
+  if (sources) parts.push(`${sources} source${sources === 1 ? "" : "s"}`);
+  const line = parts.join(" · ");
+  return line[0].toUpperCase() + line.slice(1);
+}
+
+/** The answer as copied: its text with the markers, then each source's name (once its card loaded), quote and link. */
+export function answerWithSources(answer: Answer, labels: (string | undefined)[]): string {
+  const lines = answer.citations.map((citation, i) => {
+    const label = labels[i] ? `${labels[i]}: ` : "";
+    return `[${i + 1}] ${label}"${citation.quote}" ${citation.filing_url}`;
+  });
+  return [answer.answer, "", "Sources", ...lines].join("\n");
+}
 
 /** Splits an answer at its `[n]` markers; n becomes a number when a citation n exists. */
 export function splitMarkers(answer: string, citations: number): (string | number)[] {

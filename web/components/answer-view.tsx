@@ -12,7 +12,7 @@ function find(citation: Citation, sources?: Sources) {
 }
 
 /** "NVDA 10-K FY2026, Item 1A", or undefined until the sources load. */
-function sourceLabel(citation: Citation, sources?: Sources): string | undefined {
+export function sourceLabel(citation: Citation, sources?: Sources): string | undefined {
   const { chunk, fact } = find(citation, sources);
   if (chunk) {
     const { company, formType, fiscalYear } = chunk.filing;

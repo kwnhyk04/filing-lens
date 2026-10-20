@@ -15,6 +15,39 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-20: Mockup features 1: copy, New question, the answer's timings, the demo header's coverage line, the Indexed pill (uncommitted)
+
+- Changes:
+  - **Start:** main was clean at a14a019 (the mockup style merged as #16). `git switch -c mockup-features-1`. The user's rules: only the candidates sized small with no API change; only what the app really knows, with each left-out detail noted in todo.md; each feature test first; axe on every screen and the reading and keyboard order unchanged; retake only the screenshots that change; no live model or SEC call (Triage Copilot's exam runs today from 15:00 Taipei); containers only by exact name; no commit.
+  - **Taken, 5 of the 15 candidates**, each trimmed to what the app knows:
+    - "Copy answer with sources" (only when the answer cites) and "New question" in Ask's footer strip.
+    - The answer's timings in its header strip, timed in the browser: first words, complete, the source count. "Every number checked" is left out.
+    - The demo header's coverage line from the snapshot ("30 companies · 30 filings"). The live header gets none, and "latest" is left out.
+    - An "Indexed" pill on each listed filing. "Needs a look" is left out.
+  - **Not taken:** the Filings search (it needs an API filter), the source details (the fiscal year end needs a new snapshot from the dev Postgres, which was stopped; the rest needs API work or is medium) and the source pager (it changes the reading and keyboard order). The user's examples named the first two; the discrepancy with todo.md's sizes was checked in the code and reported (memory.md).
+  - **Code:** `lib/answer.ts` (`timingLine`, `answerWithSources`), `components/ask.tsx` (the timings, Copy, New question), `components/answer-view.tsx` (`sourceLabel` exported), `components/chrome.tsx` and `lib/demo.ts` (`demoCoverageLine` in `div.site-end`), `components/coverage-table.tsx` (the pill), `app/globals.css`.
+  - **Tests:** 4 unit tests and 8 Playwright specs: the timings; copy; a refusal's buttons; New question; New question while the sources still load; the keyboard order after an answer; the pills; the demo header's line.
+  - **Docs:** design.md (the features, two known limits), context.md, memory.md, todo.md (the plan, the candidates brought up to date, the mockup style moved to Completed as #16), README (Ask's usage), this log.
+- Small events, in order:
+  1. Bash's first command and each file's first edit or write were held by the gate until their facts were given; each retry passed.
+  2. `git fetch --dry-run` ran before branching; it updates no ref. main matched origin/main at a14a019.
+  3. `python` is not on PATH (the Microsoft Store alias answered), so `uv run --no-sync python` read the REST routes from `contracts/openapi.json`.
+  4. `TZ=Asia/Taipei date` printed GMT in Git Bash (no zone data); the UTC time, 13:22, is 21:22 Taipei, inside the exam window.
+  5. `docker ps -a` by exact name showed `filinglens-postgres-1` exited (code 255) about 10 minutes earlier, cause not confirmed. It stayed stopped, so the source details' fiscal year end waits for the user's go (memory.md).
+  6. Red: the unit file failed on the missing exports. The e2e run failed the 8 new specs for the right reasons (no buttons, no timings, no pills, no line; after the citations, Tab reached the sources panel's links). 60 passed, and the lockout project did not run.
+  7. After the code: 66 passed, 2 failed. The busy-reset spec failed as planned: the Ask button still read "Answering…". The copy spec failed on line ends, because Chromium handed the text back with CRLF on Windows. The spec now folds CRLF. A yes-or-no PowerShell check, run twice, showed that the Windows clipboard did not hold the copied text, so the headless shell keeps its own.
+  8. With the busy reset in `startOver`: 70 passed.
+  9. A scratch probe outside the repo first failed to import `@playwright/test` from the scratchpad (`ERR_MODULE_NOT_FOUND`); absolute imports of web's copy fixed it. At 641 and 660 px the demo header's line and button wrap together below the tabs; at 700, 760 and 1024 px they fit on one row (known limit).
+  10. Screenshots went to the scratchpad first (`SCREENS_DIR`), then were compared byte for byte with `docs/screenshots/ui`. 18 were identical. 30 changed as expected and were copied in. 6 differ on every run (ask-draft and config-error, three variants each) and were left as they were.
+  11. gitleaks's `version` printed "Version is set by build process": pre-commit built it from its pinned rev v8.30.1.
+- Files: `web/lib/answer.ts`, `web/lib/answer.test.ts`, `web/lib/demo.ts`, `web/components/ask.tsx`, `web/components/answer-view.tsx`, `web/components/chrome.tsx`, `web/components/coverage-table.tsx`, `web/app/globals.css`, `web/e2e/ask.spec.ts`, `web/e2e/coverage.spec.ts`, `web/e2e/keyboard.spec.ts`, `web/e2e/offline.spec.ts`, 30 screenshots in `docs/screenshots/ui/`, docs (design, context, memory, todo, this log), `README.md`.
+- Validation:
+  - web: `npm run typecheck` clean; `npm test` 83 passed (4 new); `npm run build` with no warning; `npx playwright test` 70 passed (8 new), three runs in a row (19.4, 20.7 and 19.7 s); `npm run screens` 55 passed (54 screens and the sign-in setup), each screen through axe in its theme.
+  - gitleaks (`dir --redact`) on each of the 48 changed files, the 30 screenshots and this log included, after the docs were written: no leaks. A synthetic token in a scratch file made the same command exit 1, so a leak would have shown.
+  - Eval: no `EVAL_INPUTS` path changed (0), so CI's eval is skipped. Python checks were not run: no Python changed.
+  - No live model or SEC call, and no container started or stopped.
+- Outstanding: the user ships it. The fiscal year end on source cards waits for a go to use the dev Postgres; the other left-out details are in todo.md.
+
 ### 2026-10-19: Mockup style, fix before shipping: Ask's sources panel fits the window from the first screen (uncommitted)
 
 - Changes:

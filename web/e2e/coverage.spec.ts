@@ -12,6 +12,13 @@ test("coverage pages by cursor, 20 companies at a time", async ({ page }) => {
   await expect(page.getByRole("link", { name: "10-K FY2025" }).first()).toHaveAttribute("href", /^https:\/\/www\.sec\.gov\//);
 });
 
+test("each listed filing carries an Indexed pill, since the API lists indexed filings only", async ({ page }) => {
+  await page.goto("/coverage");
+  const filings = page.locator("tbody li").filter({ has: page.getByRole("link") });
+  await expect(filings).toHaveCount(20);
+  await expect(filings.locator(".pill")).toHaveText(Array(20).fill("Indexed"));
+});
+
 test("a cursor the API does not know goes to the first page", async ({ page }) => {
   await page.goto("/coverage?after=bogus");
   await expect(page).toHaveURL("/coverage");
