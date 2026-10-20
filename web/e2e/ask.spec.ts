@@ -30,6 +30,14 @@ test("textual: a chunk card names its filing and item, and marks the quote", asy
   await expect(card.locator("mark")).toContainText("three segments");
 });
 
+test("a chunk card says when its filing's fiscal year ended; a fact card keeps its own period", async ({ page }) => {
+  await ask(page, question("c12")); // [1] and [2] are facts, [3] and [4] passages of Tesla's 10-K
+  await expect(page.locator("#source-3")).toContainText("Fiscal year ended December 31, 2025");
+  const fact = page.locator("#source-1");
+  await expect(fact).toContainText("2025-01-01 to 2025-12-31");
+  await expect(fact).not.toContainText("Fiscal year ended");
+});
+
 test("the source panel fits the window from the first screen, and a citation brings its quote into view in it", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 360 }); // the narrowest two columns; short, so the quote starts below the card's first screen
   await ask(page, question("x02"));

@@ -59,7 +59,7 @@ export type SourcesQueryVariables = Exact<{
 }>;
 
 
-export type SourcesQuery = { chunks: Array<{ id: string, text: string, section: { id: string, item: string, title: string }, filing: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string, company: { cik: number, ticker: string, name: string } } }>, facts: Array<{ id: string, concept: string, label: string, value: number, unit: string, periodStart: string | null, periodEnd: string, fiscalYear: number, fiscalPeriod: FiscalPeriod, accessionNumber: string, company: { cik: number, ticker: string, name: string } }> };
+export type SourcesQuery = { chunks: Array<{ id: string, text: string, section: { id: string, item: string, title: string }, filing: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, periodEnd: string, url: string, company: { cik: number, ticker: string, name: string } } }>, facts: Array<{ id: string, concept: string, label: string, value: number, unit: string, periodStart: string | null, periodEnd: string, fiscalYear: number, fiscalPeriod: FiscalPeriod, accessionNumber: string, company: { cik: number, ticker: string, name: string } }> };
 
 export class TypedDocumentString<TResult, TVariables>
   extends String
@@ -233,6 +233,7 @@ export const SourcesDocument = new TypedDocumentString(`
       fiscalYear
       fiscalPeriod
       filedOn
+      periodEnd
       url
       company {
         cik

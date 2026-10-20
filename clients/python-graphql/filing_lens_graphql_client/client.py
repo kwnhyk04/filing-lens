@@ -238,6 +238,7 @@ class Client(BaseClient):
                   fiscalYear
                   fiscalPeriod
                   filedOn
+                  periodEnd
                   url
                   company {
                     cik

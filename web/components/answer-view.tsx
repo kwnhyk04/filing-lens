@@ -1,5 +1,5 @@
 // A validated answer with its citation links and source cards; renders on the server or client.
-import { formLabel, locateQuote, splitFigures, splitMarkers, type Answer } from "../lib/answer.ts";
+import { formLabel, locateQuote, periodEnded, splitFigures, splitMarkers, type Answer } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
 
 type Citation = Answer["citations"][number];
@@ -59,6 +59,7 @@ function SourceCard({ n, citation, sources, prefix }: { n: number; citation: Cit
       </h4>
       {chunk ? (
         <>
+          <p className="period">{periodEnded(chunk.filing.fiscalPeriod, chunk.filing.periodEnd)}</p>
           <p className="meta">
             {chunk.filing.company.name}, {chunk.section.title}, filed {chunk.filing.filedOn}
           </p>

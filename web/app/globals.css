@@ -661,6 +661,13 @@ button[aria-disabled="true"] {
   color: var(--accent);
 }
 
+/* A passage's filing period, tucked under the heading as the mockup sets "Fiscal year ended". */
+.card .period {
+  margin-top: -0.5rem;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
 .card .meta {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--rule);

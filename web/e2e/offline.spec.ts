@@ -38,6 +38,11 @@ test("the demo header says what the snapshot covers", async ({ page }) => {
   }
 });
 
+test("a demo chunk card says when its filing's fiscal year ended", async ({ page }) => {
+  await page.goto("/demo");
+  await expect(page.locator("#x04-source-1")).toContainText("Fiscal year ended December 31, 2025");
+});
+
 test("the demo pages its coverage like the live one", async ({ page }) => {
   await page.goto("/demo/coverage");
   await page.getByRole("link", { name: "Next page" }).click();

@@ -56,6 +56,15 @@ export function locateQuote(text: string, quote: string): { start: number; end: 
 /** GraphQL's form enum as the SEC writes it: FORM_10K reads 10-K. */
 export const formLabel = (form: string) => form.replace(/^FORM_(\d+)([A-Z])$/, "$1-$2");
 
+// In UTC, so a date reads the same on the server and in any browser's time zone.
+const LONG_DATE = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
+
+/** "Fiscal year ended September 27, 2025" for a 10-K, "Quarter ended March 29, 2025" for a 10-Q. */
+export function periodEnded(fiscalPeriod: string, periodEnd: string): string {
+  const period = fiscalPeriod === "FY" ? "Fiscal year" : "Quarter";
+  return `${period} ended ${LONG_DATE.format(new Date(`${periodEnd}T00:00:00Z`))}`;
+}
+
 // A number with a $ before it, or a %, "percent", a scale or USD after it; a bare year never matches.
 const FIGURE =
   /(\$\s?\d(?:[\d,]*\d)?(?:\.\d+)?(?:\s(?:thousand|million|billion|trillion)\b)?|\d(?:[\d,]*\d)?(?:\.\d+)?(?:\s?%|\s(?:percent|thousand|million|billion|trillion|USD)\b))/;

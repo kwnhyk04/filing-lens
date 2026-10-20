@@ -218,7 +218,7 @@
       "question": "What was Tesla's total revenue in fiscal 2026?"
     }
   ],
-  "commit": "a2037afc8d9e2cb824ca482787a003ae1dd1622e",
+  "commit": "e1059d771dd93026b03975192fca8277d4773753",
   "companies": [
     {
       "cik": 18230,
@@ -881,7 +881,7 @@
       "ticker": "LIN"
     }
   ],
-  "recorded_at": "2026-10-18T20:18:20+00:00",
+  "recorded_at": "2026-10-20T14:09:31+00:00",
   "report": "evals/reports/2026-10-17.json",
   "source": "Answers recorded in the golden set v1 test run of 2026-10-17 (Gemini 3.5 Flash-Lite, free tier), with sources and coverage from the dev database.",
   "sources": {
@@ -898,6 +898,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2025,
           "formType": "FORM_10K",
+          "periodEnd": "2025-12-31",
           "url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm"
         },
         "id": "199cf89618390bec8c012051f88d2a0755a846d6b36a381b40c236a99008fc6b",
@@ -920,6 +921,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2025,
           "formType": "FORM_10K",
+          "periodEnd": "2025-12-31",
           "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm"
         },
         "id": "505d27e7afa0665cf1f20707b386a1c143aecc25493cbf4a093025233b20f809",
@@ -942,6 +944,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2025,
           "formType": "FORM_10K",
+          "periodEnd": "2025-12-31",
           "url": "https://www.sec.gov/Archives/edgar/data/59478/000005947826000013/lly-20251231.htm"
         },
         "id": "559dacc203979e432a434697c2e1a798229d19414663d9193949976e98018d70",
@@ -964,6 +967,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2025,
           "formType": "FORM_10K",
+          "periodEnd": "2025-12-31",
           "url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm"
         },
         "id": "6271b56260475f67f80e0f3993ede2f3deea1ed7d8d3b69b0d2fe2df29ed607f",
@@ -986,6 +990,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2026,
           "formType": "FORM_10K",
+          "periodEnd": "2026-01-25",
           "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
         },
         "id": "647a3f705893066fa1dee9f45d0eb4518619d44eeb7a2a36b7c57b5034dbb803",
@@ -1008,6 +1013,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2026,
           "formType": "FORM_10K",
+          "periodEnd": "2026-01-25",
           "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
         },
         "id": "d74a2e1eda993a50f506e76457e43b3d4fed3180df277676aa7abf1e8bd11cd6",
@@ -1030,6 +1036,7 @@
           "fiscalPeriod": "FY",
           "fiscalYear": 2025,
           "formType": "FORM_10K",
+          "periodEnd": "2025-12-31",
           "url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026003952/tsla-20251231.htm"
         },
         "id": "f7ca44227ba748b0ab8ab40be4db74c48e7a5ef6567cb1cb0c165e0d4c85b4dc",

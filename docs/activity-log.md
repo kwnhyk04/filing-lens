@@ -15,6 +15,33 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-20: The source cards' fiscal year end, from a new snapshot (uncommitted)
+
+- Changes:
+  - **Start:** main was clean at e1059d7 (mockup features 1 merged as #17) and matched origin/main. `git switch -c source-fiscal-year`. The user's go: start `filinglens-postgres-1` by exact name for `make demo-export`, then stop it by exact name (Triage Copilot's exam is over). The rules: test first; no live model or SEC call, since the export only reads the dev Postgres; retake only the screenshots that change; no commit.
+  - **The line:** a passage's card shows its filing's period under the heading, as in the mockup: "Fiscal year ended December 31, 2025" (`periodEnded` in `lib/answer.ts`, "Quarter ended …" for a 10-Q, a long date in UTC; `.card .period` in `globals.css`). Fact cards keep their Period row: a fact has no link to its filing.
+  - **The data:** `Sources` selects the chunk's `filing { periodEnd }` (`clients/operations.graphql`; the API already had the field). `make codegen` regenerated `client.py`, `sources.py`, `gql.ts` and `graphql.ts`. Then `make demo-export` wrote the new `web/demo/snapshot.json`.
+  - **The snapshot's other changes**, for the user's review: only `commit` (a2037af to e1059d7) and `recorded_at` (2026-10-18T20:18:20Z to 2026-10-20T14:09:31Z). The 8 answers, their 12 citations (the same as B2's list), warnings and usage, the 30 companies and their filings, the 7 chunks and the 5 facts are identical. The 7 chunks gained `periodEnd`: LLY, AMZN and TSLA 2025-12-31, NVDA 2026-01-25.
+  - **Tests:** a unit test (the wording, a year end on December 31, a 10-Q row) and 2 Playwright specs: c12 on Ask, where a passage card has the line and a fact card does not, and x04 on the demo.
+  - **Docs:** design.md (the sources panel), context.md, memory.md, todo.md (the plan, the candidates, mockup features 1 moved to Completed as #17), this log.
+- Small events, in order:
+  1. The first edit of `clients/operations.graphql` and of the scratch diff script were held by the gate until their facts were given; each retry passed. The restore of generated files was held as destructive until its files, rollback and instruction were given; then it passed.
+  2. Red: the unit file failed on the missing `periodEnded` export, and both specs on the missing line.
+  3. `make codegen` showed 15 changed files: 5 with content changes and 10 in CRLF only (the 2026-10-14 pitfall). The 10 went back to HEAD's bytes, checked with `cmp`.
+  4. Port 5433 was free, and `filinglens-postgres-1` had exited (255) 56 minutes before, cause not confirmed. `docker start filinglens-postgres-1`; `pg_isready` answered on the 4th check. `make demo-export` wrote 8 answers and 30 companies and printed the 12 citations. `docker stop filinglens-postgres-1`: exited (0), port free.
+  5. A scratch script compared the snapshots with `periodEnd` set aside: 2 other differences, `commit` and `recorded_at`. LF only.
+  6. Green: the unit test, then 72 Playwright specs.
+  7. A second `make codegen` gave the same CR-insensitive diff as the first, in place of `make contracts-check`, which fails on uncommitted changes. It also showed that codegen had rewritten `clients/python/` with CRLF, which `git status` never listed. A byte comparison of every tracked file under `contracts/` and `clients/` with HEAD found 60 that differed in line endings only, and all went back to HEAD's bytes (memory.md).
+  8. Screenshots to the scratchpad, then compared byte for byte: 36 identical; 12 changed as expected and were copied in; ask-draft and config-error differ on every run and were left. The Ask timings rounded the same this run, so no other Ask screen differed; offline shows no passage card at its top.
+- Files: `clients/operations.graphql`, `clients/python-graphql/filing_lens_graphql_client/client.py` and `sources.py`, `clients/ts/graphql/gql.ts` and `graphql.ts`, `web/demo/snapshot.json`, `web/lib/answer.ts`, `web/lib/answer.test.ts`, `web/components/answer-view.tsx`, `web/app/globals.css`, `web/e2e/ask.spec.ts`, `web/e2e/offline.spec.ts`, 12 screenshots in `docs/screenshots/ui/`, docs (design, context, memory, todo, this log).
+- Validation:
+  - web: `npm run typecheck` clean; `npm test` 84 passed (1 new); `npm run build` with no warning; `npx playwright test` 72 passed (2 new), three runs in a row (23.2, 21.3 and 20.3 s); `npm run screens` 55 passed (54 screens and the sign-in setup), each screen through axe in its theme.
+  - `npm --prefix clients/ts test` 18 passed; codegen twice with the same content; `make lint` clean (137 files formatted); `make typecheck` 0 errors; `make test` 370 passed. `make test-int` was not run: no API code changed, and it needs Testcontainers, which the go did not cover.
+  - gitleaks (`dir --redact`) on each of the 29 changed files, the 12 screenshots and this log included, after the docs were written: no leaks. The synthetic-token control still exits 1.
+  - Eval: `git diff --quiet HEAD -- $EVAL_INPUTS` passed, so CI's eval is skipped.
+  - No live model or SEC call; the only container used was `filinglens-postgres-1`, started and stopped by exact name.
+- Outstanding: the user reviews the snapshot's changes, then ships it.
+
 ### 2026-10-20: Mockup features 1: copy, New question, the answer's timings, the demo header's coverage line, the Indexed pill (uncommitted)
 
 - Changes:
