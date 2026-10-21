@@ -320,9 +320,10 @@ class FakeBackend:
         found = {fact.id: FactSource(fact=fact, company=COMPANIES[0]) for fact in FACTS}
         return [found[i] for i in dict.fromkeys(ids) if i in found]
 
-    async def get_company(self, cik: int) -> Company | None:
+    async def get_companies(self, ciks: Sequence[int]) -> list[Company]:
         self._admit()
-        return next((company for company in COMPANIES if company.cik == cik), None)
+        found = {company.cik: company for company in COMPANIES}
+        return [found[cik] for cik in dict.fromkeys(ciks) if cik in found]
 
     async def search(
         self,

@@ -61,7 +61,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - Options: widen `JITTER_S` (the calibration knob) in its own small PR, or leave it, since CI runs it on Linux.
 - [ ] (B1 review minors, 2026-10-18; deferred, user decides) Found by B1's final review, not fixed:
   - **Combined filings:** facts listed under a filing take the filing's CIK (`Filing.facts`). So a combined filing's facts of another registrant would show the wrong company. Latent: none of the 30 companies share a filing.
-  - **Comment:** the `ponytail:` comment on `Chunk._source` says one lookup per chunk. But `section` and `filing` resolve at once and make two; step 10's DataLoader fixes it.
+  - **Comment:** the `ponytail:` comment on `Chunk._source` says one lookup per chunk. But `section` and `filing` resolve at once and make two; step 10's DataLoader fixes it. Fixed in 10b: the loader makes one lookup per page, and the comment is gone.
   - **Test strength:**
     - The FakeBackend maps every chunk to `FILINGS[0]` and every fact to AAPL, so the link tests cannot tell a link that follows its row from a constant.
     - "No lookup on an empty list" has no test.
@@ -78,7 +78,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - **Web:** Vercel, with Root Directory `web` and files outside it included, region `hkg1`, and only main deploying.
     - **Database:** `corpus-v1`, restored once (0 SEC requests, 0 model calls).
   - [x] **0. Docs:** todo, activity log, memory, context (2026-10-21). Uncommitted; they ride with 10a.
-  - [ ] **10a. API hardening** (branch `step-10-api-hardening`), each change test first (activity-log.md, 2026-10-21):
+  - [x] **10a. API hardening** (branch `step-10-api-hardening`), each change test first (activity-log.md, 2026-10-21); merged as #19 (1f15729):
     - [x] a browser `Origin` gets 403 (an app-wide dependency, before the key check);
     - [x] `/readyz` is cached for 5 s (its state created in `lifespan`, the stamp taken when a round ends);
     - [x] `/docs`, `/redoc` and `/openapi.json` are off;
@@ -99,11 +99,25 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make contracts-breaking`: nothing breaking;
       - gitleaks on 16 files: clean;
       - the eval check: no model call.
+    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+  - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`), test first (activity-log.md, 2026-10-21):
+    - [x] per-request loaders for chunk sources and companies, in `graph.get_context`;
+    - [x] `Backend.get_companies`, which replaces `get_company` (its only caller was `_company`);
+    - [x] call-count tests: a page of links makes one lookup, each id once; `Sources` keeps its two;
+    - [x] a missing row gets `not_found` at its own link;
+    - [x] `get_companies` on Postgres (integration);
+    - [x] the final review's fixes:
+      - each link's load is shielded, since a failing sibling turned a GraphQL error into a 500;
+      - pins for a fresh loader per request, and for a failed lookup's one masked error;
+      - the `Sources` pin compares its lookups in any order;
+    - [x] checks:
+      - `make lint` and `make typecheck` (0 errors) clean;
+      - `make test` 426, `make test-int` 31;
+      - `make contracts-breaking`: no changes; both contracts match a fresh export;
+      - gitleaks on 9 files: clean;
+      - the eval check: no model call.
     - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
-  - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`):
-    - per-request loaders for chunk sources and companies (`Backend.get_companies`);
-    - call-count tests;
-    - (user) ship.
+  - [ ] (user decides, before 10c; found by 10b's review) Page queries still run once per parent: one nested query makes 708 of them on corpus-v1 (memory.md, PR 10b). Options: cap a nested `first`, batch `Section.chunks`, or leave it.
   - [ ] **10c. Deploy config and runbook** (branch `step-10-deploy-config`):
     - the prod override: project name, GHCR images, the `data` network, the `ingest` profile, the tailscale service, free providers forced;
     - `infra/tailscale/serve.json`, `web/vercel.json`, `engines.node` `^24.7.0`, and `docs/deploy.md`;

@@ -15,6 +15,69 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-21: PR 10b, GraphQL DataLoader (uncommitted)
+
+- Changes, each test first, on `step-10-dataloader` from main at 1f15729 (10a merged as #19). Details are in memory.md, PR 10b.
+  - **Loaders:** `graph.get_context` makes two DataLoaders per request:
+    - `chunk_sources` batches `get_chunks`;
+    - `companies` batches `get_companies`.
+    - Their load functions line the rows up by key and give a missing key its own `NotFoundError`.
+    - `Chunk._source` and `_company` load through them, shielded, and keep the pre-joined shortcut. The two `ponytail:` comments went.
+  - **Backend:** `get_companies(ciks)` replaces `get_company(cik)` in the protocol, in `LiveBackend` (one `IN` query) and in the fake.
+  - **Tests** in `test_contract.py`:
+    - lookups per page (3 rows), and the `Sources` pin;
+    - missing rows (2);
+    - a failing sibling beside a shared lookup (2);
+    - a fresh loader per request;
+    - a failed lookup's one masked error.
+    - `test_app.py` checks `get_companies` on Postgres.
+  - **Docs:**
+    - context: the links, the status, a known limitation;
+    - memory, todo, and this log.
+- Small events, in order:
+  1. **Gates:** GateGuard held the first Bash call, each file's first edit and each scratch file's first write until their facts were given. Each retry passed. One Bash call's `cd` into the venv moved the working directory; the next call went back to the repo.
+  2. **Red:** the 3 lookup rows failed, and the `Sources` pin passed.
+     - Row 1 first showed 4 lookups, not the 7 a real backend makes. The fake answers without suspending, so `section` set the source before `filing` started.
+     - The spy now yields once (`asyncio.sleep(0)`), and main's code then showed 7.
+     - The Postgres test failed on the missing `get_companies`.
+  3. **Green:** 92 contract tests passed. The missing-row rows were then checked two ways:
+     - against main's code, the company row failed and the chunk row passed (a pin);
+     - against padded loaders (a scratch plugin), both failed.
+  4. **Checks before the review:** lint, pyright, 422 unit tests, `make test-int` 31, `make contracts-breaking` ("No changes detected"), the eval check. A scratch export of the GraphQL schema and the app's OpenAPI document both matched `contracts/`.
+  5. **Review:** a fresh read-only agent said "ready with fixes", with 2 Important and 5 Minor findings.
+     - **Important 1, fixed test first:** a failing sibling cancelled a loader future that other links shared. `CancelledError` escaped, and the response was a 500.
+       - Two rows (companies, chunk sources) gave 500 in 3 runs of 3. With `asyncio.shield`, both pass 3 of 3.
+       - Removing either shield (a scratch plugin) fails only its row.
+     - **Important 2, docs:** the memory entry drafted earlier this session put the worst case at about 40 lookups. Page queries still run once per parent, 708 for one nested query on corpus-v1.
+       - The entry was corrected before any commit: about 60 lookups by id, plus the page queries.
+       - The page-query decision went to todo.md for the user.
+     - **Minors taken:**
+       - the `Sources` pin now compares its lookups in any order;
+       - pins for a fresh loader per request and a failed lookup's one masked error, each failing against its scratch mutant;
+       - the memory lesson names the shield;
+       - this entry.
+     - **Minor not taken:** the reviewer read 10b's "(user) confirm the `eval-calls-*` cache, then ship" as a copy of 10a's. It is 10b's own step, since 10b changes `services/api/src` too.
+  6. **Containers:** taken as covered by the user's "the same checks as 10a":
+     - Testcontainers for the single Postgres test (red), then `make test-int` twice;
+     - `docker run --rm` for oasdiff and gitleaks.
+     - The list of running containers (FreightAudit's) was the same before and after each `make test-int`.
+  7. **gitleaks, first run:** both scans stopped with `stat C:/Program Files/Git/scan: no such file or directory`.
+     - Cause: Git Bash rewrote the container path `/scan` (the known pitfall, memory.md 2026-10-18).
+     - So that run's exit 1 from the control meant nothing.
+     - The rerun with `MSYS_NO_PATHCONV=1` scanned both.
+- Files: `services/api/src/filinglens_api/{graph,backend}.py`, `services/api/tests/{conftest,test_contract,test_app}.py`, docs (context, memory, todo, this log).
+- Validation:
+  - `make lint` clean (138 files formatted); `make typecheck` 0 errors.
+  - `make test` 426 passed; `make test-int` 31 passed (3 min 6 s, after the review's fixes).
+  - `make contracts-breaking`: "No changes detected". `make contracts-check` was not run: its codegen rewrites files in CRLF on this PC (the 2026-10-20 pitfall). Both contracts were compared instead.
+  - Eval check: the harness loads `filinglens_api.{answering,backend,limits,problems,schemas}`, never `graph`, and calls no `Backend` lookup. So every cache key stays main's.
+  - gitleaks (`dir --redact`) on the 9 changed files: no leaks. The synthetic-token control finds its 1 and exits 1.
+  - No live model or SEC call.
+- Outstanding:
+  - the user confirms the `eval-calls-*` Actions cache, then ships 10b;
+  - the page-query decision before 10c;
+  - 10c.
+
 ### 2026-10-21: PR 10a, API hardening for a public URL (uncommitted)
 
 - Changes, each test first, on `step-10-api-hardening` (context.md, "Public-URL hardening"; memory.md, PR 10a):

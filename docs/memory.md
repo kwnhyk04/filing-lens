@@ -670,6 +670,34 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
   - **Not verifiable offline:** that Vercel's Node `fetch` sends no `Origin`. undici adds none, and `web/lib/server.ts` forwards no headers. Step B24, the phone test, covers it: every BFF call would get 403 otherwise.
 - 2026-10-21: Pitfall: asyncpg's own `DataError` quotes up to 40 characters of a bound value, which `hide_parameters` does not cover. So input bounds belong at validation (the review's CIK and fiscal-year rows).
 
+From PR 10b (2026-10-21, branch `step-10-dataloader`):
+
+- 2026-10-21: The GraphQL links off the citation path load through two DataLoaders (`strawberry.dataloader`), made per request in `graph.get_context`: `chunk_sources` batches `Backend.get_chunks`, and `companies` batches `Backend.get_companies`.
+  - Each load function lines the rows up by key and gives a missing key its own `NotFoundError`, with the old messages. The rows pre-joined on the citation path still skip the loaders.
+  - **Effect:** the links on one page make one lookup by id, each id once. For the 2026-10-18 worst query (20 cited chunks, `first: 100`), that is at most one per listed page, about 60, against thousands before. The figure uses the same counting and was not measured.
+  - **Not changed:** page queries. Each parent still runs its own `list_sections`, `list_chunks`, `list_facts` or `Company.filings` query (the next entry).
+  - **Shield:** each link awaits `asyncio.shield(loader.load(key))`.
+    - Why: the loader hands every link on a key the same future. graphql-core 3.3 cancels a failed field's siblings, and cancelling a task cancels the future it awaits.
+    - Without the shield, a sibling's error cancelled the shared future for links elsewhere in the query. Their `CancelledError` is a BaseException, which no layer catches, so a GraphQL error became an HTTP 500, and the real error went unlogged.
+    - The final review found it by reading the code; a test row per shield gave 500 without it (3 runs of 3).
+  - **Ruling:** `get_companies` replaces `get_company` rather than joining it, since `_company` was its only caller. Like `get_chunks`, it returns rows once each in the order given and leaves unknown keys out.
+- 2026-10-21: Open, the user decides (the final review): page queries still run once per parent.
+  - `{ filings(first: 100) { edges { node { sections { chunks(first: 100) { edges { cursor } } } } } } }` passes the depth limit of 6. On corpus-v1 (30 filings, 677 sections), it makes 1 + 30 + 677 = 708 page queries, each reading up to 101 chunk rows with their text.
+  - It is not a regression. The key is server-only, and the web never sends such a query.
+  - Options: cap a nested `first`, batch `Section.chunks`, or leave it.
+- 2026-10-21: Pitfall: the fake backend answers without suspending. So B1's tests never saw `section` and `filing` make two lookups for one chunk: the first resolver set `Chunk.source` before the second started. A real backend waits on I/O, so both start first.
+  - The call-count spy now yields once (`asyncio.sleep(0)`) before the fake answers. With it, main's code made 7 lookups for the fake's 3-chunk page (1, plus 2 per chunk). Without it, main's code made 4.
+  - The loaders make 2.
+- 2026-10-21: Lesson: graphql-core 3.3 cancels sibling resolvers at the first error (`gather_with_cancel`), and every link field is non-null. So a missing row nulls `data` and leaves exactly one error.
+  - The test of the loaders' lining up checks that error's message, code and path.
+  - A scratch mutation, loaders that pad the results instead, put the error on another item and failed both rows.
+  - The same cancellation reaches the loaders' shared futures, hence the shield (above).
+- 2026-10-21: Mutation runs, from scratch pytest plugins in the scratchpad, with no repo change. Each failed the tests named for it:
+  - padded loaders: both missing-row rows;
+  - one shield removed at a time: only that shield's row;
+  - one loader for the whole process: the per-request pin;
+  - a failed lookup swallowed as `not_found`: the masked-error pin.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
