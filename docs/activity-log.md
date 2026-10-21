@@ -15,6 +15,37 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-21: certifi 2026.10.19 for GHSA-6q48-6c7w-9gw2, fixed at the source (uncommitted)
+
+- Changes, on `certifi-bump` from main at aca22a6 (the user's request; PR #22's vuln-scan fails until main has the fix):
+  - `uv.lock`: certifi 2026.7.22 to 2026.10.19, its version, sdist and wheel lines only. No ignore file or allowlist.
+  - Docs: memory (Preferences), todo, this log.
+- Small events, in order:
+  1. **Base:** `claude-first` was committed (d509b17) and pushed, and the tree was clean. An anonymous `git fetch origin main` (credential helper off, no prompt) showed GitHub's main still at aca22a6. The branch was made from it with `--no-track`.
+  2. **Gates:** GateGuard held the first Bash call and the first edit of `uv.lock` and of these docs until their facts were given. Each retry passed.
+  3. **The lock's header:** `uv lock --upgrade-package certifi` ("Updated certifi v2026.7.22 -> v2026.10.19") also rewrote `revision = 3` to `revision = 5`. uv 0.12.23, the version on the PC, in the Dockerfile and in CI, writes 5.
+     - The header was set back to 3 with the edit tool.
+     - `uv lock --check` exited 0, and `uv sync` swapped certifi 2026.7.22 for 2026.10.19, nothing else.
+  4. **Line ends:** uv wrote the lock with LF, and git warns that the working copy will get CRLF. The committed blob is LF either way.
+  5. **Control:** `make image-scan IMAGE=filinglens-api:ci`, an image built 4 days ago, failed with exactly one CRITICAL: certifi 2026.7.22, GHSA-6q48-6c7w-9gw2, fixed in 2026.10.19. So the local Trivy database knew the advisory.
+  6. **Images:** both were rebuilt from this branch as CI builds them (`infra/Dockerfile`, `PACKAGE=filinglens-<api|ingest>`).
+     - They are tagged `filinglens-api:certifi-bump` and `filinglens-ingest:certifi-bump`, so the existing `:ci` and `:latest` images stayed as they were.
+     - The two new tags are still there, and so is `.cache/images/scan.tar`.
+  7. **Provenance:** certifi 2026.10.19 was uploaded on 2026-10-20, inside Dependabot's 7-day cooldown for uv. PyPI's integrity API shows its wheel's PEP 740 attestation from `certifi/python-certifi`, workflow `release.yml`, environment `release`.
+  8. **Nothing live:** no model call and no SEC call. Docker ran only Trivy (`--rm`) and the two builds.
+- Files: `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation:
+  - `make vuln-scan`: 0 HIGH or CRITICAL in `uv.lock`, `web/package-lock.json` and `clients/ts/package-lock.json`.
+  - `make image-scan`: 0 CRITICAL in both rebuilt images; each lists `certifi-2026.10.19.dist-info`.
+  - `make lint` clean (139 files already formatted); `make test` 418 passed.
+  - Lock diff: 3 lines, all certifi's (`git diff --numstat`: `3 3 uv.lock`).
+  - Eval check:
+    - `uv.lock` is in CI's `EVAL_INPUTS`, so CI's eval runs.
+    - The reply cache keys hold the models, the index and the prompts, none of which certifi changes, so CI replays main's cache.
+    - At worst, as for `rerank-deadline`, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed), if main's cache lacks their reranker-order replies.
+    - The nightly's input hash changes too, so its next scheduled run measures instead of skipping. At worst that is 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000), $0 billed.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships. Then `claude-first` takes main, where this log's top conflicts: keep both entries.
+
 ### 2026-10-21: Rerank deadline: the answer eval waits for the reranker, and an unused guess is cancelled (uncommitted)
 
 - Changes, each fix test first, on `rerank-deadline` from main at 1f15729. Details are in memory.md, Solved Problems.
