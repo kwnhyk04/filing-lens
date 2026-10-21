@@ -121,7 +121,7 @@ REPORTS = EVALS / "reports"
 THRESHOLDS = EVALS / "thresholds.json"
 PROVIDERS = EVALS / "providers.json"
 CALIBRATION = EVALS / "calibration" / VERSION / "result.json"
-RETRIEVAL_TIMEOUT_S = 60.0  # never degraded: the measurement needs the reranker's own order
+RETRIEVAL_TIMEOUT_S = 60.0  # never degraded: the reranker's own order, in both suites
 THINKING_MAX_TOKENS = 4096  # Gemini's own thinking spends output tokens (decision 3)
 JUDGE_KAPPA_MIN = 0.7
 EVAL_REDIS_DB = 15
@@ -204,6 +204,14 @@ class EvalSettings(ApiSettings):
         if value.startswith("anthropic:"):
             raise ValueError("cannot be Claude: the judge's reference labels came from Claude")
         return value
+
+
+def eval_settings() -> EvalSettings:
+    """EvalSettings with the retrieval suite's reranker deadline. Past the API's, a search keeps
+    fused order, so an answer's passages, and the cache keys of its replies, would follow the
+    runner's speed (10b's CI eval, 2026-10-21)."""
+    deadline_ms = int(RETRIEVAL_TIMEOUT_S * 1000)
+    return load_settings(EvalSettings).model_copy(update={"rerank_timeout_ms": deadline_ms})
 
 
 @dataclass(frozen=True)
@@ -1239,7 +1247,7 @@ async def evaluate(args: argparse.Namespace) -> int:
     if answers:
         os.environ["AI_ENABLED"] = "true"  # an answer run calls the models on purpose
     os.environ.setdefault("HF_HUB_OFFLINE", "1")  # pinned local models load from HF_HOME
-    settings = load_settings(EvalSettings)
+    settings = eval_settings()
     configure_logging("eval", "WARNING")
     if args.ci and (missing := unfloored(args, settings.llm_primary)):  # before any call
         raise Stop(

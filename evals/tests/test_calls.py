@@ -16,12 +16,22 @@ from evals import harness, judge
 from evals.calibrate import FOLLOWUP_MODELS, draw, draw_followup, imported, spot_check
 from evals.calls import Cache, Call, Recorded, Stop, patiently
 from evals.harness import EvalSettings, answer_path, code_version, refusal_sweep, routed
+from filinglens_api import answering
+from filinglens_api.answering import PostgresEvidence
 from filinglens_api.schemas import Answer
 from filinglens_core.errors import AiUnavailableError, RateLimitedError
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_llm.providers import Completion
+from filinglens_retrieval import Ranking, Scope
 
 TEXTUAL = Path(__file__).parents[2] / "services/api/tests/fixtures/answers/textual.json"
+ENV = {  # what load_settings(EvalSettings) needs; nothing listens on these
+    "DATABASE_URL": "postgresql+asyncpg://app:p@localhost:5433/app",
+    "REDIS_URL": "redis://localhost:6380/0",
+    "BROKER_URL": "amqp://app:p@localhost:5672//",
+    "API_KEY": "k" * 32,
+    "ADMIN_API_KEY": "a" * 32,
+}
 
 
 class Scripted:
@@ -96,6 +106,27 @@ def test_a_tag_joins_the_answer_path_only_when_set() -> None:
     claude = cast(ApiSettings, SimpleNamespace(**vars(stub) | {"llm_primary": "anthropic:x"}))
     routes = answer_path(claude, {"sha256": "abc"}, "", "gemini:gemini-3.5-flash-lite")
     assert routes == untagged and answer_path(claude, {"sha256": "abc"}, "") != untagged
+    # The reranker's deadline is in no key: a search that met the API's 500 ms keeps its passages.
+    patient = cast(ApiSettings, SimpleNamespace(**vars(stub) | {"rerank_timeout_ms": 60_000}))
+    assert answer_path(patient, {"sha256": "abc"}, "") == untagged
+
+
+async def test_the_answer_suite_waits_for_the_reranker_as_the_retrieval_suite_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past the API's 500 ms a search keeps fused order, so an answer's passages, and the cache
+    keys of its replies, would follow the runner's speed (10b's CI eval, 2026-10-21)."""
+    for name, value in (ENV | {"RERANK_TIMEOUT_MS": "500"}).items():  # as .env.example sets it
+        monkeypatch.setenv(name, value)
+    deadlines: list[float] = []
+
+    async def search(*args: Any, timeout_s: float, **kwargs: Any) -> Ranking:
+        deadlines.append(timeout_s)
+        return Ranking([], False, None, {})
+
+    monkeypatch.setattr(answering, "search", search)
+    await PostgresEvidence(cast(Any, None), harness.eval_settings()).search("q", Scope())
+    assert deadlines == [harness.RETRIEVAL_TIMEOUT_S]
 
 
 async def test_a_429_waits_and_the_third_in_a_row_stops_the_run(
@@ -265,14 +296,7 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
 
 
 def test_the_judge_can_never_be_claude(monkeypatch: pytest.MonkeyPatch) -> None:
-    env = {
-        "DATABASE_URL": "postgresql+asyncpg://app:p@localhost:5433/app",
-        "REDIS_URL": "redis://localhost:6380/0",
-        "BROKER_URL": "amqp://app:p@localhost:5672//",
-        "API_KEY": "k" * 32,
-        "ADMIN_API_KEY": "a" * 32,
-        "LLM_JUDGE": "anthropic:claude-haiku-5-5",  # its reference labels came from Claude
-    }
+    env = ENV | {"LLM_JUDGE": "anthropic:claude-haiku-5-5"}  # its reference labels came from Claude
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     with pytest.raises(SystemExit, match=r"LLM_JUDGE: .*cannot be Claude"):

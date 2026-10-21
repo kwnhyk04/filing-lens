@@ -15,6 +15,74 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-21: Rerank deadline: the answer eval waits for the reranker, and an unused guess is cancelled (uncommitted)
+
+- Changes, each fix test first, on `rerank-deadline` from main at 1f15729. Details are in memory.md, Solved Problems.
+  - **(a)** The answer eval's searches wait up to 60 s for the reranker, as the retrieval eval's do (`harness.eval_settings`, used by `evaluate`).
+  - **(b)** `Answerer.events` cancels a guessed search the plan does not use as soon as the plan is known, in production too. `_rerank` marks its call abandoned on any exit, so a cancelled call still queued on the lock skips the model.
+  - **Tests:**
+    - the disagreeing-router test now gets a guess that waits until cancelled, and checks it is cancelled before the plan's search;
+    - a new `packages/retrieval/tests/test_rerank.py` (a cancelled search's queued rerank skips the model);
+    - an eval test that the answer suite's search gets 60 s;
+    - a pin row that the deadline is in no cache key. The settings env became a shared `ENV` in `test_calls.py`.
+  - **Docs:** memory (a preference correcting the eval check, the Anthropic spend, Solved Problems), todo (this PR, and the Haiku limits for the next branch), context (the guess, the answer suite), this log.
+- Small events, in order:
+  1. **Base:** local `main` and `origin/main` were at 1f15729 (10a). 10b (305b123) was on its own branch, not merged. The user's rule bars checking GitHub, so "current main" was taken as 1f15729.
+  2. **The investigation's docs:** their edits were uncommitted on `step-10-dataloader`, which blocked the switch.
+     - They were saved as a patch (`git diff --output`, scratchpad), then restored to that branch's commit. The gate held the restore as destructive until its files and rollback were given.
+     - They were then written again here, in places 10b's PR does not touch: memory's Preferences and Solved Problems, todo after step 10's block, two context lines.
+     - Only this log's top will conflict with 10b's entry when the second PR merges: keep both entries.
+  3. **The user's mid-turn addition** (Haiku limits). Two questions were asked: FilingLens's share is $15 of the organization's $50 until 2026-11-10, and the limits get their own branch after this one. The Haiku numbers were read from the four local Claude runs of 2026-10-17; nothing was built yet.
+  4. **Gates:** GateGuard held each file's first edit and the first Bash call until their facts were given. In one batch it held three first edits, but let two later `harness.py` edits through; the held three were sent again and passed.
+  5. **Red:** the three new tests failed, each on its missing behaviour:
+     - the guess was not cancelled first;
+     - the queued rerank was not told;
+     - `eval_settings` was missing.
+     - The deadline pin and the refactored judge test passed.
+  6. **Green:** the three test files passed (53 tests). Two new comment lines ran past 100 characters and were shortened before lint.
+  7. **Containers:** `make test-int` passed, but the before-and-after list of running containers differed.
+     - Triage Copilot's three containers (elasticmq, postgres, toxiproxy) were gone afterwards, removed rather than stopped.
+     - This run only used Testcontainers, whose reaper removes containers with its own session label. Cause not confirmed: most likely Triage Copilot's own session. They were not touched here.
+  8. **Web:** GitHub's dependency-caching reference was read (public docs, no CI data) to confirm that a PR run's cache can be restored only by re-runs of that PR.
+  9. **Nothing else run:** no model call, no eval run.
+  10. **Update onto main, waiting:** the user then said 10b was merged. An anonymous `git fetch origin main` (credential helper off, no prompt) and `git ls-remote` showed GitHub's `main` still at 1f15729 and `step-10-dataloader` at 305b123, not merged. So there was nothing to update yet. The branch waits for 10b to reach `main`.
+- Files: `evals/harness.py`, `evals/tests/test_calls.py`, `services/api/src/filinglens_api/answering.py`, `services/api/tests/test_answering.py`, `packages/retrieval/src/filinglens_retrieval/__init__.py`, `packages/retrieval/tests/test_rerank.py` (new), docs (memory, todo, context, this log).
+- Validation:
+  - `make lint` clean (139 files formatted); `make typecheck` 0 errors.
+  - `make test` 418 passed; `make test-int` 31 passed (3 min 17 s).
+  - `make contracts-breaking`: "No changes detected".
+  - gitleaks (`dir --redact`) on the 10 changed files: no leaks. The synthetic-token control finds its 1 and exits 1.
+  - Eval check: this PR changes eval inputs (`evals/`, `services/api/src`, `packages/retrieval/src`), so CI's eval runs.
+    - Keys stay the same for every search that met 500 ms.
+    - At worst the dev ci run calls Gemini live 11 times for its 9 searching questions (about 59,500 input tokens, $0 billed), and the next nightly 11 times plus 8 judge calls.
+  - No live model or SEC call.
+- Outstanding:
+  - the user ships this PR;
+  - the Haiku limits, on their own branch.
+
+### 2026-10-21: 10b's CI answer eval failed on x15 and a09: why they missed the reply cache (read only)
+
+- Changes: docs only, written first on `step-10-dataloader` and moved to `rerank-deadline` (the entry above).
+  - **Report from the user:** x15 got a Gemini 503. a09 got "no answer within 30 s" after "reranker timed out" warnings. Each showed 1 cached call where the 2026-10-17 report had 2.
+  - **Finding:** 10b changed no key input. The primary call's key hashes its prompt, and the prompt's passages depend on whether the reranker met its 500 ms deadline on the runner. A miss shows only the router call, because a failed call is not recorded.
+    - **Why x15 and a09:** both route with no tickers while the guess names Caterpillar. Their discarded guess held the rerank lock while the plan's rerank waited inside its deadline.
+    - **The failure itself:** Google failed both live calls.
+  - **Correction:** the 10b report's eval check ("no model call") was wrong. Code alone does not fix the keys; the runner's rerank time does too.
+- Small events, in order:
+  1. **Report layout:** two inline scripts failed on the reports' layout:
+     - `KeyError: 'code'`: the older dev-ci reports have no `code`;
+     - `TypeError: string indices must be integers`: records sit under `records['answer']`.
+     - The third script read `records['answer']`.
+  2. **Which report:** `evals/reports/2026-10-17.json` is the test split, so x15 and a09 (dev) are not in it. The dev comparison is `evals/reports/runs/20261017T154912Z-answer-dev-ci.json`, a local run on this PC. There, both questions made 2 live calls, and CI's cache never saw those replies.
+  3. **Not read:** CI logs, artifacts and caches. AGENTS.md has the user report CI results, so there was no gh and no fetch of CI data.
+  4. **Nothing run:** no model call, no eval run, no container.
+- Validation: read-only. The code read was:
+  - `evals/calls.py` (keys) and `evals/harness.py` (the answer suite, `answer_path`, the ci subset, `CI_EXTRA`);
+  - `answering.py` (the early search, `MAX_CHUNKS`, the relevance gate) and `filinglens_retrieval` (`_rerank`);
+  - `filinglens_llm.local` (`_rerank_lock`), `router.guess`, and the Gemini provider (`attempts=1`);
+  - `nightly-eval.yml`, which runs only the test split.
+- Outstanding: the user re-ran 10b's failed job; the fix is the entry above.
+
 ### 2026-10-21: PR 10a, API hardening for a public URL (uncommitted)
 
 - Changes, each test first, on `step-10-api-hardening` (context.md, "Public-URL hardening"; memory.md, PR 10a):

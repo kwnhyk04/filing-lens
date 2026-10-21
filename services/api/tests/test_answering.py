@@ -272,17 +272,42 @@ async def test_the_search_started_with_the_router_is_kept_when_the_router_agrees
     assert evidence.scopes == [Scope([320193], None)]  # one search, the early one
 
 
-async def test_a_router_that_disagrees_gets_its_own_search(mocked: respx.MockRouter) -> None:
+class SlowGuess(RecordedEvidence):
+    """The guessed search waits until cancelled; the plan's own search notes whether it was."""
+
+    def __init__(self, calls: list[dict[str, Any]]) -> None:
+        super().__init__(calls)
+        self.guess_cancelled = asyncio.Event()
+        self.cancelled_first: bool | None = None
+
+    async def search(self, question: str, scope: Scope) -> Ranking:
+        if not self.scopes:  # the guess, started with the router
+            self.scopes.append(scope)
+            try:
+                await asyncio.Event().wait()  # still in its SQL or queued for the reranker
+            except asyncio.CancelledError:
+                self.guess_cancelled.set()
+                raise
+        await asyncio.sleep(0)  # a cancellation already asked for lands first
+        self.cancelled_first = self.guess_cancelled.is_set()
+        return await super().search(question, scope)
+
+
+async def test_a_router_that_disagrees_gets_its_own_search_once_the_guess_is_cancelled(
+    mocked: respx.MockRouter,
+) -> None:
+    """A discarded guess must not hold the reranker while the plan's search waits for it."""
     recorded = fixture("textual")
     content = json.loads(
         json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
     )
     mocked.post(host=GROQ).mock(return_value=router_reply(**content | {"fiscal_years": [2024]}))
     replay(mocked, textual_exchanges()[1:])
-    evidence = RecordedEvidence(recorded["evidence"])
+    evidence = SlowGuess(recorded["evidence"])
     answer, _, stats = await run("textual", evidence)
     assert not answer.refused and stats["early_search"] is False
     assert evidence.scopes == [Scope([320193], None), Scope([320193], [2024])]
+    assert evidence.cancelled_first is True
 
 
 async def test_a_best_hit_under_min_relevance_is_refused_without_an_answer_call(

@@ -125,6 +125,20 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - On Vercel (`VERCEL=1`), its key is `x-real-ip`, which Vercel sets and no client can override (Vercel's request-headers doc, updated 2025-12-13).
     - Locally, all clients share one bucket.
   - **Superseded:** "Replace the example passwords in `.env`". The dev Postgres and RabbitMQ volumes keep the passwords they were created with, so `.env` stays as is, and production gets new values in `.env.prod`.
+- [ ] (from 10b's CI eval, 2026-10-21; user) **Rerank deadline** (branch `rerank-deadline`), each fix test first (memory.md, Solved Problems):
+  - [x] the answer eval's searches wait up to 60 s for the reranker, as the retrieval eval's do (`harness.eval_settings`);
+  - [x] a guessed search the plan does not use is cancelled at once, in production too, and a rerank it still has queued skips the model;
+  - [x] no cache key changes for a search that met 500 ms: a pin row for the deadline;
+  - [x] checks:
+    - `make lint` and `make typecheck` (0 errors) clean;
+    - `make test` 418, `make test-int` 31;
+    - `make contracts-breaking`: no changes;
+    - gitleaks on the changed files: clean.
+  - [ ] (user) ship. Its CI eval can call Gemini live for dev ci's 9 searching questions, at worst 11 calls and about 59,500 input tokens, $0 billed.
+- [ ] (user decision, 2026-10-21: its own branch, after rerank-deadline) **Haiku limits**, for dev and evals; production runs no Claude:
+  - Claude's output cap per call: 1,024 to 1,052. That is 956, the most Claude wrote with thinking off (122 calls), plus 10%.
+  - A guard: no Claude prompt over 100,000 tokens, since Haiku costs 5x above that.
+  - Claude's own daily token budget, sized from FilingLens's $15 share until the credits expire on 2026-11-10. The free models' budget stays as it is.
 - [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it.
   - The internet-facing api and tailscale containers would reach the internet only through an allowlist proxy, so they could no longer reach services on the PC's own ports through `host.docker.internal` (context.md, Known Limitations).
   - It needs FilingLens's own CI-built proxy image and an allowlist of the model providers' and Tailscale's hosts.
