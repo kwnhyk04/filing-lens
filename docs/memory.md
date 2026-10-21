@@ -692,10 +692,34 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
   - Conditions: check ports first; start and stop only FilingLens's own containers, by exact name; never touch FreightAudit's or Triage Copilot's containers or volumes; never stop Docker.
   - Model calls stay off. Any other container needs a new go.
 - 2026-10-21: No Anthropic key on the public deployment: production runs free providers only (the user's standing rule, stated at the step 10 plan's approval). Claude stays a dev and eval option while its credits last.
+- 2026-10-21: Correction to the eval check above (2026-10-18). "Every cache key is main's" covers code only. A question that searches takes its prompt's passages from the search, so it can still miss when the search ran differently on the runner.
+  - Since `rerank-deadline`, the answer suite's searches never degrade. A miss is then a variant CI's cache never answered (Solved Problems, 2026-10-21).
+  - Before a PR is reported ready, give the estimate for those misses.
+- 2026-10-21: Anthropic spend (user). The organization's monthly limit is $50, shared by FreightAudit, FilingLens and Triage Copilot. FilingLens's share is $15 until 2026-11-10, when the credits expire. FilingLens's daily Claude budget is sized from the $15, not the $50.
 
 ## Solved Problems
 
-None yet.
+- 2026-10-21: CI's answer eval missed its reply cache on x15 and a09 on 10b's PR. Then Google failed both live calls: a 503, and an answer unfinished at 30 s. A read-only investigation found the cause; branch `rerank-deadline` fixes it.
+  - **Cause:** the primary call's key hashes its prompt, and the prompt holds the 12 passages search returns.
+    - The answer suite searched with the API's 500 ms rerank deadline. Past it, search keeps fused order, so the passages, the prompt and the key followed the runner's speed.
+    - Not 10b: it changed no key input, and both router keys still hit.
+  - **Why x15 and a09:** with the router reply cached, the guessed search (`router.guess`, "Caterpillar" to CAT) and the plan's search start almost together.
+    - When the route names no tickers, the guess is discarded but ran on until the answer ended.
+    - Reranks queue on `_rerank_lock`, so the plan's rerank waited inside its own 500 ms. On this PC a rerank takes 128-138 ms.
+  - **Fix (a):** the answer suite waits up to 60 s for the reranker, as the retrieval suite does (`harness.eval_settings`).
+  - **Fix (b):** a guess the plan does not use is cancelled as soon as the plan is known, in production too. `_rerank` now marks a cancelled call abandoned, so a call still queued skips the model.
+  - **No key changes for a search that met 500 ms:**
+    - The deadline is no key input. `answer_path` holds the models, revisions, rerank candidates and tokens, and the index hash; a pin row covers the deadline.
+    - A search that met 500 ms ranks the same under 60 s, so its prompt and key stay the same.
+    - Cancelling a guess the plan never used changes no prompt.
+    - Only the resume file's name changes, since its digest holds the deadline. That matters only for a run interrupted across the change.
+  - **What can still go live in CI:** only a question that searches, and only where CI's cache lacks the reranker-order variant. Each calls once, and the router calls stay cached.
+    - dev ci: 9 questions (c06, c07, c11, x06, x11, x15, x16, a02, a09). At worst 11 Gemini calls, about 59,500 input tokens.
+    - nightly (test split): 11 questions. At worst 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000).
+    - All on free tiers, so $0 billed. A different CPU's float results can still reorder close scores (rare).
+  - **CI's cache:** only CI runs fill it, never local runs. Locally, 2 of 1,015 answer records were degraded, so local replies are almost all the reranker-order variant.
+    - A PR run's cache can be restored only by re-runs of that PR, not by `main` (GitHub's dependency-caching reference, read 2026-10-21). So the push to `main` after a merge can make the PR run's live calls once more.
+    - Entries unused for 7 days are evicted, which would make the next run cold.
 
 ## Known Issues and Pitfalls
 

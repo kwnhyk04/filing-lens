@@ -219,6 +219,8 @@ class Answerer:
                 outcome = self._refusal(*plan, run)
             else:
                 kept = early.task if early.agrees(request, routing, plan) else None
+                if kept is None:  # a guess the plan does not use must not hold the reranker
+                    early.task.cancel()
                 async for event in self._answer(request.question, routing, plan, run, kept):
                     if isinstance(event, AnswerCompleted):
                         outcome = event.answer

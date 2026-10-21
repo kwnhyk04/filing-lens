@@ -271,7 +271,8 @@ async def _rerank(
                 rerank, q, texts, model=model, max_tokens=max_tokens, abandoned=abandoned
             )
     except TimeoutError:
-        abandoned.set()  # still queued: it will skip the model; already running: result dropped
         metrics.RERANK_TIMEOUTS.add(1)
         log.warning("reranker timed out, fused order kept", timeout_s=timeout_s, texts=len(texts))
         return None
+    finally:
+        abandoned.set()  # timed out or cancelled: a call still queued skips the model
