@@ -612,6 +612,64 @@ From the source cards' fiscal year end (2026-10-20, branch `source-fiscal-year`)
   - **Pitfall, CRLF after codegen goes beyond what `git status` lists:** the first `make codegen` showed 15 changed files. 5 had content changes, and 10 differed in CRLF only. But `clients/python/` had also been rewritten with CRLF, and git, with `eol=lf` in `.gitattributes`, counted those as clean and did not list them. Comparing every tracked file under `contracts/` and `clients/` with `git show HEAD:<path>` found 60 that differed in line endings only. All 60 went back to HEAD's bytes (touch, then `git checkout HEAD --`, then `cmp`, as the 2026-10-19 lesson says).
   - **Instead of `make contracts-check`**, which fails on any uncommitted change under `contracts/` or `clients/`, codegen ran a second time: its CR-insensitive diff equalled the first run's, so a fresh codegen on CI reproduces the committed files.
 
+From the step 10 plan (made 2026-10-20, approved 2026-10-21; plan file `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-ee81-source-fiscal-validated-dolphin.md`):
+
+- 2026-10-20: The API's Funnel runs in a `tailscale` sidecar container in the prod stack, as FreightAudit runs its own (user decision).
+  - **What FilingLens gets:**
+    - its own node (`filinglens`) and tag (`tag:filinglens`);
+    - its own external state volume (`filinglens-prod-tailscale-state`);
+    - FreightAudit's image pin;
+    - Funnel on 443, proxying to `http://api:4100`.
+  - **What happened:** planning found Tailscale not installed on this PC. The user chose the sidecar over the Windows app, and allowed a read-only look at FreightAudit's `infra/docker-compose.prod.yml` and `infra/tailscale/serve.json` as the pattern, never its `.env` files.
+  - **Reason:** nothing is machine-wide, each project gets its own node and port 443, and the Funnel config lives in the repo.
+- 2026-10-20: Other decisions (user):
+  - the GraphQL DataLoader ships before go-live (PR 10b);
+  - Alertmanager comes after go-live;
+  - the GHCR packages `filinglens-api` and `filinglens-ingest` go public, which GitHub never reverses.
+- 2026-10-21: The plan's approval brought three changes (user):
+  - **Free providers only in production:** `LLM_ANSWER_FALLBACK` stays empty and `ANTHROPIC_API_KEY` stays out of `.env.prod` (standing rule: no Anthropic key on the public deployment). The prod override also forces both empty, so a stray `.env.prod` line cannot reach the api.
+  - **Gemini key first:** AI goes on only after FilingLens's Gemini key has its own Google project, with billing off (the user's step B28).
+  - **Egress proxy:** FreightAudit's egress proxy is the first Pending item after go-live. context.md's Known Limitations states the gap until then.
+- 2026-10-20: Rulings in the plan (no user decision needed; each is cheap to change):
+  - **Prod stack:**
+    - It is its own compose project, `filinglens-prod`, with `.env.prod`, so it never shares the dev stack's containers or volumes.
+    - It runs CI's GHCR images by `sha-` tag, never `latest`, and publishes no host port.
+    - Postgres, Redis and RabbitMQ sit on an internal `data` network that the tailscale container is not on.
+    - The workers sit behind an `ingest` profile, since serving needs only the api.
+  - **Database:**
+    - Prod restores `corpus-v1` once, by exact container name: about 11 s, 0 SEC requests. That is the data golden v1, the README and the demo describe.
+    - A fresh ingest would first need the financial-section labelling work, a prod migration path and the workers.
+  - **Dev `.env` passwords stay:**
+    - Postgres and RabbitMQ read their passwords only when their volume is first created, so new values in `.env` would lock dev out.
+    - Production gets new values in `.env.prod`.
+    - This replaced the pending item "Replace the example passwords in `.env`".
+  - **Budget:** `DAILY_AI_TOKEN_BUDGET=300000` is recommended for prod, about 55 textual answers a day.
+    - It leaves room in Groq gpt-oss-20b's 200K a day for CI.
+    - Each stack counts in its own Redis, so dev and prod are capped apart.
+  - **Node on Vercel:** `engines.node` becomes `^24.7.0`. Vercel maps a `>=` range to the newest major it offers, and the 24.7 floor (`crypto.argon2`) has to stay.
+  - **Region:** `hkg1`, the Vercel region nearest Taiwan.
+- 2026-10-20: The plan's review corrected the hardening design. A fresh agent checked it against FastAPI 0.143.0, Strawberry 0.334.4 and graphql-core 3.3.0:
+  - **Introspection:** it goes off through `strawberry.extensions.DisableIntrospection`, passed as the class.
+  - **Coercion errors:** they are found by shape, not text: no `path`, plus either a `GraphQLError` as `original_error` (variables) or a value node that is not a variable (literals).
+  - **Error logging:** Strawberry's `process_errors` runs before `ErrorCodes`, so the log override works out the code itself. It keeps `exc_info` for `internal`.
+  - **`/readyz` cache:** its state is made in `lifespan`, since the tests share one app across event loops.
+  - **NUL:** a NUL reaches Postgres from `q`, `question` and cursors too, not only from `concept`.
+  - **SQL errors:** SQLAlchemy quotes the parameters in its errors, so `make_engine` gets `hide_parameters=True`.
+
+From PR 10a (2026-10-21, branch `step-10-api-hardening`):
+
+- 2026-10-21: One NUL rule for every string that reaches Postgres. `schemas.NoNul` is a `str` with an `AfterValidator`, so the JSON schema and the contracts do not change. It covers REST `q`, `AnswerRequest.question` and the string fields of every cursor key. GraphQL `concept` checks inline, like `_ids`. Reason: Postgres refuses a NUL in text, which came back as a 500 (REST) or `internal` (GraphQL); `\x01` still passes (pin rows).
+- 2026-10-21: A GraphQL bad value is found by shape (`graph._bad_value`), not by its text. It matches a `GraphQLError` as `original_error` (variable coercion, or an argument coerced at execution), or a value node that is not a variable (literal coercion).
+  - `error_code` serves both `ErrorCodes` and the log override.
+  - Validation errors (unknown field, undefined variable, the depth, alias and introspection rules) keep their message and have no code.
+- 2026-10-21: Strawberry's taxonomy 5xx errors (`upstream_error`, `ai_unavailable`) now log at warning with code and path. Before, they logged at error with a traceback. Only `internal` keeps error level and its traceback. Nothing in the repo reads `strawberry.execution`.
+- 2026-10-21: The final review (a fresh agent, verdict "ready with fixes", no Critical) found one Important issue and five Minor ones; all were fixed test first:
+  - **Important:** `/readyz` stamped its cache before the round. A round longer than 5 s (three 2 s time-outs in an outage) was stale on arrival, so every queued caller ran its own round. The stamp is now taken at the end.
+  - **Minor:** keyless Origin rows pin the dependency order; every cursor key field has a NUL row; argument errors found at execution are bad values too (the `path` guard went); `CompanyKey.cik` is bounded (`Cik`, against BIGINT); GraphQL `fiscalYear` takes 1993-2100 (against SMALLINT); the `monotonic` patch lost `raising=False`.
+  - Its mutation runs: removing each feature failed the tests named for it.
+  - **Not verifiable offline:** that Vercel's Node `fetch` sends no `Origin`. undici adds none, and `web/lib/server.ts` forwards no headers. Step B24, the phone test, covers it: every BFF call would get 403 otherwise.
+- 2026-10-21: Pitfall: asyncpg's own `DataError` quotes up to 40 characters of a bound value, which `hide_parameters` does not cover. So input bounds belong at validation (the review's CIK and fiscal-year rows).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -633,6 +691,7 @@ From the source cards' fiscal year end (2026-10-20, branch `source-fiscal-year`)
   - Uses: Testcontainers for `make test-int`, and FilingLens's own dev Postgres (`filinglens-postgres-1`) for `make demo-export`.
   - Conditions: check ports first; start and stop only FilingLens's own containers, by exact name; never touch FreightAudit's or Triage Copilot's containers or volumes; never stop Docker.
   - Model calls stay off. Any other container needs a new go.
+- 2026-10-21: No Anthropic key on the public deployment: production runs free providers only (the user's standing rule, stated at the step 10 plan's approval). Claude stays a dev and eval option while its credits last.
 
 ## Solved Problems
 
@@ -789,6 +848,9 @@ None yet.
 - 2026-10-19: web's `postinstall` runs `npm --prefix ../clients/ts ci --omit=dev`, which removes `clients/ts`'s dev dependencies (typescript, the codegen tools). After `npm ci` in web, `npm --prefix clients/ts run typecheck` fails until `make codegen` (its own `npm ci`) or `npm --prefix clients/ts ci` reinstalls them. CI runs them in separate jobs, so it never meets this.
 - 2026-10-19: Playwright's `response.headers()` leaves out security-related headers, `Clear-Site-Data` among them; `response.allHeaders()` has them. The sign-out spec first failed on this.
 - 2026-10-19: `page.addInitScript` with a `securitypolicyviolation` listener and `page.exposeFunction` catches CSP reports; Chrome reports a blocked redirect under the URL before the redirect (`form-action http://127.0.0.1:3102/logout` when `/logout` redirected off-origin).
+- 2026-10-20: `make corpus-restore` and `make migrate` always target the dev stack. Both pass `.env`, and `evals/corpus.py` runs `docker compose` without `-p`. Production restores by exact container name (todo.md, step 10).
+- 2026-10-20: Compose reads every `${VAR:?}` in its files before it applies profiles. So `.env.prod` needs `GRAFANA_ADMIN_PASSWORD` and `SEC_USER_AGENT` even with monitoring and the workers off.
+- 2026-10-20: Tailscale is not installed on this PC. FreightAudit's Funnel runs in its prod stack's own tailscale container.
 
 ## Rejected Approaches
 
@@ -810,6 +872,7 @@ None yet.
     - The nightly's judge uses 18-28K gpt-oss-120b, from the allowance shared with FreightAudit's CI and its 25K reserve.
     - A PR eval with unchanged prompts that hits the cache uses none.
 - 2026-10-16: Gemini's daily quota resets at midnight Pacific, which is 15:00 Taipei (07:00 UTC) during daylight time (user). Runs that need a fresh Gemini allowance start after that; the test day starts at 15:07 Taipei.
+- 2026-10-21: FilingLens's Gemini key belongs to Triage Copilot's Google project and shares its quota (user). Production AI waits for a key from FilingLens's own project, billing off (todo.md, step 10, B28).
 
 ## Unresolved Questions
 

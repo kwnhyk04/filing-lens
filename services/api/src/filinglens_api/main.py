@@ -5,6 +5,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from time import monotonic
 from typing import Any
 
 import httpx
@@ -14,6 +15,7 @@ from kombu import Connection
 from opentelemetry import trace
 from pydantic.json_schema import models_json_schema
 from redis.asyncio import Redis
+from starlette.datastructures import State
 from strawberry.fastapi import GraphQLRouter
 
 from filinglens_api import routes
@@ -29,6 +31,7 @@ from filinglens_db import make_engine, ping
 from filinglens_llm.providers import TIMEOUT, provider
 
 CHECK_TIMEOUT_S = 2
+READY_TTL_S = 5  # /readyz needs no key on a public URL: one round of checks per 5 s at most
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")  # any other incoming id is replaced, not logged
 PROBES = ("/healthz", "/readyz")
 DESCRIPTION = """\
@@ -37,6 +40,7 @@ Answers analyst questions over SEC filings with citations you can check.
 **Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the
 normal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes
 under `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.
+Only servers call this API: any request with an `Origin` header gets 403, on every route.
 
 **Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.
 429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`
@@ -63,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         redis_url, socket_timeout=CHECK_TIMEOUT_S, socket_connect_timeout=CHECK_TIMEOUT_S
     )
     app.state.token_bucket = app.state.redis.register_script(BUCKET_SCRIPT)  # the rate limits
+    app.state.ready, app.state.ready_lock = None, asyncio.Lock()  # /readyz's last round
     http = httpx.AsyncClient(timeout=TIMEOUT)  # every model provider call
     answerer = None
     if settings.ai_enabled:  # settings checked that each role's key is set
@@ -90,6 +95,11 @@ app = FastAPI(
     version="0.1.0",
     description=DESCRIPTION,
     lifespan=lifespan,
+    dependencies=[Depends(routes.refuse_browsers)],  # before every route's key check
+    # No docs or spec routes: contracts.py exports the spec in process, and nothing fetches it.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     generate_unique_id_function=lambda route: route.name,  # operationIds name the client functions
     # Server spans and HTTP metrics once configure_telemetry installed the providers. No logs
     # (they carry validation inputs), no exporters of FastAPI's own, probes left out, and no
@@ -170,18 +180,26 @@ async def healthz() -> Health:
     responses={503: {"model": Health, "description": "A dependency is unreachable."}},
 )
 async def readyz(request: Request, response: Response) -> Health:
-    """Readiness: Postgres, RabbitMQ and Redis answer. No key."""
+    """Readiness: Postgres, RabbitMQ and Redis answer. No key; a result is reused for 5 s."""
     state = request.app.state
-    broker_url = str(state.settings.broker_url.get_secret_value())
-    checks = {
-        "postgres": await _check("postgres", ping(state.engine)),
-        "rabbitmq": await _check("rabbitmq", asyncio.to_thread(_ping_rabbitmq, broker_url)),
-        "redis": await _check("redis", state.redis.ping()),
-    }
+    async with state.ready_lock:  # calls that arrive during a round wait for its result
+        if state.ready is None or monotonic() - state.ready[0] >= READY_TTL_S:
+            checks = await _checks(state)
+            state.ready = (monotonic(), checks)  # stamped at the end, however long it took
+    checks = state.ready[1]
     if all(checks.values()):
         return Health(status="ok", checks=checks)
     response.status_code = 503
     return Health(status="unavailable", checks=checks)
+
+
+async def _checks(state: State) -> dict[str, bool]:
+    broker_url = str(state.settings.broker_url.get_secret_value())
+    return {
+        "postgres": await _check("postgres", ping(state.engine)),
+        "rabbitmq": await _check("rabbitmq", asyncio.to_thread(_ping_rabbitmq, broker_url)),
+        "redis": await _check("redis", state.redis.ping()),
+    }
 
 
 def _ping_rabbitmq(url: str) -> None:

@@ -187,7 +187,7 @@ export interface paths {
         };
         /**
          * Readyz
-         * @description Readiness: Postgres, RabbitMQ and Redis answer. No key.
+         * @description Readiness: Postgres, RabbitMQ and Redis answer. No key; a result is reused for 5 s.
          */
         get: operations["readyz"];
         put?: never;

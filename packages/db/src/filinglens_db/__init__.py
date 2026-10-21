@@ -12,10 +12,12 @@ STATEMENT_TIMEOUT_S = 30
 def make_engine(
     settings: DatabaseSettings, *, statement_timeout_s: float = STATEMENT_TIMEOUT_S
 ) -> AsyncEngine:
-    """Async engine whose connects and statements both time out."""
+    """Async engine whose connects and statements both time out, and whose SQLAlchemy errors
+    leave out the statement's parameters (the search text, ids), since errors reach the logs."""
     return create_async_engine(
         str(settings.database_url.get_secret_value()),
         pool_pre_ping=True,
+        hide_parameters=True,
         connect_args={"timeout": CONNECT_TIMEOUT_S, "command_timeout": statement_timeout_s},
     )
 

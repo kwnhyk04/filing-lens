@@ -18,16 +18,20 @@ from filing_lens_api_client.api.catalog import list_companies
 from filing_lens_api_client.models import CompanyPage
 from filing_lens_api_client.types import UNSET, Unset
 from kombu import Connection, Queue
+from pydantic import BaseModel
 from redis import Redis
 from seed_fake import CIK_BASE, seed_fake
 from sqlalchemy import column, func, select, table, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from filinglens_api import main
 from filinglens_api.backend import (
     SEC_ARCHIVES,
     CompanyKey,
     DiscoverQueue,
+    FailureKey,
+    FilingKey,
     ItemKey,
     LiveBackend,
     SearchKey,
@@ -40,6 +44,7 @@ from filinglens_core import queues
 from filinglens_core.errors import InvalidInputError
 from filinglens_db.models import Company, Filing, FilingStatus, IngestJobItem, ItemStatus
 from filinglens_db.seed import COMPANIES
+from filinglens_telemetry import configure_logging
 
 QUERY = {"query": "{ __typename }"}
 PYPROJECT = Path(__file__).parents[3] / "pyproject.toml"
@@ -114,6 +119,164 @@ def test_spec_has_both_key_schemes_and_no_framework_validation_schema() -> None:
     spec = app.openapi()
     assert set(spec["components"]["securitySchemes"]) == {"ApiKey", "AdminApiKey"}
     assert "HTTPValidationError" not in spec["components"]["schemas"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        CompanyKey.model_construct(cik=2**63),
+        FilingKey.model_construct(filed_on=date(2025, 1, 1), accession_number="0\x00"),
+        FailureKey.model_construct(accession_number="0\x00"),
+        ItemKey.model_construct(id="c\x00"),
+        SearchKey.model_construct(score=0.5, chunk_id="c\x00", index_version="v1"),
+        SearchKey.model_construct(score=0.5, chunk_id="c-1", index_version="v\x00"),
+    ],
+    ids=["a CIK past BIGINT", "FilingKey", "FailureKey", "ItemKey", "chunk_id", "index_version"],
+)
+def test_a_cursor_postgres_would_refuse_is_unusable(key: BaseModel) -> None:
+    # Postgres refuses a NUL in text and a CIK past BIGINT: such a cursor stops here, not as a 500.
+    with pytest.raises(InvalidInputError):
+        decode_cursor(encode_cursor(key), type(key))
+
+
+def test_a_cursor_with_another_control_character_still_pages() -> None:
+    kept = ItemKey(id="c\x01")
+    assert decode_cursor(encode_cursor(kept), ItemKey) == kept
+
+
+@pytest.mark.parametrize("keyed", [True, False], ids=["with a key", "without a key"])
+@pytest.mark.parametrize("origin", ["https://example.org", "null"])
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [("GET", "/healthz", None), ("GET", "/v1/companies", None), ("POST", "/graphql", QUERY)],
+)
+def test_a_browser_origin_is_refused_before_the_key_check(
+    client: TestClient,
+    api_key: str,
+    keyed: bool,
+    origin: str,
+    method: str,
+    path: str,
+    body: dict[str, str] | None,
+) -> None:
+    headers = {"Origin": origin} | ({"X-API-Key": api_key} if keyed else {})
+    response = client.request(method, path, json=body, headers=headers)
+    assert response.status_code == 403
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "forbidden"
+    assert response.headers["X-Request-ID"]
+
+
+def test_a_request_without_an_origin_meets_the_key_check_as_before(
+    client: TestClient, api_key: str
+) -> None:
+    navigation = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none"}  # a browser, no Origin
+    assert client.get("/v1/companies", headers=navigation).json()["code"] == "unauthorized"
+    keyed = client.post("/graphql", json=QUERY, headers={"X-API-Key": api_key})
+    assert keyed.json() == {"data": {"__typename": "Query"}}
+
+
+@pytest.mark.parametrize("path", ["/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"])
+def test_the_docs_and_the_spec_are_not_served(client: TestClient, path: str) -> None:
+    # Nothing fetches them: contracts.py exports the spec in process, and codegen reads that file.
+    assert client.get(path).status_code == 404
+
+
+def test_readyz_runs_its_checks_at_most_once_every_5_s(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [100.0]
+    pings: list[str] = []
+
+    def ping_rabbitmq(url: str) -> None:
+        pings.append(url)
+        now[0] += 6  # as slow as an outage makes a round: three 2 s time-outs
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(main, "monotonic", lambda: now[0])
+    monkeypatch.setattr(main, "_ping_rabbitmq", ping_rabbitmq)
+    first = client.get("/readyz")  # the round ends at 106
+    now[0] = 110.999
+    assert client.get("/readyz").json() == first.json()
+    assert (first.status_code, len(pings)) == (503, 1)
+    now[0] = 111.0
+    client.get("/readyz")
+    assert len(pings) == 2
+
+
+BAD_VALUES: list[tuple[str, dict[str, Any]]] = [
+    (
+        "a variable",
+        {
+            "query": "query Q($first: Int!) {"
+            " companies(first: $first) { edges { node { ticker } } } }",
+            "variables": {"first": "secret-like-value"},
+        },
+    ),
+    (
+        "a literal",
+        {"query": '{ companies(first: "secret-like-literal") { edges { node { ticker } } } }'},
+    ),
+    (
+        "a null in a list, found at execution",
+        {
+            "query": 'query Q($b: ID = "x") { chunks(ids: ["a", $b]) { id } }',
+            "variables": {"b": None},
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize("body", [row[1] for row in BAD_VALUES], ids=[row[0] for row in BAD_VALUES])
+def test_a_bad_value_is_refused_without_echoing_it(
+    client: TestClient, api_key: str, capsys: pytest.CaptureFixture[str], body: dict[str, Any]
+) -> None:
+    configure_logging("api")  # its handler writes to the captured stdout
+    response = client.post("/graphql", json=body, headers={"X-API-Key": api_key})
+    errors = [(error["message"], error.get("extensions")) for error in response.json()["errors"]]
+    assert errors == [("Invalid value for an argument or variable.", {"code": "invalid_input"})]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert "secret-like" not in json.dumps(lines)
+    assert [line.get("code") for line in lines if line["event"] == "graphql_error"] == [
+        "invalid_input"
+    ]
+
+
+KEPT: list[tuple[str, dict[str, Any], str]] = [
+    ("an unknown field", {"query": "{ nope }"}, "Cannot query field 'nope' on type 'Query'."),
+    (
+        "an undefined variable",
+        {"query": "query Q { companies(first: $n) { edges { node { ticker } } } }"},
+        "Variable '$n' is not defined by operation 'Q'.",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("body", "message"), [row[1:] for row in KEPT], ids=[row[0] for row in KEPT]
+)
+def test_other_query_errors_keep_their_message_and_have_no_code(
+    client: TestClient, api_key: str, body: dict[str, Any], message: str
+) -> None:
+    response = client.post("/graphql", json=body, headers={"X-API-Key": api_key})
+    errors = [(error["message"], error.get("extensions")) for error in response.json()["errors"]]
+    assert errors == [(message, None)]
+
+
+def test_an_unexpected_resolver_error_is_logged_with_its_code_and_traceback(
+    client: TestClient, api_key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    configure_logging("api")
+    query = {"query": "{ companies(first: 1) { edges { node { ticker } } } }"}  # no database here
+    errors = client.post("/graphql", json=query, headers={"X-API-Key": api_key}).json()["errors"]
+    assert [error["extensions"] for error in errors] == [{"code": "internal"}]
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    [logged] = [line for line in lines if line["event"] == "graphql_error"]
+    assert (logged["level"], logged["code"], bool(logged.get("exception"))) == (
+        "error",
+        "internal",
+        True,
+    )
 
 
 @pytest.mark.integration

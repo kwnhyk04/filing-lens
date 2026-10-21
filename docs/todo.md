@@ -6,7 +6,6 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (manual, step 7, optional before step 10) GitHub step 5 under Completed, step 7: make the GHCR packages `filinglens-api` and `filinglens-ingest` public, or log the PC in to ghcr.io.
 - [ ] (later) Lift Dependabot's typescript-major ignore once an openapi-typescript release accepts typescript 7, and its `@types/node` rule when the runtime moves past Node 24 (both comments in `.github/dependabot.yml`).
 - [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
@@ -15,13 +14,14 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - A manual run always runs the eval, because the unchanged-inputs gate skips scheduled runs only. The reply cache carries over, so after the fix only x18's regeneration and judge call go live. A cold cache spends about 33K gpt-oss-20b, 18-28K gpt-oss-120b (the judge, shared with FreightAudit's Groq account) and about 25 Gemini requests.
   - After a complete manual run, a scheduled run with unchanged inputs shows SKIPPED and spends nothing. It still proves that the schedule fires.
 - [ ] (manual, optional) pre-commit keeps its cache on C: (`C:\Users\kwonhyuk\.cache\pre-commit`, gitleaks build included), because `PRE_COMMIT_HOME` is unset. AGENTS.md wants caches on H:: set `PRE_COMMIT_HOME=H:\.cache\pre-commit` for the user, then remove the old folder (found 2026-10-17).
-- [ ] (manual, before step 10) Vercel and Tailscale accounts created.
-- [ ] (manual, before step 10) Replace the example passwords in `.env`, and set both `API_KEY` and `ADMIN_API_KEY` (step 2 appended a random `ADMIN_API_KEY`).
 - [ ] (manual, optional) Remove the unused Docker volume `filinglens_sec-cache` (`docker volume rm filinglens_sec-cache`); the SEC cache now lives in `.cache/sec`.
 - [ ] Live embedding swap (after step 6; user decision): with dev on the last revision before 0004 (now 0008), record the model A baseline (`make eval`, recall@10 and MRR@10, golden set version); run 0004, the reembed backfill, 0005 (run `make check-parallel-hnsw` first, then pick a parallel build within the 256 MB `shm_size` or a serial one with more `maintenance_work_mem`, by corpus size; runbook step 3), the catch-up run and the flip to `embedding_v2`; run `make eval` again on the same golden set; record both runs in `eval_runs` and the activity log; then run 0006 in the next release and set `.env.example` to `embedding_v2`. Done when both recall@10 values are recorded and dev is at head. Runbook: `docs/migrations.md`.
 - [ ] (later idea, user, 2026-10-16) A deterministic check for derived numbers: recompute a percent of a stated total, or the difference of two cited figures, from the cited figures themselves, so correct arithmetic can pass validation and wrong arithmetic gets caught. Today validation rejects every derived figure (memory.md, step 6a), and the judge criterion counts a computed number as not stated.
 - [ ] (after step 6) Decide how a company that changes CIK in a restructure is handled (for example a `cik_aliases` table), since `get_financial_fact` looks facts up by CIK. Known case: XOM (Exxon Mobil Corp, CIK 34088, filed the latest 10-K; SEC now lists the ticker under ExxonMobil Holdings Corp, CIK 2115436).
-- [ ] Claude Haiku 5.5 as the answer fallback: `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5` is set in `.env` (user, 2026-10-17). `AI_ENABLED` stays false until step 10 (user), so no answer calls run before then; `.env` has no `AI_ENABLED` line, so the default (false) applies. Its credits expire 2026-11-10. CI never calls Claude (step 7).
+- [ ] Claude Haiku 5.5 as the answer fallback, in dev only: `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5` is set in `.env` (user, 2026-10-17).
+  - `.env` has no `AI_ENABLED` line, so the default (false) applies and no answer calls run.
+  - Its credits expire 2026-11-10.
+  - CI never calls Claude (step 7). Neither will production: the public deployment runs free providers only, with no Anthropic key (the user's standing rule, 2026-10-21; memory.md).
 - [ ] (v2, with golden set v2) The known weaknesses from the test run (README, "Known weaknesses"):
   - router fixes: an out-of-scope guard, and a ticker fill;
   - a time-trap check in code for a fiscal year the question names but the router leaves out (t07, "fiscal 2026"), instead of relying on the model to refuse (user, 2026-10-17). Not built now: the exam results stay tied to the exam's code;
@@ -54,7 +54,6 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - stdout (piped since that run): `signed_in` when the sign-in action finishes, or `sign_in_failed` or `sign_in_locked` when it does not. Then `api_call` with `route: "ping"`, the Ask page's first API call, with `status`, `ms` and `request_id`; when that call fails, it comes at warn with `failure` and the exception's name (`error`).
     - stderr: Next's own `⨯ Error: ...` line with its stack and `digest`, and `api_key_rejected` on a 401 or 403.
   - So the output shows which side failed: sign-in, the Ask page's API call, or Next itself. Read the whole log then, not only its summary lines.
-- [ ] (step 10) Batch GraphQL's single-row lookups (a DataLoader per request). B1 estimated that one query within depth 6 can still make about 6,000 of them: about 4,000 `get_chunks` and 2,000 `get_company`, under a cited chunk's filing with `first: 100` (memory.md, 2026-10-18). Batching also ends the two lookups per chunk when `section` and `filing` are both selected. Details: the step 10 notes, "Fan-out".
 - [ ] (flaky test, found 2026-10-18; user decides) `test_twenty_workers_never_exceed_eight_sec_requests_a_second` fails now and then on this PC.
   - The misses: its tightest 9-request span came in 60 and 75 ms under 1 s, against `JITTER_S = 0.05` (`services/ingest/tests/test_pipeline.py:80`). It failed 2 of 4 full `make test-int` runs, and 1 of 5 runs alone.
   - Not B1: the code it runs is identical to main.
@@ -70,39 +69,67 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - **Empty IN:** non-numeric fact ids still run an empty IN query.
   - **`@types/node`:** it comes in at 26 (through `@types/ws`), while CI runs Node 24. Dependabot's `@types/node` rule (2026-10-19) does not cover it: with no `allow` option, version updates touch only direct dependencies, here web's.
 - [ ] 10. Deploy: UI on Vercel, backend on the PC via Tailscale Funnel; phone test passes; 401 without API key; demo mode when the PC is off
-  - Notes from the step 9 plan (2026-10-18):
-    - **The sign-in limiter** lives in each Vercel instance's memory, so it does not hold across instances. The Vercel firewall rate-limit rule on `POST /login` (about 10 a minute per IP) covers that.
-    - **The limiter's client key:**
-      - **Locally:** no header is read. The server binds 127.0.0.1, every client is on this PC, and one shared bucket applies, so nothing a client sends changes the key.
-      - **On Vercel** (`VERCEL=1`, a system variable no request can set): `x-real-ip`. Vercel sets it to the connecting client's public IP, the same value as `x-forwarded-for`. Vercel overwrites any `X-Forwarded-For` a client sends and forwards no external IP, "to prevent IP spoofing". The trusted proxy that would allow a custom value is Enterprise-only (Vercel's request-headers doc, updated 2025-12-13).
-    - **FreightAudit's Vercel lessons** (its `docs/deploy.md` and `docs/memory.md`), as a checklist:
-      - only main deploys, through `git.deploymentEnabled` `{"**": false, "main": true}` in `web/vercel.json`, not an `ignoreCommand`;
-      - Root Directory `web`, with "Include files outside the root directory in the Build Step" on, since web imports `clients/ts`;
-      - the function region;
-      - Standard Protection, and Git Fork Protection on;
-      - a firewall rate-limit rule on `POST /login`;
-      - share only the production domain;
-      - after a merge, the user confirms the deploy from the merge commit's GitHub status;
-      - check that `crypto.argon2` works on Vercel's Node.
-    - **Other hardening:**
-      - the api refuses requests with a browser `Origin`;
-      - `/readyz` answers from a short cache behind Funnel;
-      - GraphQL depth limits, and introspection off in production.
-      - From B1's final review (2026-10-18):
-        - **Fan-out:** B1's links made the GraphQL schema cyclic (Chunk and Filing, Chunk and Section, Company and Filing, FinancialFact to Company). Off the citation path, each link is one backend query per item: one 222-byte query made 10,101 `get_chunks` calls.
-          - Done in B1 (user, 2026-10-18): depth 6 and no aliases.
-          - Still open: a DataLoader for the per-item lookups. Within depth 6, one request can still make roughly 6,000 of them, under a cited chunk's filing with `first: 100`. The DataLoader also ends the two lookups per chunk when `section` and `filing` are both selected.
-        - **Input echoes:** GraphQL-core's coercion errors echo the input value.
-        - **NUL:** a NUL in `concept` reaches Postgres and comes back as `internal`. Chunk ids with a NUL are refused since B1.
-  - **Needs from the user** (listed 2026-10-19, after step 9). Claude Code never handles the secret values:
-    - **Accounts:** Vercel and Tailscale (the manual item above).
-    - **Local `.env`:** replace the example passwords (the manual item above). The web's `LOGIN_PASSWORD_HASH`, `SESSION_SECRET` and `API_URL` are already there (names checked, values not read).
-    - **Vercel:** the project's settings from the checklist above, and its four web variables, which the startup check requires: `API_URL` (the Funnel address), `API_KEY` (the API's key), `SESSION_SECRET` and `LOGIN_PASSWORD_HASH`.
-    - **Tailscale:** the PC logged in, and Funnel switched on for the API's port.
-    - **Images:** the GHCR packages public, or the PC logged in to ghcr.io (the manual item above).
-    - **Decisions:** whether production reuses the dev database or ingests afresh (a fresh ingest makes the financial-section labelling item due first); and a go, with a cost estimate, for `AI_ENABLED=true` and a live answer smoke once Triage Copilot's exam ends (2026-10-20). Claude Haiku's credits expire on 2026-11-10.
-    - **Checks only the user can make:** the phone test on a real phone, and the deploy status on each merge commit.
-- [ ] (candidates from the mockup, 2026-10-19; user decides; five built in mockup features 1, merged as #17, and the source cards' fiscal year end, In Progress) What the mockup shows and the app does not have. The mockup style round restyled the existing screens only. Sizes are rough: small is a short web-only change, medium a PR that touches the API or its contracts, large several PRs or new storage. API facts were checked in `contracts/schema.graphql`, `clients/ts/openapi.d.ts` and `packages/db` on 2026-10-19.
+  - **Plan:** made 2026-10-20, approved 2026-10-21 with three changes (memory.md, step 10). Plan file: `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-ee81-source-fiscal-validated-dolphin.md`.
+    - **Backend:**
+      - a compose project `filinglens-prod` (`infra/docker-compose.prod.yml` + `.env.prod`);
+      - GHCR images by `sha-` tag, and no host port;
+      - Funnel in FilingLens's own `tailscale` sidecar (`tag:filinglens`, port 443), as FreightAudit runs it;
+      - free providers only, with no Anthropic key.
+    - **Web:** Vercel, with Root Directory `web` and files outside it included, region `hkg1`, and only main deploying.
+    - **Database:** `corpus-v1`, restored once (0 SEC requests, 0 model calls).
+  - [x] **0. Docs:** todo, activity log, memory, context (2026-10-21). Uncommitted; they ride with 10a.
+  - [ ] **10a. API hardening** (branch `step-10-api-hardening`), each change test first (activity-log.md, 2026-10-21):
+    - [x] a browser `Origin` gets 403 (an app-wide dependency, before the key check);
+    - [x] `/readyz` is cached for 5 s (its state created in `lifespan`, the stamp taken when a round ends);
+    - [x] `/docs`, `/redoc` and `/openapi.json` are off;
+    - [x] introspection is off (`DisableIntrospection`), and `__typename` still works;
+    - [x] a NUL is refused in `q`, `question`, `concept` and cursors;
+    - [x] coercion errors answer `invalid_input` without the value, and GraphQL errors are logged with code and path only;
+    - [x] SQL parameters are hidden from logged errors (`hide_parameters`);
+    - [x] the final review's fixes:
+      - the readyz stamp at a round's end;
+      - keyless Origin rows;
+      - a NUL test for every cursor key field;
+      - argument errors at execution as `invalid_input`;
+      - a bounded `CompanyKey.cik`;
+      - GraphQL `fiscalYear` held to 1993-2100;
+    - [x] checks:
+      - `make lint` and `make typecheck` (0 errors) clean;
+      - `make test` 416, `make test-int` 31, `npm --prefix clients/ts test` 18;
+      - `make contracts-breaking`: nothing breaking;
+      - gitleaks on 16 files: clean;
+      - the eval check: no model call.
+    - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+  - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`):
+    - per-request loaders for chunk sources and companies (`Backend.get_companies`);
+    - call-count tests;
+    - (user) ship.
+  - [ ] **10c. Deploy config and runbook** (branch `step-10-deploy-config`):
+    - the prod override: project name, GHCR images, the `data` network, the `ingest` profile, the tailscale service, free providers forced;
+    - `infra/tailscale/serve.json`, `web/vercel.json`, `engines.node` `^24.7.0`, and `docs/deploy.md`;
+    - the `docker compose config` checks;
+    - (user) ship.
+  - [ ] **Manual (user), anytime:**
+    - B1: make the GHCR packages public (irreversible);
+    - B2: add `tag:filinglens` to `tagOwners` and to the funnel `nodeAttrs`;
+    - B3: create a Vercel account;
+    - B4 (optional): set the power and Docker Desktop start settings.
+  - [ ] **Manual (user), after 10c merges:**
+    - B5-B17, the backend: the auth key, `.env.prod`, the external volume, pull, Postgres, the restore and its check, up, the search check, Funnel status, the public checks;
+    - B18-B23, Vercel: the import, the settings, the four variables, the firewall rule.
+  - [ ] **Phone test with AI off (user):** B24-B27: sign-in, the pages, 401, the PC off, the API down.
+  - [ ] **B28 (user):** create a Gemini key in a new FilingLens Google project with billing off, and put it in `.env.prod`. Until then AI stays off.
+  - [ ] **B29 (on the user's go):** set `AI_ENABLED=true`, then ask exactly two questions (n01, x04). Expected: about 7,900 tokens, $0 billed; worst case about 13K tokens.
+  - [ ] **10d. Docs after go-live:** the deploy record (the image tag, the times, the two answers' usage).
+  - **Kept from the step 9 notes:** the sign-in limiter lives in each Vercel instance; the firewall rule on `POST /login` (10 a minute per IP) covers the rest.
+    - On Vercel (`VERCEL=1`), its key is `x-real-ip`, which Vercel sets and no client can override (Vercel's request-headers doc, updated 2025-12-13).
+    - Locally, all clients share one bucket.
+  - **Superseded:** "Replace the example passwords in `.env`". The dev Postgres and RabbitMQ volumes keep the passwords they were created with, so `.env` stays as is, and production gets new values in `.env.prod`.
+- [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it.
+  - The internet-facing api and tailscale containers would reach the internet only through an allowlist proxy, so they could no longer reach services on the PC's own ports through `host.docker.internal` (context.md, Known Limitations).
+  - It needs FilingLens's own CI-built proxy image and an allowlist of the model providers' and Tailscale's hosts.
+- [ ] (after go-live; user, 2026-10-20) **Alertmanager:** delivery for the 13 alert rules (step 8), once a channel (email, ntfy, Discord...) and its secret are chosen. Prod then runs the `observability` profile, on ports apart from dev's.
+- [ ] (candidates from the mockup, 2026-10-19; user decides; five built in mockup features 1, merged as #17, and the source cards' fiscal year end, merged as #18) What the mockup shows and the app does not have. The mockup style round restyled the existing screens only. Sizes are rough: small is a short web-only change, medium a PR that touches the API or its contracts, large several PRs or new storage. API facts were checked in `contracts/schema.graphql`, `clients/ts/openapi.d.ts` and `packages/db` on 2026-10-19.
   - **History** (every question, how it was read, answered or refused, tabs by kind, search, answer time): large; needs API work. No table holds questions or answers today, so it needs one (expand, migrate, contract), a write per answer, a keyset list route, and a privacy decision, since questions are user text and no log keeps them now.
   - **Company and fiscal-year pickers on Ask** (company chips with "+ Add company", a fiscal-year select): medium; needs API work. The answer request takes only `question` and the router finds companies and years itself, so the pickers need request fields that narrow the router. The company list already comes from GraphQL `companies`.
   - **"Read as" chips** (how the router read the question: kind, company, years, the figures asked for): small to medium; needs API work. The answer carries no router output; it would need a new `Answer` field (a contract change).
@@ -115,13 +142,17 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - **Source panel pager** ("Source 1 of 2", previous, next and close; one source at a time): small; no API work. It would replace the scrolling list of every source. Not taken in mockup features 1: one source at a time takes the others out of the reading and keyboard order, which that PR kept unchanged.
   - **"Copy answer with sources" and "New question" buttons** under the answer: small; no API work. Built in mockup features 1.
   - **Timings in the answer's header** (first words, complete, sources, "every number checked"): small; some API work. The browser can time the stream; "every number checked" needs the number check. First words, complete and the source count are built in mockup features 1, timed in the browser. Still open: "every number checked"; and the demo shows no timings, since the snapshot records none (the eval report has the run's times, so `make demo-export` could carry them).
-  - **Source panel details** (the filing's fiscal year end; "How it was found", the search and the passage's rank; a passage's table drawn as a table with its numbers highlighted): medium; some API work. `Filing.periodEnd` exists; the rank and the search used are not in the answer. Not taken in mockup features 1. The fiscal year end is built on `source-fiscal-year` (In Progress), for passages: `periodEnd` selected in `Sources`, a new snapshot. Still open: "How it was found", tables drawn as tables, and a fact card's filing period, which needs the API to link a fact to its filing.
+  - **Source panel details** (the filing's fiscal year end; "How it was found", the search and the passage's rank; a passage's table drawn as a table with its numbers highlighted): medium; some API work. `Filing.periodEnd` exists; the rank and the search used are not in the answer. Not taken in mockup features 1. The fiscal year end for passages is merged as #18: `periodEnd` selected in `Sources`, a new snapshot. Still open: "How it was found", tables drawn as tables, and a fact card's filing period, which needs the API to link a fact to its filing.
   - **Header coverage line** ("30 companies · latest 10-Ks"): small; needs API work for a live count, or the snapshot's count on the demo. The demo's line ("30 companies · 30 filings", from the snapshot) is built in mockup features 1. Still open: the live header's line, which needs a count from the API; "latest" is recorded nowhere.
   - **Landing sections** (a hero with call-to-action buttons and a sample answer, "How an answer is made", "Evaluation results" from the eval report, "Architecture" with its stack, nav links including GitHub): medium; no API work. Static text plus the eval report at build time, like the demo snapshot.
 
 ## In Progress
 
-- [ ] Source fiscal year (user, 2026-10-20): the fiscal year end on the source cards, as in the mockup ("Fiscal year ended September 27, 2025"), from a new snapshot. On branch `source-fiscal-year` from main at e1059d7 (mockup features 1 merged as #17), uncommitted until the user ships it. The user's go: start `filinglens-postgres-1` by exact name, run `make demo-export`, stop it by exact name (Triage Copilot's exam is over). No live model or SEC call; the export only reads the dev Postgres.
+- [ ] Step 10 (deploy): PR 0's docs and PR 10a, on branch `step-10-api-hardening` from main at 86718cd (#18 merged), uncommitted. The checklist is under Pending, item 10.
+
+## Completed
+
+- [x] Source fiscal year (user, 2026-10-20), merged as #18 (86718cd, git log): the fiscal year end on the source cards, as in the mockup ("Fiscal year ended September 27, 2025"), from a new snapshot. Built on branch `source-fiscal-year` from main at e1059d7 (mockup features 1 merged as #17). The user's go: start `filinglens-postgres-1` by exact name, run `make demo-export`, stop it by exact name (Triage Copilot's exam is over). No live model or SEC call; the export only reads the dev Postgres.
   - [x] Test first: a unit test for the line's wording and date, Playwright for a chunk card on Ask (and a fact card without the line) and on the demo. Red: no export, no line.
   - [x] `Sources` selects the chunk's `filing { periodEnd }` (`clients/operations.graphql`, no API change), then `make codegen`: 5 files with content changes; 60 that differed in line endings only went back to HEAD's bytes (memory.md).
   - [x] Port 5433 checked free, `filinglens-postgres-1` started, `make demo-export`, the container stopped (exited 0, port free).
@@ -130,9 +161,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Retook only the screenshots that change: 12 (ask-comparison, ask-textual, ask-warnings and the demo, in light, dark and phone).
   - [x] Checks: activity-log.md (2026-10-20, the source cards' fiscal year end).
   - [x] Docs: design, context, memory, todo, activity log. README unchanged: its usage did not change.
-  - [ ] (user) Review the snapshot's changes, then ship it.
-
-## Completed
+  - [x] (user) Reviewed the snapshot's changes and shipped it as #18.
 
 - [x] Mockup features 1 (user, 2026-10-20), merged as #17 (e1059d7, git log): the mockup's small features that need no API change, on branch `mockup-features-1` from main at a14a019 (the mockup style merged as #16). Each shows only what the app knows: a detail that needs data the API does not give is left out and noted under Pending. The mockup is read only, nothing copied. No live model or SEC call, and no container (Triage Copilot's exam runs today from 15:00 Taipei).
   - [x] Taken, 5 of the 15 candidates: "Copy answer with sources" and "New question" under Ask's answer; the answer's timings (first words, complete, the source count); the demo header's coverage line, counted from the snapshot; an "Indexed" pill beside each listed filing.
