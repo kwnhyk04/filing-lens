@@ -1,4 +1,4 @@
-# The 13 alert rules (docs/monitoring.md: what each means and the first steps). No delivery yet:
+# The 14 alert rules (docs/monitoring.md: what each means and the first steps). No delivery yet:
 # they show in Prometheus and Grafana, and step 10 adds Alertmanager. Each rule has a firing and a
 # quiet case in prometheus-alerts.test.yml (make monitoring-check). Ratio rules also need a minimum
 # count in their window, so a single event at low traffic cannot fire them.
@@ -77,6 +77,17 @@ groups:
         annotations:
           summary: "More than 25% of {{ $labels.provider }} calls failed in the last 30 minutes."
           runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#llmprovidererrors
+
+      # Claude stays off for good once Anthropic rejects its key or model (401, 403, 404): every
+      # answer goes to the free models until the setting is fixed and ai:claude:off is deleted.
+      # Credits running out also switch it off, as planned, without an alert.
+      - alert: ClaudeKeyOrModelRejected
+        expr: max(filinglens_claude_off{kind="key_or_model"}) == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: Anthropic rejected Claude's key or model; answers use the free models until it is fixed.
+          runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#claudekeyormodelrejected
 
       # The production proxy for citation precision: the share of drafts (generate stages) whose
       # citations or amounts failed, whatever the answer's outcome.

@@ -288,11 +288,10 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
         "metrics": {"answer": {"cost_billed_usd": entry(0.0006, 0.0005, 0.0007)}},
     }
     saved.write_text(json.dumps(claude), encoding="utf-8")
-    harness.set_floors(saved)
-    floors = json.loads(thresholds.read_text(encoding="utf-8"))
-    # Credits spent: the efficiency rule, min(high x 1.5, target), under its own key.
-    assert floors["answer:test:full:anthropic:claude-haiku-5-5"] == {"cost_billed_usd": 0.00105}
-    assert floors[free]["cost_billed_usd"] == 0.0
+    before = thresholds.read_text(encoding="utf-8")
+    with pytest.raises(SystemExit, match="never set floors"):  # measured beside, never gated
+        harness.set_floors(saved)
+    assert thresholds.read_text(encoding="utf-8") == before
 
 
 def test_the_judge_can_never_be_claude(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -393,3 +392,77 @@ def test_the_sweep_takes_the_midpoint_of_the_best_range_under_5_percent_false_re
     assert result["excluded"] == 2
     assert [row["correct"] for row in result["ranges"]] == [1 / 3, 2 / 3, 1.0, 1.0]
     assert result["ranges"][-1]["false"] == 0.5  # gating c too breaks the 5% limit
+
+
+CLAUDE = "anthropic:claude-haiku-5-5"
+REFUSED: list[tuple[str, list[str], dict[str, str], str]] = [
+    ("the official eval", [], {"LLM_PRIMARY": CLAUDE}, "official eval runs the free models"),
+    ("--ci", ["--claude-primary", "--ci"], {}, "local only"),
+    ("a CI runner", ["--claude-primary"], {"CI": "true"}, "local only"),
+    ("no key", ["--claude-primary"], {"ANTHROPIC_API_KEY": ""}, "needs ANTHROPIC_API_KEY"),
+]
+
+
+@pytest.mark.parametrize(
+    ("argv", "env", "refusal"), [row[1:] for row in REFUSED], ids=[row[0] for row in REFUSED]
+)
+def test_claude_answers_an_eval_only_in_the_labelled_local_configuration(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], env: dict[str, str], refusal: str
+) -> None:
+    monkeypatch.delenv("CI", raising=False)  # GitHub sets it on its runners
+    for name, value in (ENV | {"ANTHROPIC_API_KEY": "sk-test"} | env).items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(SystemExit, match=refusal):
+        harness.answer_model(harness.parse_args(argv), harness.eval_settings())
+
+
+FREE: str = EvalSettings.model_fields["llm_primary"].default  # the official run's answer model
+
+
+# .env's LLM_PRIMARY: the free default, or Claude first as production runs it (README).
+@pytest.mark.parametrize("primary", [FREE, CLAUDE], ids=["free primary", "Claude primary"])
+def test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes(
+    monkeypatch: pytest.MonkeyPatch, primary: str
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    for name, value in (ENV | {"ANTHROPIC_API_KEY": "sk-test", "LLM_PRIMARY": primary}).items():
+        monkeypatch.setenv(name, value)
+    args = harness.parse_args(["--claude-primary"])
+    assert harness.answer_model(args, harness.eval_settings()).llm_primary == CLAUDE
+    assert args.router_primary == FREE  # the official free run's routes: a fair comparison
+
+
+def test_the_official_eval_keeps_the_free_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in (ENV | {"LLM_PRIMARY": FREE}).items():
+        monkeypatch.setenv(name, value)
+    official = harness.eval_settings()
+    assert harness.answer_model(harness.parse_args([]), official) is official  # untouched
+
+
+def test_a_claude_run_never_sets_floors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    thresholds = tmp_path / "thresholds.json"  # a broken refusal must not reach the repo's file
+    monkeypatch.setattr(harness, "THRESHOLDS", thresholds)
+    report = {"config": {"primary": CLAUDE, "label": harness.CLAUDE_LABEL}, "metrics": {}}
+    path = tmp_path / "claude.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(SystemExit, match="never set floors"):
+        harness.set_floors(path)
+    assert not thresholds.exists()
+
+
+def test_a_claude_run_is_labelled_and_reported_beside_the_official_run() -> None:
+    official = {
+        "created_at": "2026-10-17T15:49:12+00:00",
+        "config": {"primary": "gemini:gemini-3.5-flash-lite"},
+        "metrics": {"answer": {"false_refusal": {"value": 0.096}}},
+    }
+    claude = {
+        "suite": "answer", "split": "dev", "subset": "full",
+        "config": {"primary": CLAUDE, "label": harness.CLAUDE_LABEL},
+        "metrics": {"answer": {"false_refusal": {"value": 0.12}}},
+    }  # fmt: skip
+    lines = harness.side_by_side(claude, official)
+    assert harness.CLAUDE_LABEL in lines[1] and official["created_at"] in lines[1]
+    official_value, claude_value = (harness.shown("false_refusal", v) for v in (0.096, 0.12))
+    assert any(official_value in line and claude_value in line for line in lines)
+    assert harness.run_name(claude, "20261021T120000Z").endswith("-answer-dev-full-claude-primary")

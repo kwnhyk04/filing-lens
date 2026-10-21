@@ -99,7 +99,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make contracts-breaking`: nothing breaking;
       - gitleaks on 16 files: clean;
       - the eval check: no model call.
-    - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+    - [x] (user) ship: merged as #19 (1f15729, git log).
   - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`):
     - per-request loaders for chunk sources and companies (`Backend.get_companies`);
     - call-count tests;
@@ -134,11 +134,35 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - `make test` 418, `make test-int` 31;
     - `make contracts-breaking`: no changes;
     - gitleaks on the changed files: clean.
-  - [ ] (user) ship. Its CI eval can call Gemini live for dev ci's 9 searching questions, at worst 11 calls and about 59,500 input tokens, $0 billed.
-- [ ] (user decision, 2026-10-21: its own branch, after rerank-deadline) **Haiku limits**, for dev and evals; production runs no Claude:
-  - Claude's output cap per call: 1,024 to 1,052. That is 956, the most Claude wrote with thinking off (122 calls), plus 10%.
-  - A guard: no Claude prompt over 100,000 tokens, since Haiku costs 5x above that.
-  - Claude's own daily token budget, sized from FilingLens's $15 share until the credits expire on 2026-11-10. The free models' budget stays as it is.
+  - [x] (user) ship: merged as aca22a6.
+- [ ] (user, 2026-10-21; before 10c) **Claude first** (branch `claude-first`), each part test first, with deliberate breaks:
+  - [x] **Chain:**
+    - production sets `LLM_PRIMARY=anthropic:claude-haiku-5-5`, `LLM_ANSWER_FALLBACK=gemini:gemini-3.5-flash-lite` and `LLM_FALLBACK` NVIDIA, so answers go Claude, then Gemini, then NVIDIA;
+    - **off for good, stored in Redis (`ai:claude:off`) so it outlives a restart:** credits gone (402, or a 400 naming a spend limit or the credit balance), and from `ANTHROPIC_CREDITS_EXPIRE` (2026-11-10);
+    - **off for good with an alert:** a rejected key or model (401, 403, 404);
+    - **free chain for that answer only:** a 429, with or without `Retry-After`;
+    - **free models used up too:** the existing 503 "try again shortly".
+  - [x] **Limits:**
+    - Claude's output cap per call: 1,052;
+    - no Claude prompt that could pass 100,000 tokens;
+    - Claude's own daily budget: 1,500,000 tokens, at most $0.75 a day, in `ai:claude:<date>` on the API's Redis database, shared by the api and the evals;
+    - Claude's tokens leave the free budget's counter; the free budgets keep their sizes.
+  - [x] **Plan:** the prod override that forced `LLM_ANSWER_FALLBACK` and `ANTHROPIC_API_KEY` empty goes; the variable table, point 6's live test and its stop rule follow Claude first. Point 6 now: about 10,700 tokens and $0.001 of credits; at worst about $0.0037.
+  - [x] **Evals:** the official answer eval stays on the free models. A labelled local `--claude-primary` configuration is reported side by side with the official run, never sets floors, and is refused in CI.
+  - [x] **Deliberate breaks:** 9 scratch mutants, each failing its own tests.
+  - [x] **Checks:**
+    - `make lint` and `make typecheck` (0 errors) clean;
+    - `make test` 438, `make test-int` 32;
+    - `make monitoring-check`: 14 rules, tests passed;
+    - `make contracts-breaking`: no changes;
+    - gitleaks: clean, apart from a CRLF artifact in `.env.example` that main's file shows too;
+    - the eval check: no cache key changes for the free models.
+  - [x] (user, 2026-10-21) **Budgets apart:** prod and the local `--claude-primary` evals keep separate Claude budgets, and prod's Redis gets no host port. Why: prod's worst case is $0.75 a day (about $15 to 2026-11-10, FilingLens's share), local Claude evals are rare and started by the user, and Anthropic's $50 monthly limit is the hard stop (memory.md). Docs only.
+  - [x] (user, 2026-10-21) **The docs pass's two findings, fixed before shipping** (memory.md, Solved Problems):
+    - `--claude-primary` always takes the official free run's routes, those of the default `LLM_PRIMARY`, whatever `.env` says. Test first: a `LLM_PRIMARY=anthropic:claude-haiku-5-5` row failed, then passed, and the bug put back fails it again.
+    - The comment on `Anthropic._gone` now says the switch-off is stored in Redis and survives restarts.
+    - Checks: `make lint` and `make typecheck` (0 errors) clean; `make test` 440, `make test-int` 32.
+  - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
 - [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it.
   - The internet-facing api and tailscale containers would reach the internet only through an allowlist proxy, so they could no longer reach services on the PC's own ports through `host.docker.internal` (context.md, Known Limitations).
   - It needs FilingLens's own CI-built proxy image and an allowlist of the model providers' and Tailscale's hosts.
@@ -162,7 +186,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] Step 10 (deploy): PR 0's docs and PR 10a, on branch `step-10-api-hardening` from main at 86718cd (#18 merged), uncommitted. The checklist is under Pending, item 10.
+- [ ] Claude first, on branch `claude-first` from main at aca22a6, uncommitted: built and checked, and the user ships it. Then step 10's 10c. 10a merged as #19 (1f15729); 10b was not on main at aca22a6 (git log). The checklists are under Pending.
 
 ## Completed
 
