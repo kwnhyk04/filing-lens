@@ -25,6 +25,7 @@ from filinglens_api.schemas import (
     AnswerRequest,
     Chunk,
     ChunkPage,
+    Cik,
     Company,
     CompanyPage,
     FactPage,
@@ -38,6 +39,7 @@ from filinglens_api.schemas import (
     FormType,
     IngestJob,
     IngestJobRequest,
+    NoNul,
     SearchHit,
     SearchPage,
     Section,
@@ -69,24 +71,24 @@ SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 UNUSABLE_CURSOR = "Unusable cursor; start again without one"
 
 
-# Keyset cursor contents: the sort key of the last item on a page.
+# Keyset cursor contents: the sort key of the last item on a page. Strings hold no NUL (NoNul).
 class CompanyKey(BaseModel):
-    cik: int
+    cik: Cik  # bounded, so a crafted cursor cannot overflow BIGINT
 
 
 class FilingKey(BaseModel):
     filed_on: date
-    accession_number: str
+    accession_number: NoNul
 
 
 class FailureKey(BaseModel):
-    accession_number: str
+    accession_number: NoNul
 
 
 class ItemKey(BaseModel):
     """Chunks and facts page by id."""
 
-    id: str
+    id: NoNul
 
 
 class SearchKey(BaseModel):
@@ -96,8 +98,8 @@ class SearchKey(BaseModel):
     """
 
     score: float
-    chunk_id: str
-    index_version: str
+    chunk_id: NoNul
+    index_version: NoNul
     degraded: bool = False
 
 

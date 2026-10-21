@@ -126,6 +126,16 @@ Evals (`evals/`):
 ## Implemented Functionality
 
 - Config: each process validates its env vars at startup and exits naming each bad one without echoing values, for example `Invalid configuration: API_KEY: Field required`. Compose also refuses to start without the required `.env` values.
+- Public-URL hardening (step 10, PR 10a, 2026-10-21):
+  - **Browsers refused:** a request with an `Origin` header, `null` included, gets 403 `forbidden` on every route. It is an app-wide dependency (`routes.refuse_browsers`), so it runs before the key check and the rate limit; a navigation without Origin still gets 401.
+  - **No docs routes:** `/docs`, `/redoc` and `/openapi.json` are off. `contracts.py` still exports the spec in process.
+  - **`/readyz` cache:** one round of checks at most every 5 s (`READY_TTL_S`), stamped when the round ends. Calls that arrive during a round wait for its result.
+  - **GraphQL:** introspection is off (`DisableIntrospection`).
+    - A value that does not fit its type (a variable, a literal, or an argument coerced at execution) answers "Invalid value for an argument or variable." with `invalid_input`, never the value.
+    - `graph.Schema.process_errors` logs `graphql_error` with code and path only: `internal` at error with its traceback, the rest at warning.
+    - `fiscalYear` takes 1993-2100, as on REST.
+  - **NUL:** a NUL is refused in `q` (422), `question` (422, or `invalid_input` on GraphQL), `concept` (`invalid_input`) and every cursor key (400), through `schemas.NoNul`. Cursor CIKs are bounded (`Cik`).
+  - **SQL errors:** `make_engine` sets `hide_parameters`, so SQLAlchemy's errors leave the statement's parameters out.
 - API keys: `API_KEY` opens every route except the admin routes; `ADMIN_API_KEY` opens every route and is the only key for `POST /v1/ingest-jobs` and `GET /v1/ingest-jobs/{id}`. Both are required, at least 32 characters, must differ, and are read only from the `X-API-Key` header (a key in the URL gets 401). Missing or unknown key: 401 with `WWW-Authenticate: APIKey`; `API_KEY` on an admin route: 403. `/healthz` and `/readyz` need no key. Every response carries `X-Request-ID`.
 - REST v1: `POST /v1/ingest-jobs` (202, `Location`, required `Idempotency-Key`), `GET /v1/ingest-jobs/{id}` (status counts plus a page of failures), `GET /v1/companies`, `GET /v1/filings`, `GET /v1/search` (cursor holds score, chunk id and index version), `POST /v1/answers` and `POST /v1/answers/stream` (Server-Sent Events: `delta`, then `completed`, or `failed` mid-stream). Lists use keyset pagination: `limit` at most 100, opaque `cursor`, `next_cursor`.
 - Errors: RFC 9457 problems (`application/problem+json`, `type: about:blank`, `code` from the taxonomy). Validation is 422 `validation_failed` with `errors[{detail, pointer}]`; a bad cursor is 400; 429 sends `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`.
@@ -227,7 +237,7 @@ Without it, waiting does not help: AI is switched off, or the last model refused
   - Three provisioned Grafana dashboards (service health, answers and LLM, ingest pipeline) and 13 Prometheus alert rules with promtool tests (`make monitoring-check`, in CI's lint job). No alert delivery until step 10.
 - Compose: `infra/docker-compose.yml` for development; `infra/docker-compose.prod.yml` unpublishes Postgres, RabbitMQ and Redis and adds `restart: unless-stopped` and memory limits (Postgres 1.5 GB). Postgres runs with `shm_size: 256mb` in both, so parallel HNSW builds fit in `/dev/shm`; `make check-parallel-hnsw` checks it on the dev stack. The worker gets `SEC_USER_AGENT` (compose refuses to start without it) and the repo's `.cache/sec` folder as its SEC cache (a bind mount), and the API gets `AI_ENABLED` and `DAILY_AI_TOKEN_BUDGET`.
 - Contracts: `make codegen` exports both contracts and regenerates all four clients, then type-checks the TS client. `make contracts-check` runs codegen and fails if git sees unstaged or untracked changes under `contracts/` or `clients/`. `make contracts-breaking` runs oasdiff (Docker) against `BASE` (default `main`) and fails on breaking changes.
-- Web (PR B2 merged as #10, B3 as 9b829a6, the design round as #15 and the mockup style as #16 and the first mockup features as #17; the source cards' fiscal year end on `source-fiscal-year`, uncommitted, 2026-10-20):
+- Web (PR B2 merged as #10, B3 as 9b829a6, the design round as #15 and the mockup style as #16 and the first mockup features as #17; the source cards' fiscal year end as #18):
   - **Settings:** `API_URL`, `API_KEY` (32+ characters), `SESSION_SECRET` (32+) and `LOGIN_PASSWORD_HASH` (argon2id PHC: m 19 MiB to 1 GiB, t 2 to 10, p 1 to 16, a salt of 8+ bytes, a hash of 16 to 64), checked when the server starts. A bad value stops it with one JSON line that names each variable, never a value. No `NEXT_PUBLIC_` variable exists. `npm run dev` and `npm start` run `scripts/run.mjs`, which adds the web's keys from the repo's `.env` (`node:util` `parseEnv`, literal values) where the environment lacks them, and drops `ADMIN_API_KEY`.
   - **Sign-in:** a password form as a server action. The limiter allows 5 attempts per 15 minutes, counted as each starts and before argon2 (a success resets it), so parallel attempts cannot all pass; locally all clients share one bucket, and on Vercel (`VERCEL=1`) the key is `x-real-ip`. The button stays focusable while pending, and each failure renders a new message node, so a repeated error is announced. Node 24.7+ is needed (`crypto.argon2`; `engines` in `web/package.json`). A success sets `__Host-filinglens_session`: `v1.<expiry>.<HMAC-SHA256>`, HttpOnly, Secure, SameSite=Lax, Path=/, 8 hours. `next=` keeps only a path on the web's own origin.
   - **Gate:** `proxy.ts` sends signed-out pages to `/login?next=...` and `/api/**` a JSON 401; `/login`, `/logout`, `/demo/**`, `/healthz` and `/readyz` are public. Every live page and BFF route checks the session again. A missing `SESSION_SECRET`, or one shorter than the startup check's 32 characters, signs no one in.
@@ -283,11 +293,24 @@ Step 9 (review UI and demo mode) was planned on 2026-10-18 as three pull request
 - B1 adds the API lookups by id and links that citations need, plus the `clients/ts` fixes.
 - B2 builds the web, the BFF, sign-in, the public demo, the Playwright suite and the CI web job.
 
-The plan and its checklists are in todo.md. PR A merged as #8 (35902f3, git log), B1 as #9 (a2037af) and B2 as #10 (ab325a2). B3, added on 2026-10-19, fixed three of B2's review minors (leaving Ask, a failed sources lookup, the log label) and merged the same day (9b829a6). Step 9 is done (todo.md). A design round followed: the web app's own visual design, merged as #15 (73bb1c0). The user then compared it with a mockup made separately and chose the mockup's style, with a bigger sources panel that fits the window from the first screen, merged as #16 (a14a019; `docs/design.md`, screenshots in `docs/screenshots/ui/`). What the mockup has and the app lacks is listed as candidates in todo.md. The first five, small and with no API change (copy, New question, the answer's timings, the demo header's coverage line, the Indexed pill), were merged as #17 (e1059d7). The source cards' fiscal year end followed, from a new snapshot, on `source-fiscal-year`, uncommitted (2026-10-20). Dependabot's python group merged as #4 (93f464d) and the Dependabot follow-ups as #12 (e2b581d). Step 10 (deploy) is next; what it needs from the user is listed under step 10 in todo.md.
+The plan and its checklists are in todo.md. PR A merged as #8 (35902f3, git log), B1 as #9 (a2037af) and B2 as #10 (ab325a2). B3, added on 2026-10-19, fixed three of B2's review minors (leaving Ask, a failed sources lookup, the log label) and merged the same day (9b829a6). Step 9 is done (todo.md). A design round followed: the web app's own visual design, merged as #15 (73bb1c0). The user then compared it with a mockup made separately and chose the mockup's style, with a bigger sources panel that fits the window from the first screen, merged as #16 (a14a019; `docs/design.md`, screenshots in `docs/screenshots/ui/`). What the mockup has and the app lacks is listed as candidates in todo.md. The first five, small and with no API change (copy, New question, the answer's timings, the demo header's coverage line, the Indexed pill), were merged as #17 (e1059d7). The source cards' fiscal year end followed, from a new snapshot, merged as #18 (86718cd). Dependabot's python group merged as #4 (93f464d) and the Dependabot follow-ups as #12 (e2b581d).
+
+Step 10 (deploy) was planned on 2026-10-20 and approved on 2026-10-21 with three changes (memory.md):
+- production runs free providers only;
+- the Gemini key gets its own Google project before AI goes on;
+- the egress proxy is the first item after go-live.
+
+It is four PRs plus the user's manual steps, all listed under step 10 in todo.md:
+- 10a, API hardening: in progress on `step-10-api-hardening`.
+- 10b, a GraphQL DataLoader.
+- 10c, the deploy config and runbook.
+- 10d, a docs record after go-live.
 
 ## Known Limitations
 
 The targets are design goals; 6b measures them on the golden set.
+
+Production (step 10, planned) runs no egress proxy until the first PR after go-live adds one, as FreightAudit runs it (user, 2026-10-21). Until then, the internet-facing api and tailscale containers can reach services listening on the PC's own ports through `host.docker.internal`.
 
 First dev measurements (gate off, judge not yet calibrated, 2026-10-16; single run, 95% CIs in the report):
 - Numeric exact match 0.821 and comparison match 0.200.

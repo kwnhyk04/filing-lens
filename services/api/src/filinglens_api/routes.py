@@ -26,6 +26,7 @@ from filinglens_api.schemas import (
     IngestJob,
     IngestJobAccepted,
     IngestJobRequest,
+    NoNul,
     SearchPage,
 )
 from filinglens_core.errors import (
@@ -73,6 +74,12 @@ def require_admin_key(request: Request, key: Annotated[str | None, Security(admi
     if _matches(key, settings.api_key):
         raise ForbiddenError("This route needs the admin API key.")
     raise UnauthorizedError("Missing or invalid API key.")
+
+
+def refuse_browsers(request: Request) -> None:
+    """Only servers call this API; a browser page's request carries Origin, `null` included."""
+    if "origin" in request.headers:
+        raise ForbiddenError("Browsers cannot call this API; use the web app.")
 
 
 COMMON = problems(401, 422, 429, 503)
@@ -168,7 +175,7 @@ async def list_filings(
 
 @router.get("/search", tags=["search"], response_model=SearchPage, responses=problems(400, 409))
 async def search(
-    q: Annotated[str, Query(min_length=1, max_length=500, description="Search text.")],
+    q: Annotated[NoNul, Query(min_length=1, max_length=500, description="Search text.")],
     backend: BackendDep,
     limit: Annotated[int, Query(ge=1, le=100, description="Page size (at most 100).")] = 10,
     cursor: Cursor = None,

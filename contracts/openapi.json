@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "FilingLens API",
-    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`\nonly when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker\nthat refused a job or could not be reached), and `ai_unavailable` when today's AI budget is used\nup (until 00:00 UTC), the budget cannot be checked, or the model providers are rate limited. An\n`ai_unavailable` without `Retry-After` does not clear by waiting: AI is switched off on this\nserver, or the last model refused the key, has no credits left or was retired. GraphQL's `answer`\nreports its limits as errors with `extensions.code`, without headers. GraphQL takes POST only.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
+    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\nOnly servers call this API: any request with an `Origin` header gets 403, on every route.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`\nonly when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker\nthat refused a job or could not be reached), and `ai_unavailable` when today's AI budget is used\nup (until 00:00 UTC), the budget cannot be checked, or the model providers are rate limited. An\n`ai_unavailable` without `Retry-After` does not clear by waiting: AI is switched off on this\nserver, or the last model refused the key, has no credits left or was retired. GraphQL's `answer`\nreports its limits as errors with `extensions.code`, without headers. GraphQL takes POST only.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -1247,7 +1247,7 @@
           "health"
         ],
         "summary": "Readyz",
-        "description": "Readiness: Postgres, RabbitMQ and Redis answer. No key.",
+        "description": "Readiness: Postgres, RabbitMQ and Redis answer. No key; a result is reused for 5 s.",
         "operationId": "readyz",
         "responses": {
           "200": {

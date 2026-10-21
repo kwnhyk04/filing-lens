@@ -6,7 +6,9 @@ bodies, status codes, headers and problem shapes), not the data layer.
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator, Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import date
 from types import SimpleNamespace
@@ -40,7 +42,7 @@ from filing_lens_graphql_client.enums import FiscalPeriod, FormType
 from redis.exceptions import RedisError
 from starlette.routing import WebSocketRoute
 
-from filinglens_api import backend, schemas
+from filinglens_api import backend, main, schemas
 from filinglens_api.answering import Answerer, _final
 from filinglens_api.backend import LiveBackend, SearchKey, encode_cursor
 from filinglens_api.limits import answer_limits_for
@@ -586,3 +588,178 @@ def test_graphql_refuses_a_query_past_its_limits_before_any_resolver_runs(
     )
     body = response.json()
     assert (body.get("data"), [error["message"] for error in body["errors"]]) == (None, [message])
+
+
+DISABLED = "GraphQL introspection has been disabled, but the requested query contained the field"
+INTROSPECTION: list[tuple[str, str, str | None]] = [
+    ("__schema", "{ __schema { description } }", f"{DISABLED} '__schema'."),
+    ("__type", '{ __type(name: "Query") { name } }', f"{DISABLED} '__type'."),
+    ("__typename, which stays", "{ __typename }", None),
+]
+
+
+@pytest.mark.parametrize(
+    ("query", "message"), [row[1:] for row in INTROSPECTION], ids=[row[0] for row in INTROSPECTION]
+)
+def test_graphql_refuses_introspection_before_any_resolver_runs(
+    server_url: str, api_key: str, fake: Any, query: str, message: str | None
+) -> None:
+    fake.fail_with = RuntimeError("a resolver ran")
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    body = response.json()
+    if message is None:
+        assert body == {"data": {"__typename": "Query"}}
+    else:
+        assert (body.get("data"), [error["message"] for error in body["errors"]]) == (
+            None,
+            [message],
+        )
+
+
+# Postgres refuses a NUL in text; another control character goes through, as it always did.
+CONTROL = [("\x00", True), ("\x01", False)]
+CONTROL_IDS = ["NUL", "another control character"]
+
+
+@pytest.mark.parametrize(("char", "refused"), CONTROL, ids=CONTROL_IDS)
+def test_a_nul_in_the_search_text_is_refused_before_the_backend(
+    user: AuthenticatedClient,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    char: str,
+    refused: bool,
+) -> None:
+    searched: list[str] = []
+    real = fake.search
+
+    async def spy(q: str, *args: Any, **kwargs: Any) -> Any:
+        searched.append(q)
+        return await real(q, *args, **kwargs)
+
+    monkeypatch.setattr(fake, "search", spy)
+    response = search.sync_detailed(client=user, q=f"rev{char}enue")
+    if refused:
+        problem = _problem(response, 422, "validation_failed")
+        assert isinstance(problem.errors, list)
+        assert [error.pointer for error in problem.errors] == ["/query/q"]
+        assert searched == []
+    else:
+        assert response.status_code == 200
+        assert searched == [f"rev{char}enue"]
+
+
+@pytest.mark.parametrize(("char", "refused"), CONTROL, ids=CONTROL_IDS)
+def test_a_nul_in_a_question_is_refused_before_the_backend(
+    user: AuthenticatedClient, graphql: GraphqlClient, fake: Any, char: str, refused: bool
+) -> None:
+    question = f"What{char} was revenue?"
+    rest = create_answer.sync_detailed(client=user, body=AnswerRequest(question=question))
+    if refused:
+        problem = _problem(rest, 422, "validation_failed")
+        assert isinstance(problem.errors, list)
+        assert [error.pointer for error in problem.errors] == ["/body/question"]
+        with pytest.raises(GraphQLClientGraphQLMultiError) as over_graphql:
+            graphql.answer(question=question)
+        assert [error.extensions for error in over_graphql.value.errors] == [
+            {"code": "invalid_input"}
+        ]
+        assert fake.answered == 0
+    else:
+        assert rest.status_code == 200
+        assert graphql.answer(question=question).answer.answer
+        assert fake.answered == 2
+
+
+FACTS_BY_CONCEPT = """query Facts($concept: String) { filings(first: 1) { edges { node {
+    facts(concept: $concept) { edges { node { id } } } } } } }"""
+
+
+@pytest.mark.parametrize(
+    ("concept", "found"),
+    [("us-gaap:Revenues\x00", None), ("us-gaap:Revenues\x01", []), ("us-gaap:Revenues", ["f-1"])],
+    ids=["NUL", "another control character", "a concept"],
+)
+def test_a_nul_in_a_concept_is_refused_before_the_backend(
+    server_url: str,
+    api_key: str,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    concept: str,
+    found: list[str] | None,
+) -> None:
+    listed: list[str | None] = []
+    real = fake.list_facts
+
+    async def spy(*args: Any, concept: str | None = None, **kwargs: Any) -> Any:
+        listed.append(concept)
+        return await real(*args, concept=concept, **kwargs)
+
+    monkeypatch.setattr(fake, "list_facts", spy)
+    body = httpx2.post(
+        f"{server_url}/graphql",
+        json={"query": FACTS_BY_CONCEPT, "variables": {"concept": concept}},
+        headers={"X-API-Key": api_key},
+    ).json()
+    if found is None:
+        assert [(error["message"], error["extensions"]) for error in body.get("errors", [])] == [
+            ("concept must not hold a NUL character.", {"code": "invalid_input"})
+        ]
+        assert listed == []
+    else:
+        edges = body["data"]["filings"]["edges"][0]["node"]["facts"]["edges"]
+        assert [edge["node"]["id"] for edge in edges] == found
+
+
+@pytest.mark.parametrize(
+    ("year", "refused"),
+    [(40000, True), (1992, True), (2025, False)],
+    ids=["past SMALLINT", "before EDGAR", "a fiscal year"],
+)
+def test_graphql_refuses_a_fiscal_year_outside_rest_bounds_before_the_backend(
+    server_url: str,
+    api_key: str,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    year: int,
+    refused: bool,
+) -> None:
+    listed: list[int | None] = []
+    real = fake.list_filings
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        listed.append(kwargs.get("fiscal_year"))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(fake, "list_filings", spy)
+    query = "query F($y: Int) { filings(fiscalYear: $y, first: 1) { edges { node { cik } } } }"
+    body = httpx2.post(
+        f"{server_url}/graphql",
+        json={"query": query, "variables": {"y": year}},
+        headers={"X-API-Key": api_key},
+    ).json()
+    if refused:
+        assert [(error["message"], error["extensions"]) for error in body.get("errors", [])] == [
+            ("fiscalYear must be between 1993 and 2100.", {"code": "invalid_input"})
+        ]
+        assert listed == []
+    else:
+        assert (listed, len(body["data"]["filings"]["edges"])) == ([2025], 1)
+
+
+def test_concurrent_readyz_calls_share_one_round_of_checks(
+    server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pings: list[str] = []
+
+    def ping_rabbitmq(url: str) -> None:
+        pings.append(url)
+        time.sleep(0.3)  # long enough for every request to arrive during the round
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(main, "_ping_rabbitmq", ping_rabbitmq)
+    monkeypatch.setattr(app.state, "ready", None, raising=False)  # forget an earlier round
+    with ThreadPoolExecutor(5) as pool:
+        codes = list(pool.map(lambda _: httpx2.get(f"{server_url}/readyz").status_code, range(5)))
+    assert (codes, len(pings)) == ([503] * 5, 1)

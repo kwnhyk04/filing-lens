@@ -15,6 +15,76 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-21: PR 10a, API hardening for a public URL (uncommitted)
+
+- Changes, each test first, on `step-10-api-hardening` (context.md, "Public-URL hardening"; memory.md, PR 10a):
+  - **Browsers:** a request with `Origin` gets 403 (`routes.refuse_browsers`, app-wide).
+  - **Docs routes:** off.
+  - **`/readyz`:** cached for 5 s.
+  - **Introspection:** off.
+  - **NUL:** refused in `q`, `question`, `concept` and cursor keys (`schemas.NoNul`).
+  - **Bad values:** GraphQL bad values answer `invalid_input` without the value; GraphQL errors are logged with code and path only (`graph.Schema`).
+  - **SQL errors:** `make_engine` sets `hide_parameters`.
+  - **API description:** it gained the Origin rule. `make codegen` changed `contracts/openapi.json`, `clients/ts/openapi.d.ts` and one Python client file, all description text only.
+  - **The final review's fixes:** the readyz stamp at a round's end; keyless Origin rows; NUL rows for every cursor key field; argument errors at execution as `invalid_input`; `CompanyKey.cik` bounded; GraphQL `fiscalYear` held to 1993-2100.
+- Small events, in order:
+  1. **Gates:** GateGuard held each file's first edit, and every first Bash call, until its facts were given. After a hook session reset it asked again for files already touched. The `git checkout` of generated files was held as destructive until its files and rollback were stated. Each retry passed.
+  2. **Red:** 22 new tests failed for the missing features, and the 10 pin rows passed. One surprise: a NUL search had returned 500 in an earlier run. The traceback showed the `client` fixture's real backend failing to reach `0.0.0.0:1` (`WinError 1214`), which is expected, not a NUL path. The fake backend's case failed as expected, with 200 instead of 422.
+  3. **Green:** 34 targeted tests passed. Ruff then flagged 3 lines over 100 characters, fixed by hand.
+  4. **Codegen line endings:** `make codegen` rewrote 61 tracked files under `contracts/` and `clients/` with CRLF line endings only (the 2026-10-20 pitfall). A CR-stripped compare found no other change, so they went back to HEAD's bytes (touch, `git checkout HEAD --`, then a byte compare). 3 files kept real content changes.
+  5. **uv:** running the eval import check, `uv run` uninstalled and reinstalled one package. Cause not confirmed: likely the workspace client, whose `pyproject.toml` codegen had rewritten.
+  6. **Eval check:** the harness loads `answering`, `backend`, `limits`, `problems`, `schemas` and `filinglens_db`, never `main`, `graph` or `routes`. The changes it loads alter no cache key, so CI's eval replays main's keys.
+  7. **Review:** a fresh reviewer gave "ready with fixes": 1 Important and 5 Minor (memory.md). All six were fixed test first; 5 new rows failed, then passed.
+  8. **Containers:** with the user's go, `make test-int` ran on Testcontainers (31 passed in 3 min 19 s; the flaky rate test passed this time), plus `make contracts-breaking` and gitleaks as `docker run --rm` tool containers. No other container was touched.
+- Files: `services/api/src/filinglens_api/{main,routes,graph,schemas,backend}.py`, `packages/db/src/filinglens_db/__init__.py`, `services/api/tests/{test_app,test_contract}.py`, `packages/db/tests/test_engine.py` (new), `contracts/openapi.json`, `clients/ts/openapi.d.ts`, `clients/python/filing_lens_api_client/api/health/readyz.py`, docs (todo, context, memory, this log).
+- Validation:
+  - `make lint` clean (138 files formatted); `make typecheck` 0 errors.
+  - `make test` 416 passed; `make test-int` 31 passed; `npm --prefix clients/ts test` 18 passed.
+  - `make contracts-breaking`: "No breaking changes to report". `make contracts-check` was not run, since it fails on any uncommitted change under `contracts/` or `clients/`. Instead, the byte compare left only the 3 expected files.
+  - gitleaks (`dir --redact`) on the 16 changed files: no leaks. The synthetic-token control exits 1.
+  - No live model or SEC call.
+- Outstanding: the user confirms the `eval-calls-*` Actions cache, then ships 10a. 10b (the DataLoader) starts from main after the merge.
+
+### 2026-10-21: Step 10 planned (from 2026-10-20) and approved with three changes; PR 0's docs (uncommitted)
+
+- Changes:
+  - **Plan:**
+    - Step 10 (deploy) was planned in plan mode, read-only, then approved with three changes. Plan file: `C:\Users\kwonhyuk\.claude\plans\pasted-content-id-ee81-source-fiscal-validated-dolphin.md`.
+    - It answers the user's seven points: Vercel's settings, the backend behind Funnel, the variables by name and place, the images, the production database, the AI test's calls and estimate, and the phone test and rollback.
+    - It splits the work into four PRs and 29 manual steps for the user (todo.md, step 10). The PRs: 10a API hardening, 10b a DataLoader, 10c the deploy config and runbook, 10d a docs record.
+  - **Decisions** (memory.md, step 10):
+    - in planning: the Funnel in a sidecar, like FreightAudit's; the DataLoader before go-live; Alertmanager after; the GHCR packages public;
+    - at approval: free providers only in production; a Gemini key from FilingLens's own Google project before AI goes on; the egress proxy first after go-live.
+  - **Docs (PR 0):**
+    - todo: step 10's checklist; the source fiscal year moved to Completed as #18; three pending items folded in or superseded; the egress proxy and Alertmanager added.
+    - context: the status, and the egress gap under Known Limitations.
+    - memory: the decisions, rulings and pitfalls.
+    - this log.
+- Small events, in order:
+  1. **Gates:** the plan file's first write was held by the Write gate until its facts were given. The retry was a one-line placeholder, which passed, and the full plan followed. The first edits of the memory files, todo.md, context.md, memory.md and this log were held the same way, and each retry passed.
+  2. **Bash gate:** it held the session's first Bash call, which printed the memory files with `cat`. Those files were read with Read instead, which the gate does not hold.
+  3. **Large docs:** `docs/todo.md`, `docs/context.md` and `docs/memory.md` are over Read's size cap, so they were read in parts, with Grep for the sections between.
+  4. **Explorers:** three read-only Explore agents mapped the web's Vercel surface, the AI path and data costs, and the API's hardening state. The plan uses their findings:
+     - no `vercel.json`, and `engines.node` `>=24.7`;
+     - the pages' 5 s API timeout;
+     - `/docs`, `/redoc` and `/openapi.json` without a key;
+     - `/readyz` uncached, and introspection on;
+     - the NUL and input-echo paths;
+     - per-call tokens from the 2026-10-17 report and the 2026-10-18 live check.
+  5. **Docs read on the web** (web search and fetch, no model or SEC call):
+     - Funnel: ports 443, 8443 and 10000, and the `off` syntax;
+     - Vercel: Git Fork Protection under Security; Instant Rollback on Hobby (the previous deployment only, with domain auto-assignment off until undone); Node versions (`^24` maps to the latest 24.x, and `>=` ranges can move majors); regions (`hkg1`; Hobby gets one); `git.deploymentEnabled` (any true rule wins); WAF rate limiting on Hobby (one rule, fixed window);
+     - GitHub: a public package cannot go private again;
+     - Compose: `!reset null`.
+  6. **Read-only checks:** ports 4100 and 4102 free; Compose v5.6.0; Tailscale not installed (no binary on PATH, no Program Files folder); the dev `filinglens` containers all exited.
+  7. **Questions:** four to the user: Funnel placement, the DataLoader's timing, Alertmanager, GHCR. The Funnel answer allowed a read-only look at FreightAudit's `infra/docker-compose.prod.yml` and `infra/tailscale/serve.json`. Its `.env` files were not opened.
+  8. **Review:** a fresh plan agent checked the design against the installed libraries and corrected six points (memory.md, step 10). They were folded into the plan.
+  9. **Approval:** the first plan was turned down with three changes (free providers only, the Gemini key's own project, the egress proxy first after go-live). The plan was updated and approved.
+  10. **Nothing outside the docs:** no container started, no live model or SEC call, nothing committed. Branch `step-10-api-hardening` was made from main at 86718cd.
+- Files: `docs/todo.md`, `docs/context.md`, `docs/memory.md`, this log.
+- Validation: docs only so far. gitleaks runs over every changed file before PR 10a is reported ready.
+- Outstanding: PR 10a.
+
 ### 2026-10-20: The source cards' fiscal year end, from a new snapshot (uncommitted)
 
 - Changes:

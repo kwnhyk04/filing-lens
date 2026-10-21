@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 # Named enums become shared components in the spec; GraphQL reuses them (member names there).
@@ -28,6 +28,16 @@ AccessionNumber = Annotated[
     str, Field(pattern=r"^\d{10}-\d{2}-\d{6}$", examples=["0000320193-25-000079"])
 ]
 Url = Annotated[str, Field(json_schema_extra={"format": "uri"})]
+
+
+def no_nul(value: str) -> str:
+    """Postgres refuses a NUL in text, so input holding one stops at validation, not as a 500."""
+    if "\x00" in value:
+        raise ValueError("must not hold a NUL character")
+    return value
+
+
+NoNul = Annotated[str, AfterValidator(no_nul)]  # leaves the JSON schema as plain str
 
 
 class Schema(BaseModel):
@@ -153,7 +163,7 @@ class SearchPage(Page[SearchHit]):
 
 
 class AnswerRequest(Schema):
-    question: str = Field(min_length=3, max_length=1000)
+    question: NoNul = Field(min_length=3, max_length=1000)
     company_ids: list[Cik] | None = Field(
         default=None, max_length=20, description="Only use these companies (CIKs)."
     )

@@ -5,11 +5,18 @@ from datetime import date
 from typing import Annotated, Any
 
 import strawberry
+import structlog
 from fastapi import Depends
-from graphql import GraphQLError
+from graphql import GraphQLError, ValueNode, VariableNode
 from pydantic import BaseModel, ValidationError
-from strawberry.extensions import MaskErrors, MaxAliasesLimiter, QueryDepthLimiter
+from strawberry.extensions import (
+    DisableIntrospection,
+    MaskErrors,
+    MaxAliasesLimiter,
+    QueryDepthLimiter,
+)
 from strawberry.relay import PageInfo
+from strawberry.types import ExecutionContext
 
 from filinglens_api import schemas
 from filinglens_api.backend import (
@@ -34,6 +41,8 @@ IDS = (
     f"Up to {MAX_IDS} ids per call, of 1 to 64 characters each. Results keep the order given,"
     " hold each id once and leave unknown ids out."
 )
+BAD_VALUE = "Invalid value for an argument or variable."  # never the value: it is user input
+log = structlog.get_logger(__name__)
 
 # The REST enums double as GraphQL enums, whose values are the member names (FORM_10K).
 strawberry.enum(FormType)
@@ -267,6 +276,8 @@ class Filing:
         first: Annotated[int, strawberry.argument(description=FIRST)] = 20,
         after: Annotated[str | None, strawberry.argument(description=AFTER)] = None,
     ) -> Connection[FinancialFact]:
+        if concept is not None and "\x00" in concept:  # Postgres refuses a NUL in text
+            raise InvalidInputError("concept must not hold a NUL character.")
         page = await _backend(info).list_facts(
             self.accession_number, _page_size(first), after, concept=concept
         )
@@ -281,6 +292,8 @@ async def _filings(
     form_type: FormType | None,
     fiscal_year: int | None,
 ) -> Connection[Filing]:
+    if fiscal_year is not None and not 1993 <= fiscal_year <= 2100:  # REST's bounds; SMALLINT
+        raise InvalidInputError("fiscalYear must be between 1993 and 2100.")
     page = await _backend(info).list_filings(
         _page_size(first), after, cik=cik, form_type=form_type, fiscal_year=fiscal_year
     )
@@ -372,24 +385,39 @@ class Query:
         return Answer.of(await timed_answer(_backend(info), request))
 
 
+def _bad_value(error: GraphQLError) -> bool:
+    """A value that does not fit its type, whose message would echo the value back."""
+    if isinstance(error.original_error, GraphQLError):  # a variable's or an argument's coercion
+        return True
+    nodes = error.nodes or ()
+    return any(isinstance(n, ValueNode) and not isinstance(n, VariableNode) for n in nodes)
+
+
+def error_code(error: GraphQLError) -> str | None:
+    """The code an error answers with; None for a query the schema refuses (no input in it)."""
+    original = error.original_error
+    if isinstance(original, FilingLensError):
+        return original.code
+    if _bad_value(error):
+        return "invalid_input"
+    if original is not None and not isinstance(original, GraphQLError):
+        return "internal"
+    return None
+
+
 class ErrorCodes(MaskErrors):
-    """Taxonomy errors keep their message and gain extensions.code; other errors are masked."""
+    """Taxonomy errors keep their message and gain extensions.code; a bad value and any other
+    error are masked."""
 
     def __init__(self) -> None:
-        super().__init__(
-            should_mask_error=lambda error: (
-                error.original_error is not None
-                and not isinstance(error.original_error, GraphQLError)
-            )
-        )
+        super().__init__(should_mask_error=lambda error: error_code(error) is not None)
 
     def anonymise_error(self, error: GraphQLError) -> GraphQLError:
-        original = error.original_error
-        message, code = (
-            (str(original), original.code)
-            if isinstance(original, FilingLensError)
-            else (self.error_message, "internal")
-        )
+        original, code = error.original_error, error_code(error)
+        if isinstance(original, FilingLensError):
+            message = str(original)
+        else:
+            message = BAD_VALUE if code == "invalid_input" else self.error_message
         return GraphQLError(
             message,
             error.nodes,
@@ -400,6 +428,21 @@ class ErrorCodes(MaskErrors):
         )
 
 
+class Schema(strawberry.Schema):
+    def process_errors(
+        self, errors: list[GraphQLError], execution_context: ExecutionContext | None = None
+    ) -> None:
+        """Log each error's code and path, never its message, which can quote the input."""
+        for error in errors:
+            code = error_code(error)
+            if code == "internal":  # Strawberry caught it, so this is its only traceback
+                log.error(
+                    "graphql_error", code=code, path=error.path, exc_info=error.original_error
+                )
+            else:
+                log.warning("graphql_error", code=code, path=error.path)
+
+
 async def get_context(
     backend: Annotated[Backend, Depends(get_backend)],
     answer_limits: Annotated[Callable[[], Awaitable[None]], Depends(answer_limits_for)],
@@ -408,10 +451,12 @@ async def get_context(
 
 
 # The limits are validation rules, so a query past them is refused before any resolver runs.
-schema = strawberry.Schema(
+# Introspection is off: codegen prints the schema itself, and nothing reads it from this server.
+schema = Schema(
     query=Query,
     extensions=[
         ErrorCodes,
+        DisableIntrospection,
         lambda: QueryDepthLimiter(max_depth=MAX_DEPTH),
         lambda: MaxAliasesLimiter(max_alias_count=MAX_ALIASES),
     ],
