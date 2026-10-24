@@ -37,7 +37,7 @@ SECTIONS = ("1", "1A", "7", "8")
 SPAN = 2 * CHUNKS // len(SECTIONS)  # each section's characters; its chunks sit at even offsets
 GRAPHQL = {
     "query": "{ filings(first: 3) { edges { node { accessionNumber sections { item }"
-    " chunks(first: 50) { edges { node { id text } } }"
+    " chunks(first: 20) { edges { node { id text } } }"
     " facts(first: 5) { edges { node { value } } } } } } }"
 }
 
