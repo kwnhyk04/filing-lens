@@ -15,6 +15,21 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-25: Ask: a session that ends while asking signs in again and returns to Ask (uncommitted, branch `ask-sign-in-return`)
+
+- Changes: `web/components/ask.tsx` sends a 401 from `/api/answers` to `/login?next=%2Fask`; it went to `/login?next=/`, the landing page since #29. `web/e2e/auth.spec.ts` gains the test.
+- Small events, in order:
+  1. **Found while planning mockup features 2** (plan mode, read only): the web exploration noted `ask.tsx:126`'s `/login?next=/`. My landing PR (#29) moved Ask to `/ask` and missed this line (memory.md, Solved Problems).
+  2. **Plan approved** with this fix as its own PR first; the user: "Keep PR 0 separate."
+  3. **Branch:** `ask-sign-in-return` from main at 1093b9e (#29), clean.
+  4. **Audit:** a grep of `next=`, `location.assign` and `redirect(` under `web/`. Only `ask.tsx:126` sent `next=/`.
+  5. **Red:** the new spec failed: expected `/login?next=%2Fask`, received `/login?next=/`.
+  6. **Gate:** GateGuard refused the first edit of `ask.tsx`, so the next full run still had the old code: 78 passed, the new spec failed, and 2 did not run (not confirmed which; the lockout project waits for the live one). The edit then went through on retry.
+  7. **Green:** the fix, then the full suite.
+- Files: `web/components/ask.tsx`, `web/e2e/auth.spec.ts`, `docs/{activity-log,context,memory,todo}.md`.
+- Validation: web typecheck clean; `npm test` 88; build; `npx playwright test` 81 of 81, the new spec included.
+- Outstanding: the user ships it; PR 1 (`mockup-features-2`) then starts from the updated main.
+
 ### 2026-10-25: Public landing page at `/` from the mockup; Ask moved to `/ask` (uncommitted, branch `landing-page`)
 
 - Changes, on `landing-page` from main at 41ac308 (10b merged as #20):

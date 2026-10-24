@@ -224,20 +224,26 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - **Timings in the answer's header** (first words, complete, sources, "every number checked"): small; some API work. The browser can time the stream; "every number checked" needs the number check. First words, complete and the source count are built in mockup features 1, timed in the browser. Still open: "every number checked"; and the demo shows no timings, since the snapshot records none (the eval report has the run's times, so `make demo-export` could carry them).
   - **Source panel details** (the filing's fiscal year end; "How it was found", the search and the passage's rank; a passage's table drawn as a table with its numbers highlighted): medium; some API work. `Filing.periodEnd` exists; the rank and the search used are not in the answer. Not taken in mockup features 1. The fiscal year end for passages is merged as #18: `periodEnd` selected in `Sources`, a new snapshot. Still open: "How it was found", tables drawn as tables, and a fact card's filing period, which needs the API to link a fact to its filing.
   - **Header coverage line** ("30 companies · latest 10-Ks"): small; needs API work for a live count, or the snapshot's count on the demo. The demo's line ("30 companies · 30 filings", from the snapshot) is built in mockup features 1. Still open: the live header's line, which needs a count from the API; "latest" is recorded nowhere.
-  - **Landing sections** (a hero with call-to-action buttons and a sample answer, "How an answer is made", "Evaluation results" from the eval report, "Architecture" with its stack, nav links including GitHub): medium; no API work. Static text plus the eval report at build time, like the demo snapshot. Built on branch `landing-page` (2026-10-25), uncommitted: see In Progress.
+  - **Landing sections** (a hero with call-to-action buttons and a sample answer, "How an answer is made", "Evaluation results" from the eval report, "Architecture" with its stack, nav links including GitHub): medium; no API work. Static text plus the eval report at build time, like the demo snapshot. Built and merged as #29 (1093b9e, git log).
 
 ## In Progress
 
-- [ ] (user, 2026-10-25) **Landing page** at `/`, on branch `landing-page` from main at 41ac308 (10b merged as #20), uncommitted. From the approved mockup (`4-landing` in light, dark and phone; read only, nothing copied) and the "Landing sections" candidate. The user's decisions: "Open the demo" goes to `/demo`; the fact count stays out (no source); the sample answer is n01; every mockup correction stays; the repo is public (memory.md, the landing page).
+- [ ] (user, 2026-10-25) **Mockup features 2**: Ask closer to the approved mockup (`1-ask` in light, dark and phone; read only), with the five candidates the user picked: the number check, "Read as" chips, the live coverage line, sample questions and the mockup's wider layout. Plan approved 2026-10-25 (memory.md, mockup features 2). A report after each PR; the user ships it before the next starts.
+  - [x] **PR 0, `ask-sign-in-return`** from main at 1093b9e (bug found while planning, fixed first): a session that ends while asking went to `/login?next=/`, the landing page since #29; now `/login?next=%2Fask` (memory.md, Solved Problems). Test first (`auth.spec.ts`), red, then green. Checks: web typecheck clean, `npm test` 88, build, Playwright 81.
+    - [ ] (user) ship.
+  - [ ] **PR 1, `mockup-features-2`** from the updated main: the API, expand-only (`Answer.reading`, `Answer.checks`, GraphQL `totals`), codegen. It touches eval inputs, so CI's eval runs from its cache.
+  - [ ] **PR 2, `mockup-features-2-web`**, after PR 1 merges: the five items in the web, the mock API, the snapshot re-export (the user's go), screenshots.
+
+## Completed
+
+- [x] (user, 2026-10-25) **Landing page** at `/`, merged as #29 (1093b9e, git log), built on branch `landing-page` from main at 41ac308 (10b merged as #20). From the approved mockup (`4-landing` in light, dark and phone; read only, nothing copied) and the "Landing sections" candidate. The user's decisions: "Open the demo" goes to `/demo`; the fact count stays out (no source); the sample answer is n01; every mockup correction stays; the repo is public (memory.md, the landing page).
   - [x] Routes: `/` is the landing page, public, with no API call and no key in the browser; Ask moved to `/ask`, behind sign-in as before; sign-in's default page is `/ask`; `/demo` stays public.
   - [x] Figures at build time: the results table from `evals/reports/2026-10-17.md`; the date, question count, models, judge kappa, recall's n, the passage count and the reranker's 50 from its JSON; companies, saved answers and n01 from `web/demo/snapshot.json`.
   - [x] Test first: 4 unit tests (`lib/landing.test.ts`) and 5 Playwright specs (`e2e/landing.spec.ts`), red, then green; Ask's specs moved to `/ask`; axe on `/` in light and dark, and `/` at 390 px.
   - [x] Screenshots: `landing-{light,dark,phone}.png` in `docs/screenshots/ui/`, each after axe.
   - [x] Checks: `make lint` clean; `make typecheck` 0 errors; web typecheck clean; `npm test` 88; build; Playwright 80 (activity-log.md, 2026-10-25).
   - [x] The differences from the mockup, listed for the user (design.md, The landing page).
-  - [ ] (user) pick from the differences, then ship.
-
-## Completed
+  - [x] (user) Shipped as #29.
 
 - [x] Source fiscal year (user, 2026-10-20), merged as #18 (86718cd, git log): the fiscal year end on the source cards, as in the mockup ("Fiscal year ended September 27, 2025"), from a new snapshot. Built on branch `source-fiscal-year` from main at e1059d7 (mockup features 1 merged as #17). The user's go: start `filinglens-postgres-1` by exact name, run `make demo-export`, stop it by exact name (Triage Copilot's exam is over). No live model or SEC call; the export only reads the dev Postgres.
   - [x] Test first: a unit test for the line's wording and date, Playwright for a chunk card on Ask (and a fact card without the line) and on the demo. Red: no export, no line.
