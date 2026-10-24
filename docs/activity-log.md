@@ -15,6 +15,54 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-24: next 16.4.1, filelock and virtualenv upgraded for CI's vuln-scan findings (uncommitted)
+
+- Changes, on `next-security` from main at fe90d5f (the user's request; the findings fail every PR's vuln-scan until main has the fix):
+  - `web/package.json` and `web/package-lock.json`: next 16.3.8 to 16.4.1 (exact pin, as before), with its `@next/*` packages. Fixes GHSA-2464-fhr4-w9xw (CRITICAL, image optimization with SVG), GHSA-673q-mjm6-r5xr (CRITICAL, `use cache` with typed arrays) and CVE-2026-94482 (HIGH, DoS through Server Actions; Trivy lists the CVE id, and its match to the user's GHSA-p3m5-59mp-jv5r is not confirmed).
+  - `uv.lock`: filelock 4.1.1 to 4.2.4 (CVE-2026-112940, HIGH) and virtualenv 21.14.7 to 21.14.13 (CVE-2026-113718, -113722, -113723, HIGH). These were not in the user's note. They are dev-only. No ignore file or allowlist.
+  - Docs: memory, todo, this log.
+- Small events, in order:
+  1. **Gates:** GateGuard held the first Bash call, and the first edit of `web/package.json`, `uv.lock` and these docs, until facts were given. Each retry passed.
+  2. **Wrong order, mine:** `npm install --package-lock-only` ran in the same batch as the first, blocked `package.json` edit, so it did nothing ("up to date"). It was re-run after the edit went through.
+  3. **Version in the note:** the user's note said 16.4.0. The repo was on 16.3.8 (lock and `package.json`); 16.4.0 was only a Dependabot candidate, never installed.
+  4. **Scan stops at the first failure:** `make vuln-scan` ended at `uv.lock`, so the web lock was scanned with the same Trivy command by hand. `clients/ts` was clean.
+  5. **The lock's header:** `uv lock --upgrade-package` set `revision = 5` again (memory.md, 2026-10-21 pitfall). It was set back to 3 with the edit tool. `uv lock --check` passed and `uv sync` swapped only the two packages.
+  6. **Nothing live:** no model, SEC or container call beyond the `--rm` Trivy runs.
+- Files: `web/package.json`, `web/package-lock.json`, `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation: the three Trivy scans (the `make vuln-scan` commands) 0 findings; `make lint` clean; `make test` 418; web `tsc` clean, `npm test` 84, `next build` clean, `npx playwright test` 72.
+- Outstanding: the user ships it. No `EVAL_INPUTS` path is touched.
+
+### 2026-10-21: certifi 2026.10.19 for GHSA-6q48-6c7w-9gw2, fixed at the source (uncommitted)
+
+- Changes, on `certifi-bump` from main at aca22a6 (the user's request; PR #22's vuln-scan fails until main has the fix):
+  - `uv.lock`: certifi 2026.7.22 to 2026.10.19, its version, sdist and wheel lines only. No ignore file or allowlist.
+  - Docs: memory (Preferences), todo, this log.
+- Small events, in order:
+  1. **Base:** `claude-first` was committed (d509b17) and pushed, and the tree was clean. An anonymous `git fetch origin main` (credential helper off, no prompt) showed GitHub's main still at aca22a6. The branch was made from it with `--no-track`.
+  2. **Gates:** GateGuard held the first Bash call and the first edit of `uv.lock` and of these docs until their facts were given. Each retry passed.
+  3. **The lock's header:** `uv lock --upgrade-package certifi` ("Updated certifi v2026.7.22 -> v2026.10.19") also rewrote `revision = 3` to `revision = 5`. uv 0.12.23, the version on the PC, in the Dockerfile and in CI, writes 5.
+     - The header was set back to 3 with the edit tool.
+     - `uv lock --check` exited 0, and `uv sync` swapped certifi 2026.7.22 for 2026.10.19, nothing else.
+  4. **Line ends:** uv wrote the lock with LF, and git warns that the working copy will get CRLF. The committed blob is LF either way.
+  5. **Control:** `make image-scan IMAGE=filinglens-api:ci`, an image built 4 days ago, failed with exactly one CRITICAL: certifi 2026.7.22, GHSA-6q48-6c7w-9gw2, fixed in 2026.10.19. So the local Trivy database knew the advisory.
+  6. **Images:** both were rebuilt from this branch as CI builds them (`infra/Dockerfile`, `PACKAGE=filinglens-<api|ingest>`).
+     - They are tagged `filinglens-api:certifi-bump` and `filinglens-ingest:certifi-bump`, so the existing `:ci` and `:latest` images stayed as they were.
+     - The two new tags are still there, and so is `.cache/images/scan.tar`.
+  7. **Provenance:** certifi 2026.10.19 was uploaded on 2026-10-20, inside Dependabot's 7-day cooldown for uv. PyPI's integrity API shows its wheel's PEP 740 attestation from `certifi/python-certifi`, workflow `release.yml`, environment `release`.
+  8. **Nothing live:** no model call and no SEC call. Docker ran only Trivy (`--rm`) and the two builds.
+- Files: `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation:
+  - `make vuln-scan`: 0 HIGH or CRITICAL in `uv.lock`, `web/package-lock.json` and `clients/ts/package-lock.json`.
+  - `make image-scan`: 0 CRITICAL in both rebuilt images; each lists `certifi-2026.10.19.dist-info`.
+  - `make lint` clean (139 files already formatted); `make test` 418 passed.
+  - Lock diff: 3 lines, all certifi's (`git diff --numstat`: `3 3 uv.lock`).
+  - Eval check:
+    - `uv.lock` is in CI's `EVAL_INPUTS`, so CI's eval runs.
+    - The reply cache keys hold the models, the index and the prompts, none of which certifi changes, so CI replays main's cache.
+    - At worst, as for `rerank-deadline`, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed), if main's cache lacks their reranker-order replies.
+    - The nightly's input hash changes too, so its next scheduled run measures instead of skipping. At worst that is 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000), $0 billed.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships. Then `claude-first` takes main, where this log's top conflicts: keep both entries.
+
 ### 2026-10-21: `--claude-primary` always takes the official free run's routes; the switch-off comment corrected (uncommitted)
 
 - Changes, on `claude-first`, uncommitted with the branch (the user's request, before shipping):

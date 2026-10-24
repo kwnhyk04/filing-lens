@@ -6,6 +6,14 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
+- [ ] (user, 2026-10-24) **next-security** (branch `next-security` from main at fe90d5f). CI's vuln-scan: next 16.3.8 (GHSA-2464-fhr4-w9xw and GHSA-673q-mjm6-r5xr CRITICAL, CVE-2026-94482 HIGH), filelock 4.1.1 and virtualenv 21.14.7 (HIGH, dev-only). Fixed by upgrading, no ignore entries.
+  - [x] next 16.4.1; `uv lock --upgrade-package filelock --upgrade-package virtualenv`, header back to `revision = 3`.
+  - [x] Checks: the three Trivy scans 0; `make lint` clean; `make test` 418; web typecheck, `npm test` 84, build, Playwright 72.
+  - [ ] (user) ship. Then Dependabot's next PR, if any, is obsolete.
+- [ ] (user, 2026-10-21) **certifi bump** (branch `certifi-bump` from main at aca22a6). CI's vuln-scan failed on PR #22 with one CRITICAL in `uv.lock`: certifi 2026.7.22, GHSA-6q48-6c7w-9gw2, fixed in 2026.10.19. Fixed at the source, with no ignore file or allowlist (memory.md, Preferences).
+  - [x] `uv lock --upgrade-package certifi`: only certifi's three lines change, and the header stays at `revision = 3`. `uv sync` changed only certifi.
+  - [x] Checks: `make vuln-scan` 0 on all three lockfiles; `make image-scan` 0 CRITICAL on api and ingest rebuilt from this branch (the old `filinglens-api:ci` showed the CRITICAL); `make lint` clean; `make test` 418.
+  - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship. Then `claude-first` takes main so PR #22's vuln-scan passes; activity-log.md's top conflicts there: keep both entries.
 - [ ] (later) Lift Dependabot's typescript-major ignore once an openapi-typescript release accepts typescript 7, and its `@types/node` rule when the runtime moves past Node 24 (both comments in `.github/dependabot.yml`).
 - [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
