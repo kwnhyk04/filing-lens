@@ -15,6 +15,40 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-24: Step 10c, the deploy config and runbook, with the nested `first` cap (uncommitted)
+
+- Changes, on `step-10-deploy-config` from main at 7979cdb (Claude first merged as #22), with the user's two updates to the plan (prod Claude first, nothing forced; the nested `first` cap, test first):
+  - **Nested `first` cap** (`graph.py`): a connection with a list index on its path takes `first` 1 to 20, the outermost list 1 to 100; past that, `invalid_input` before its page is read. The `first` description says so, so `contracts/schema.graphql` changes 6 descriptions. 7 rows in `test_contract.py`. The read-under-load integration test's nested `chunks(first: 50)` became 20.
+  - **Prod override** (`infra/docker-compose.prod.yml`, rewritten): project `filinglens-prod`; GHCR images by `IMAGE_TAG` with no build; no host port; `data` (internal) for the stores; the `ingest` profile for the workers; the `tailscale` sidecar with its external state volume; `x-kept` on every service and `x-hardened` on api and tailscale; `IMAGE_TAG` and `RETRIEVAL_EMBEDDING_COLUMN` required. No provider or key is forced (Claude first).
+  - **`CLAUDE_DAILY_TOKEN_BUDGET`** now reaches the api (`infra/docker-compose.yml`, one line); before, compose never passed it.
+  - **New:** `infra/tailscale/serve.json` (443 to `http://api:4100`, Funnel on), `web/vercel.json` (main only, `hkg1`), `docs/deploy.md` (the runbook, both variable tables, point 6's live test, the rollback).
+  - **`web/package.json`:** `engines.node` `^24.7.0`; the lock's root entry only.
+  - **Docs:** README (the Deploy line replaces the old Production command, which used `.env`; the cap under Limits), context, memory, todo, this log.
+- Small events, in order:
+  1. **Base:** the tree was clean on main at 7979cdb. No fetch: the user's request named main.
+  2. **10b not on main:** `git log main` has no 10b; 305b123 sits on `step-10-dataloader` (pushed), and main's `graph.py` keeps the two `ponytail:` lookup comments. The plan for the cap ("cap a nested `first`") exists only in 10b's docs on that branch. Built from main as asked; reported to the user.
+  3. **Gates:** GateGuard held each file's first edit or write, the scratch files' included, until their facts were given. The prod override's and deploy.md's writes were held twice; each retry passed.
+  4. **B4 from local settings:** the first `powercfg /query` failed ("Invalid Parameters", exit 1), because Git Bash rewrote `/query` as a path. With `MSYS_NO_PATHCONV=1`: AC sleep and hibernate are 0 (never), on the Power saver scheme; DC sleep is 600 s. Docker Desktop's `settings-store.json` has `AutoStart: true`, and its `HKCU\...\Run` entry exists. B1 to B3 show in no doc or local setting.
+  5. **FreightAudit:** its `infra/docker-compose.prod.yml` and `infra/tailscale/serve.json` read again, read-only, under the 2026-10-20 permission; no `.env` file opened (memory.md, PR 10c).
+  6. **Cap, test first:** red, 5 refused rows failed and the 2 pin rows passed; green, 7 of 7. A scratch mutant with the cap on every list (a pytest plugin in the scratchpad, no repo change) failed only the outermost-100 pin, so the pin bounds the check.
+  7. **Contracts:** only `strawberry export-schema` ran, not `make codegen`: no GraphQL client embeds schema descriptions (grep of `clients/`), and no REST code changed. The export wrote CRLF; git's `eol=lf` stores LF, and `git diff` shows the 6 description lines only. `make contracts-check` was not run: it fails on any unstaged change under `contracts/`, and its codegen rewrites files in CRLF on this PC (memory.md, 2026-10-20).
+  8. **Budget variable, test first:** rendered with a dummy env file that sets 1234567, the prod api's environment had no `CLAUDE_DAILY_TOKEN_BUDGET` (red). After the one line, it carries 1234567 in prod and dev (green).
+  9. **Compose checks:** a scratch script renders the configs with dummy values (`docker compose config`, no container starts) and checks 21 points: the project name, the services with and without `--profile ingest`, the images, no build, no host port, the networks, the external volume, the hardening, the restart policy, every `ApiSettings` field in the api's environment (`OLLAMA_URL` and `OTEL_SERVICE_NAME` left out on purpose), Claude first unforced, the embedding column, the read-only `/config` mount, the two required variables' messages, and the dev project. 21 of 21 passed. A control on main's files (extracted with `git archive`) failed: the script stopped at the missing `tailscale` service with a `KeyError`, rather than listing each failed check.
+  10. **Runbook claim checked:** with profiles off, compose still stops without `GRAFANA_ADMIN_PASSWORD` or `SEC_USER_AGENT` (exit 1, both messages).
+  11. **Mistakes, mine:** one compose run wrote its stderr to `$TEMP` on C:, not to the scratchpad. Two scratch env copies (step 10) and the list of running containers (step 13) were written with a shell redirect (`>`), against AGENTS.md's rule on writing files. None touched a repo file.
+  12. **gitleaks control:** the first synthetic token (sequential characters) went unfound, so the control proved nothing; a random 36-character one was found (1 leak, exit 1).
+  13. **`make test-int`, on the user's go** (asked once everything else had passed): 32 passed in 3 min 30 s. The running containers, FreightAudit's ten, were the same before and after.
+  14. **Nothing live:** no model and no SEC call. Docker ran `docker compose config`, `--rm` tool containers (oasdiff, gitleaks) and the Testcontainers of `make test-int`.
+- Files: `services/api/src/filinglens_api/graph.py`, `services/api/tests/{test_contract,test_under_load}.py`, `contracts/schema.graphql`, `infra/docker-compose{,.prod}.yml`, `infra/tailscale/serve.json`, `web/{vercel.json,package.json,package-lock.json}`, `README.md`, `docs/{deploy,context,memory,todo,activity-log}.md`.
+- Validation:
+  - `make lint` clean (139 files formatted); `make typecheck` 0 errors; `make test` 447 passed; `make test-int` 32 passed.
+  - web: `tsc` clean, `npm test` 84, `next build` clean, `npx playwright test` 72.
+  - The compose checks 21 of 21; both JSON files parse (`JSON.parse`).
+  - `make contracts-breaking`: "No changes detected".
+  - gitleaks (`dir --redact`) on each of the 15 changed and new files, then on this log once written: no leaks; the control exits 1.
+  - Eval check: of the eval inputs only `graph.py` changed, and the harness loads `filinglens_api.{answering,backend,limits,problems,schemas}` only (`sys.modules`), so every cache key is main's. CI's eval runs because an input changed. At worst, as for the certifi bump, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed) if main's cache lacks their replies; the nightly's input hash changes too, so its next run measures: at worst 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000), $0 billed.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships; 10b still has to reach main before deploy.md's steps 5 to 23.
+
 ### 2026-10-24: next 16.4.1, filelock and virtualenv upgraded for CI's vuln-scan findings (uncommitted)
 
 - Changes, on `next-security` from main at fe90d5f (the user's request; the findings fail every PR's vuln-scan until main has the fix):
