@@ -699,6 +699,9 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
     - uv 0.12.23 reads a revision-3 lock as current: `uv lock --check` passed, and `uv sync` changed only certifi.
   - **Control:** the local Trivy database knew the advisory. The 4-day-old `filinglens-api:ci` image showed exactly this CRITICAL, and the images rebuilt from the branch showed none.
   - **Age:** 2026.10.19 was uploaded on 2026-10-20, inside Dependabot's 7-day cooldown for uv. It was taken at the user's request, as a security fix. Its wheel's PEP 740 attestation names `certifi/python-certifi`, workflow `release.yml`.
+- 2026-10-24: Second scan fix, branch `next-security` (same rule as above: fix at the source, no ignore entries). Trivy found next 16.3.8 (2 CRITICAL, 1 HIGH), and in `uv.lock` filelock 4.1.1 and virtualenv 21.14.7 (4 HIGH, dev-only). All fixed by upgrading (activity-log.md).
+  - **Does FL's web use the affected features?** No for the two RCEs: no `next/image`, no `images` config (so no SVG image optimization), no `"use cache"` or `cacheComponents`. Yes for the DoS: `web/app/login/actions.ts` is a Server Action. Not confirmed: whether the default `/_next/image` route was reachable; it needs SVG enabled, which is not set.
+  - **Pitfalls:** `make vuln-scan` stops at the first failing lockfile, so run the web and `clients/ts` scans by hand to see every finding. `uv lock --upgrade-package` rewrites the header to `revision = 5` again; set it back to 3 until main moves.
 - 2026-10-18: UI accessibility is checked by axe on every page plus keyboard-only and phone-width specs (user). Reason: axe misses focus order and keyboard-only flows.
 - 2026-10-18: Container go for step 9 (user), also during Triage Copilot's exam window, since neither use makes a model call:
   - Uses: Testcontainers for `make test-int`, and FilingLens's own dev Postgres (`filinglens-postgres-1`) for `make demo-export`.
