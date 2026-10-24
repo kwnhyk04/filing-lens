@@ -842,6 +842,14 @@ From the landing page (2026-10-25, branch `landing-page` from main at 41ac308, u
 
 ## Solved Problems
 
+- 2026-10-25: Ask sent a session that ended mid-question to `/login?next=/`, which became the landing page with #29 (found while planning mockup features 2; fixed first on `ask-sign-in-return`, under the bug-fix-first rule).
+  - **Cause, my mistake in #29:** moving Ask to `/ask`, I searched for quoted `"/"` paths (`["'`]/["'`?]`). That missed `"/login?next=/"`, whose last slash follows `=`, not a quote. Ask still worked; only the return after signing in again was lost.
+  - **Fix:** `ask.tsx` sends a 401 from `/api/answers` to `/login?next=%2Fask`, the proxy's own form.
+  - **Test:** `auth.spec.ts`: on Ask, clear the cookies and ask; the BFF answers 401; the URL must be `/login?next=%2Fask`, and signing in must land on Ask. Red first (`next=/`), then green.
+  - **Audit** (grep of `next=`, `location.assign` and `redirect(` under `web/`): the proxy keeps the page's own path; `requireSession` and a plain sign-in default to `/ask`; logout goes to `/login`; the 404 and landing links point at `/ask`. No other `next=/`.
+  - **Left as is (reported):** a 401 from `/api/sources`, for a session that ends between an answer and its sources lookup (milliseconds apart; sessions last 8 hours), shows "Sources could not be loaded." rather than a sign-in.
+  - **Lesson:** when a route moves, search for its path inside other strings too (`next=/`, `href="/"`, `assign("/`), not only for the quoted path.
+
 - 2026-10-21: `--claude-primary` took its routes from `.env`'s `LLM_PRIMARY` (found in the docs pass on `claude-first`; fixed the same day at the user's request, test first).
   - **Problem:** with `LLM_PRIMARY=anthropic:claude-haiku-5-5` in `.env`, README step 9's setup and where the official run's refusal points, the run reused Claude's own router replies. Its report then sat beside an earlier Claude report, not the official run. The test pinned only a free `LLM_PRIMARY`.
   - **Fix (user's rule):** `--claude-primary` always takes the official free run's routes, those of the default `LLM_PRIMARY` (`EvalSettings.model_fields`), whatever `.env` says. An explicit `--router-primary` is overridden too; no test pins that.

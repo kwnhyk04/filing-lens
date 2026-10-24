@@ -1,4 +1,4 @@
-import { SESSION_COOKIE } from "./env.ts";
+import { question, SESSION_COOKIE } from "./env.ts";
 import { expect, signedOut, signIn, test } from "./fixtures.ts";
 
 test.describe("signed out", () => {
@@ -18,6 +18,17 @@ test.describe("signed out", () => {
     await expect(page).toHaveURL("/coverage");
     await expect(page.getByRole("heading", { level: 1, name: "Coverage" })).toBeVisible();
   });
+});
+
+test("a session that ends while asking signs in again and returns to Ask", async ({ page, context }) => {
+  await page.goto("/ask");
+  await context.clearCookies();
+  await page.getByLabel("Your question").fill(question("n01"));
+  await page.getByRole("button", { name: "Ask" }).click();
+  await expect(page).toHaveURL("/login?next=%2Fask");
+  await signIn(page);
+  await expect(page).toHaveURL("/ask");
+  await expect(page.getByRole("heading", { level: 1, name: "Ask" })).toBeVisible();
 });
 
 test("signing out expires the cookie and clears the browser cache", async ({ page, context }) => {

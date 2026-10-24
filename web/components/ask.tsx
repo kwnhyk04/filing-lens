@@ -123,7 +123,7 @@ export function Ask() {
         body: JSON.stringify({ question }),
         signal,
       });
-      if (response.status === 401) return window.location.assign("/login?next=/");
+      if (response.status === 401) return window.location.assign("/login?next=%2Fask");
       if (!response.ok || !response.body) {
         return fail(notice(response.status, await response.json().catch(() => ({}))));
       }
