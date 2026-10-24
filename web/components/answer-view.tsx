@@ -116,27 +116,35 @@ interface Props {
   prefix?: string;
 }
 
-/** The answer itself: its text with citation links, then warnings, notes and usage. */
-export function AnswerMain({ answer, sources, prefix = "" }: Props) {
+/** The answer's text: figures under the highlighter, each citation a link to its source card. */
+export function AnswerText({ answer, sources, prefix = "" }: Props) {
   const parts = splitMarkers(answer.answer, answer.citations.length);
+  return (
+    <p className="answer-text" id={`${prefix}answer-text`} tabIndex={-1}>
+      {parts.map((part, i) =>
+        typeof part === "number" ? (
+          // The box shows the number; the brackets stay, at zero size, so copied text reads "[1]".
+          <a key={i} href={`#${prefix}source-${part}`} aria-label={sourceName(part, answer.citations[part - 1], sources)}>
+            <span className="bracket">[</span>
+            {part}
+            <span className="bracket">]</span>
+          </a>
+        ) : (
+          <Figures key={i} text={part} />
+        ),
+      )}
+    </p>
+  );
+}
+
+/** The answer itself: its text with citation links, then warnings, notes and usage. */
+export function AnswerMain(props: Props) {
+  const { answer } = props;
   const { input_tokens: input, output_tokens: output, cost_usd: cost } = answer.usage;
   return (
     <div className="answer-main">
       {answer.refused && <p className="tag">Not answered</p>}
-      <p className="answer-text" id={`${prefix}answer-text`} tabIndex={-1}>
-        {parts.map((part, i) =>
-          typeof part === "number" ? (
-            // The box shows the number; the brackets stay, at zero size, so copied text reads "[1]".
-            <a key={i} href={`#${prefix}source-${part}`} aria-label={sourceName(part, answer.citations[part - 1], sources)}>
-              <span className="bracket">[</span>
-              {part}
-              <span className="bracket">]</span>
-            </a>
-          ) : (
-            <Figures key={i} text={part} />
-          ),
-        )}
-      </p>
+      <AnswerText {...props} />
       {answer.warnings.length > 0 && (
         <div className="warnings" data-testid="warnings">
           <p>

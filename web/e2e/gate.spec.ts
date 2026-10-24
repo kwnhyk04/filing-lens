@@ -2,7 +2,7 @@ import { expect, signedOut, test } from "./fixtures.ts";
 
 test.use(signedOut);
 
-for (const path of ["/", "/coverage", "/coverage?after=abc", "/no-such-page"]) {
+for (const path of ["/ask", "/coverage", "/coverage?after=abc", "/no-such-page"]) {
   test(`${path} without a session goes to sign-in`, async ({ page }) => {
     await page.goto(path);
     await expect(page).toHaveURL(`/login?next=${encodeURIComponent(path)}`);

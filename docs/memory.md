@@ -748,6 +748,26 @@ From the 10b merge (2026-10-24, main at 8e638a2 merged into `step-10-dataloader`
   - **What the cap leaves:** page queries still run once per parent (708 for Q1). Batching `Section.chunks` is the upgrade path.
 - 2026-10-24: Container go for the 10b merge (user): Testcontainers for one `make test-int`, and `filinglens-postgres-1` by exact name for the measurement, with two conditions: the script stays outside the repo (it is in the scratchpad), and the container ends as found (it was stopped, so it was stopped again). Port 5433 was free first; afterwards only closed connections (`TIME_WAIT`) remained on it.
 
+From the landing page (2026-10-25, branch `landing-page` from main at 41ac308, uncommitted):
+
+- 2026-10-25: The public landing page (user: "Build FilingLens's public landing page from the approved mockup"). The user's decisions on the plan: "Open the demo" goes to `/demo`; the fact count stays out; the sample answer is n01; "Keep all your mockup corrections. The GitHub repo is public."
+  - **Routes:** `/` is public, calls no API and holds no key; Ask moved to `/ask`, behind sign-in as before; sign-in's default page is now `/ask` (was `/`). "Try the live demo" links to `/ask`, so the gate sends a signed-out visitor to `/login?next=%2Fask` and back.
+  - **Where each figure comes from, at build time:** the ten table rows (target, result, met or not) from the official report's Markdown, `evals/reports/2026-10-17.md`; the date, the 30 questions, the models, the judge's kappa and labeler, recall's n, the 11,263 passages and the reranker's 50 from its JSON; the 30 companies, the 8 saved answers and n01 from `web/demo/snapshot.json`. The snapshot holds no passage or fact count, so the passages come from the report's index. Left out, with no source: the fact count (856,438 is only in the docs) and SEC's "10 requests per second".
+  - **Targets from the Markdown (ruling):** the report's JSON holds each metric's value and pass or fail, but no target; the harness writes the targets (`TARGETS` in `evals/harness.py`) only into the Markdown. So the page imports the Markdown as text (Turbopack's `type: "text"` rule for `*.md`, Next 16.2 or later, typed by `markdown.d.ts`). A report without one of the ten rows fails the build, naming the row.
+  - **Live models (ruling):** a fixed sentence from `docs/deploy.md`: Claude Haiku 5.5 first, within its daily budget and while its prepaid credits last, then Gemini 3.5 Flash-Lite, then gpt-oss-20b on NVIDIA. The setting lives in `.env.prod`, which the build never reads. The page says the table measures the free models, not Claude.
+  - **Drift tests:** `e2e/landing.spec.ts` reads the newest `evals/reports/<date>.json`, its Markdown and the snapshot from disk and checks each figure on the rendered page, so a figure typed into the page, or a newer report the page does not import, fails it. `lib/landing.test.ts` pins the formats.
+- 2026-10-25: The mockup's copy corrected where it claims more than the code does (user: "Keep all your mockup corrections"):
+  - "every number is checked against the filing's own XBRL data": the validator checks each amount against the fact or the quoted passage its sentence cites (`check_sentence` in `packages/llm`), not against all of a filing's XBRL data.
+  - "removed before you see it": Ask shows the draft first, marked as not yet checked, and the checked answer replaces it.
+  - "latest 10-K": nothing records that a filing is its company's latest (design.md, mockup features 1).
+  - "15 saved sample answers": the snapshot holds 8.
+  - "checked on every pull request": CI's eval runs only when an eval input changed (README, CI).
+  - "End-to-end latency, p95": the report's "Full answer p95" is timed in the eval process, not through the web, so the row says "Full answer latency".
+  - The stack gains Redis and Claude.
+- 2026-10-25: Pitfall: `next build` type-checks every TypeScript file in `web/`, tests included. A spec that imports a module not written yet fails the build, so the old app cannot be built for a red Playwright run. Here the pure helper came first (`lib/landing.ts`, its unit tests red, then green), then the old app's build and the red landing spec.
+- 2026-10-25: Pitfall: a class name that already means something. `.result` is Ask's answer card (border, background, grid), so the first landing table drew a box round each result cell. Renamed `.measured`; a search of all markup for the landing's new class names then found none in use elsewhere.
+- 2026-10-25: "Try the live demo" is a plain `<a>`, not `next/link`: a full page load, so the gate's redirect is the one a typed `/ask` gets. Whether a client-side navigation would keep the same `next` was not tested (not confirmed either way).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

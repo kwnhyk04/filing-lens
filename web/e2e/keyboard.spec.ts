@@ -16,14 +16,14 @@ async function tab(page: Page, times = 1) {
 }
 
 test("the skip link comes first, then the header, then the question form", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/ask");
   const order: string[] = [];
   for (let i = 0; i < 7; i++) {
     await tab(page);
     order.push(await focused(page));
   }
   expect(order).toEqual(["Skip to content", "FilingLens", "Ask", "Coverage", "Sign out", "question", "Ask"]);
-  await page.goto("/");
+  await page.goto("/ask");
   await tab(page);
   await page.keyboard.press("Enter");
   await tab(page);
@@ -31,7 +31,7 @@ test("the skip link comes first, then the header, then the question form", async
 });
 
 test("ask, jump to a citation and back, then sign out, by keyboard alone", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/ask");
   await tab(page, 6);
   await page.keyboard.type(question("x04"));
   await tab(page);
@@ -45,7 +45,7 @@ test("ask, jump to a citation and back, then sign out, by keyboard alone", async
   expect(await focused(page)).toContain("Back to the answer");
   await page.keyboard.press("Enter");
   expect(await page.evaluate(() => document.activeElement?.id)).toBe("answer-text");
-  await page.goto("/");
+  await page.goto("/ask");
   await tab(page, 5);
   expect(await focused(page)).toBe("Sign out");
   await page.keyboard.press("Enter");
@@ -53,7 +53,7 @@ test("ask, jump to a citation and back, then sign out, by keyboard alone", async
 });
 
 test("after an answer, Tab goes from its citations to Copy and New question, which returns to the question box", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/ask");
   await tab(page, 6);
   await page.keyboard.type(question("x04"));
   await tab(page);

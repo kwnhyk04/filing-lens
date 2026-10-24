@@ -3,7 +3,7 @@ import { SESSION_COOKIE } from "./env.ts";
 import { expect, test } from "./fixtures.ts";
 
 test("a signed-in visitor can sign out from the offline demo", async ({ page, context }) => {
-  await page.goto("/");
+  await page.goto("/ask");
   await expect(page).toHaveURL("/demo?offline=1");
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL("/login");
@@ -11,7 +11,7 @@ test("a signed-in visitor can sign out from the offline demo", async ({ page, co
 });
 
 const TWINS: [string, string][] = [
-  ["/", "/demo?offline=1"],
+  ["/ask", "/demo?offline=1"],
   ["/coverage", "/demo/coverage?offline=1"],
   ["/coverage?after=abc", "/demo/coverage?offline=1"],
 ];

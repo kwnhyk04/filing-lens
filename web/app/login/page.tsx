@@ -11,7 +11,7 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 export default async function LoginPage({ searchParams }: Props) {
   const { next } = await searchParams;
-  const target = safeNext(typeof next === "string" ? next : null) ?? "/";
+  const target = safeNext(typeof next === "string" ? next : null) ?? "/ask";
   if (await hasSession()) redirect(target);
   return (
     <main id="main" className="narrow">

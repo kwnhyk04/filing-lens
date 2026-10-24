@@ -108,7 +108,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - gitleaks on 16 files: clean;
       - the eval check: no model call.
     - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #19 (1f15729, git log).
-  - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`), test first (activity-log.md, 2026-10-21):
+  - [x] **10b. GraphQL DataLoader**, merged as #20 (41ac308, git log) (branch `step-10-dataloader`), test first (activity-log.md, 2026-10-21):
     - [x] per-request loaders for chunk sources and companies, in `graph.get_context`;
     - [x] `Backend.get_companies`, which replaces `get_company` (its only caller was `_company`);
     - [x] call-count tests: a page of links makes one lookup, each id once; `Sources` keeps its two;
@@ -134,7 +134,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make vuln-scan`: 0 on all three lockfiles;
       - `make test-int` (the user's go): 32 passed, the running containers the same before and after.
     - [x] the 10b numbers with the loaders and the cap together, measured on corpus-v1's rows (memory.md, the 10b merge): 10b's review query makes 708 page queries and reads 4,413 rows (9,081 before the cap), and asking for 100 inside a list is refused; 20 cited chunks' filings with their links make 40 page queries, 28 to 33 lookups by id and 1,280 rows (6,080 before the cap).
-    - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #20 (41ac308, git log).
   - [x] (user decides, before 10c; found by 10b's review) Page queries still run once per parent: one nested query makes 708 of them on corpus-v1 (memory.md, PR 10b). Options: cap a nested `first`, batch `Section.chunks`, or leave it. **Done by 10c** (merged as #28): the user chose the nested `first` cap (20 inside a list, 100 on the outermost list). It cuts the rows each nested page reads, not the page queries: measured, that query still makes 708 page queries but reads 4,413 rows instead of 9,081 (memory.md, the 10b merge).
   - [x] **10c. Deploy config and runbook**, merged as #28 (e75cb57, git log) (branch `step-10-deploy-config` from main at 7979cdb, Claude first merged as #22), with the user's two updates (2026-10-24):
     - [x] the nested `first` cap, test first: a connection inside another list takes `first` 1 to 20 (the default page size), the outermost list keeps 1 to 100. It is the option 10b's review left open ("cap a nested `first`"; 10b's memory entry, on its branch). It shrinks the rows each nested page reads, not the number of page queries (memory.md). Red: 5 refused rows failed, the 2 pin rows passed; a scratch mutant with the cap on every list failed only the outermost-100 pin;
@@ -224,11 +224,18 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - **Timings in the answer's header** (first words, complete, sources, "every number checked"): small; some API work. The browser can time the stream; "every number checked" needs the number check. First words, complete and the source count are built in mockup features 1, timed in the browser. Still open: "every number checked"; and the demo shows no timings, since the snapshot records none (the eval report has the run's times, so `make demo-export` could carry them).
   - **Source panel details** (the filing's fiscal year end; "How it was found", the search and the passage's rank; a passage's table drawn as a table with its numbers highlighted): medium; some API work. `Filing.periodEnd` exists; the rank and the search used are not in the answer. Not taken in mockup features 1. The fiscal year end for passages is merged as #18: `periodEnd` selected in `Sources`, a new snapshot. Still open: "How it was found", tables drawn as tables, and a fact card's filing period, which needs the API to link a fact to its filing.
   - **Header coverage line** ("30 companies · latest 10-Ks"): small; needs API work for a live count, or the snapshot's count on the demo. The demo's line ("30 companies · 30 filings", from the snapshot) is built in mockup features 1. Still open: the live header's line, which needs a count from the API; "latest" is recorded nowhere.
-  - **Landing sections** (a hero with call-to-action buttons and a sample answer, "How an answer is made", "Evaluation results" from the eval report, "Architecture" with its stack, nav links including GitHub): medium; no API work. Static text plus the eval report at build time, like the demo snapshot.
+  - **Landing sections** (a hero with call-to-action buttons and a sample answer, "How an answer is made", "Evaluation results" from the eval report, "Architecture" with its stack, nav links including GitHub): medium; no API work. Static text plus the eval report at build time, like the demo snapshot. Built on branch `landing-page` (2026-10-25), uncommitted: see In Progress.
 
 ## In Progress
 
-- [ ] Step 10's 10b, on branch `step-10-dataloader` (305b123) with main (8e638a2: 10c as #28, the commit-message rule as #26) merged in, uncommitted (2026-10-24). The user's ship concludes the merge; go-live needs it. The checklists are under Pending, item 10.
+- [ ] (user, 2026-10-25) **Landing page** at `/`, on branch `landing-page` from main at 41ac308 (10b merged as #20), uncommitted. From the approved mockup (`4-landing` in light, dark and phone; read only, nothing copied) and the "Landing sections" candidate. The user's decisions: "Open the demo" goes to `/demo`; the fact count stays out (no source); the sample answer is n01; every mockup correction stays; the repo is public (memory.md, the landing page).
+  - [x] Routes: `/` is the landing page, public, with no API call and no key in the browser; Ask moved to `/ask`, behind sign-in as before; sign-in's default page is `/ask`; `/demo` stays public.
+  - [x] Figures at build time: the results table from `evals/reports/2026-10-17.md`; the date, question count, models, judge kappa, recall's n, the passage count and the reranker's 50 from its JSON; companies, saved answers and n01 from `web/demo/snapshot.json`.
+  - [x] Test first: 4 unit tests (`lib/landing.test.ts`) and 5 Playwright specs (`e2e/landing.spec.ts`), red, then green; Ask's specs moved to `/ask`; axe on `/` in light and dark, and `/` at 390 px.
+  - [x] Screenshots: `landing-{light,dark,phone}.png` in `docs/screenshots/ui/`, each after axe.
+  - [x] Checks: `make lint` clean; `make typecheck` 0 errors; web typecheck clean; `npm test` 88; build; Playwright 80 (activity-log.md, 2026-10-25).
+  - [x] The differences from the mockup, listed for the user (design.md, The landing page).
+  - [ ] (user) pick from the differences, then ship.
 
 ## Completed
 

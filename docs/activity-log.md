@@ -15,6 +15,32 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-25: Public landing page at `/` from the mockup; Ask moved to `/ask` (uncommitted, branch `landing-page`)
+
+- Changes, on `landing-page` from main at 41ac308 (10b merged as #20):
+  - **Routes:** `/` is the landing page, public, with no API call. Ask moved to `app/ask/page.tsx` (`/ask`); `proxy.ts` lets `/` through; sign-in's default page is `/ask`; the 404 page's Ask link follows.
+  - **Page** (`app/page.tsx`): the header (How it works, Results, Architecture, GitHub, "Open the demo" to `/demo`); the hero with "Try the live demo" (`/ask`), "Read sample answers, no sign-in" (`/demo`) and the snapshot's n01 answer with its source; "How an answer is made"; "Evaluation results"; "Architecture" with the stack. `LandingHeader` in `components/chrome.tsx`; `AnswerText` split out of `AnswerMain` (same markup) for the hero's card.
+  - **Figures:** `lib/landing.ts` turns the official report's Markdown table into the page's rows; the report's JSON and the snapshot are imported at build time; `next.config.ts` loads `*.md` as text, typed by `markdown.d.ts` (memory.md, the landing page).
+  - **Styles:** a landing block in `app/globals.css` from the existing tokens; the header's button gets the phone margin the other headers' buttons have.
+  - **Tests:** `lib/landing.test.ts` (4) and `e2e/landing.spec.ts` (5); Ask's specs moved to `/ask`; `/` joined axe (light and dark), the 390 px check and the API-key check; the landing joined `npm run screens`.
+- Small events, in order:
+  1. **Gate:** GateGuard refused the session's first Bash call and each file's first write until facts were stated, as before (memory: the gate hook).
+  2. **Precondition:** on main at 41ac308, clean; `landing-page` created from it.
+  3. **Reading:** the mockup's three landing PNGs and its README (read only, nothing copied), the web app, the official report and the snapshot. Found: the snapshot holds no passage or fact count, and the report's JSON holds no targets.
+  4. **Plan:** shown and approved, with the user's three decisions ("Open the demo" to `/demo`, no fact count, n01), "Keep all your mockup corrections" and "The GitHub repo is public."
+  5. **Red:** `npm test` failed on `landing.test.ts` (`ERR_MODULE_NOT_FOUND`). `next build`, for a red Playwright run on the old app, then failed its type check: the new tests import `lib/landing.ts`, not written yet (memory.md, the pitfall). So the helper came next, and its 4 unit tests passed. The old app then built, and the landing spec failed 5 of 5: `/` went to sign-in.
+  6. **Build:** the routes, the page and the styles. Caught in review before the build: `.landing > section` (0,1,1) would have overridden the hero's two columns on `.hero` (0,1,0); the rule became `.landing > .hero`.
+  7. **Green:** build, then the landing spec 6 of 6 with the setup test.
+  8. **First screenshots** (scratchpad): every result cell sat in a box. Cause: `.result` is Ask's answer card class. Renamed `.measured`, then searched all markup for the landing's new class names: none in use elsewhere, so no other screen changed.
+  9. **Phone close-up:** a throwaway spec (`e2e/zz-scratch.spec.ts`) shot the table, the sample card and the header at 390 px and measured the table: it fits (340 of 340 px), with "Below target" on two lines. Deleted right after.
+  10. **Nothing live:** no model, SEC or API call and no container. Playwright's servers are local Node processes on 3102, 3103 and 4101, checked free first. Not run: gitleaks (it runs in Docker, so it waits for a go; the pre-commit hook runs it at commit) and `make vuln-scan` (no dependency changed).
+- Files: `web/app/page.tsx`, `web/app/ask/page.tsx`, `web/lib/landing.ts`, `web/lib/landing.test.ts`, `web/markdown.d.ts`, `web/next.config.ts`, `web/proxy.ts`, `web/app/login/{page.tsx,actions.ts}`, `web/app/not-found.tsx`, `web/components/{chrome,answer-view}.tsx`, `web/app/globals.css`, `web/e2e/{landing.spec,fixtures,env,gate.spec,a11y.spec,phone.spec,offline.spec,auth.spec,keyboard.spec,headers.spec,screens}.ts`, `docs/screenshots/ui/landing-{light,dark,phone}.png`, `README.md`, `docs/{design,context,deploy,memory,todo,activity-log}.md`.
+- Validation:
+  - Red first: the unit test file failed (module not found); then the landing spec failed 5 of 5 on the old app.
+  - `npm test` 88 of 88 (4 new); web typecheck clean; `npm run build` passes, with `/` and `/ask`; `npx playwright test` 80 of 80; `make lint` clean (140 files); `make typecheck` 0 errors.
+  - `npx playwright test -c playwright.screens.config.ts -g landing`: light, dark and phone, each after axe, into `docs/screenshots/ui/`.
+- Outstanding: the user picks from the differences with the mockup (design.md, the landing page), then ships.
+
 ### 2026-10-24: 10b takes main (10c's nested cap and the commit-message rule); 10b's numbers measured with both (uncommitted merge)
 
 - Changes, on `step-10-dataloader` (305b123) with main at 8e638a2 merged in by `git merge main --no-commit` (the user's request; the user's ship concludes the merge):

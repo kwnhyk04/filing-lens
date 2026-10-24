@@ -21,7 +21,7 @@ test.describe("signed out", () => {
 });
 
 test("signing out expires the cookie and clears the browser cache", async ({ page, context }) => {
-  await page.goto("/");
+  await page.goto("/ask");
   const [response] = await Promise.all([
     page.waitForResponse((reply) => new URL(reply.url()).pathname === "/logout"),
     page.getByRole("button", { name: "Sign out" }).click(),

@@ -1,7 +1,7 @@
 // axe on every page, live and demo: any WCAG 2.2 A or AA violation fails.
 import { ask, audit, expect, signedOut, signIn, test } from "./fixtures.ts";
 
-for (const path of ["/", "/coverage", "/demo", "/demo/coverage", "/no-such-page"]) {
+for (const path of ["/", "/ask", "/coverage", "/demo", "/demo/coverage", "/no-such-page"]) {
   test(`axe: ${path}`, async ({ page }) => {
     await page.goto(path);
     await audit(page);
@@ -23,7 +23,7 @@ test("axe: an error state", async ({ page }) => {
 test.describe("dark theme", () => {
   test.use({ colorScheme: "dark" });
 
-  for (const path of ["/coverage", "/demo"]) {
+  for (const path of ["/", "/coverage", "/demo"]) {
     test(`axe, dark: ${path}`, async ({ page }) => {
       await page.goto(path);
       await audit(page);
