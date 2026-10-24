@@ -7,7 +7,7 @@ bodies, status codes, headers and problem shapes), not the data layer.
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import date
@@ -547,6 +547,201 @@ def test_graphql_links_resolve_off_the_citation_path_too(server_url: str, api_ke
         chunk["filing"]["accessionNumber"],
         fact["company"]["ticker"],
     ) == ("AAPL", "1A", "0000320193-25-000079", "AAPL")
+
+
+def _lookups(fake: Any, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list[Any]]]:
+    """Records each lookup by id that reaches the fake backend, with the ids it asked for."""
+    calls: list[tuple[str, list[Any]]] = []
+    for name in ("get_chunks", "get_facts", "get_companies"):
+        real = getattr(fake, name)
+
+        async def spy(ids: Sequence[Any], name: str = name, real: Any = real) -> Any:
+            calls.append((name, list(ids)))
+            await asyncio.sleep(0)  # a real backend waits on I/O, so other resolvers run meanwhile
+            return await real(ids)
+
+        monkeypatch.setattr(fake, name, spy)
+    return calls
+
+
+# The links on one page wait for each other, so the page makes one lookup, each id once in it.
+LOOKUPS: list[tuple[str, str, list[tuple[str, list[Any]]]]] = [
+    (
+        "a cited chunk's filing's chunks, each with its section and filing",
+        '{ chunks(ids: ["c-2"]) { filing { chunks(first: 20) { edges { node {'
+        " section { item } filing { accessionNumber } } } } } } }",
+        [("get_chunks", ["c-2"]), ("get_chunks", ["c-1", "c-2", "c-3"])],
+    ),
+    (
+        "a page of filings, each with its company",
+        "{ filings(first: 20) { edges { node { company { ticker } } } } }",
+        [("get_companies", [320193, 789019])],
+    ),
+    (
+        "a cited chunk's filing's facts, each with its company",
+        '{ chunks(ids: ["c-2"]) { filing { facts(first: 20) { edges { node {'
+        " company { ticker } } } } } } }",
+        [("get_chunks", ["c-2"]), ("get_companies", [320193])],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("query", "lookups"), [row[1:] for row in LOOKUPS], ids=[row[0] for row in LOOKUPS]
+)
+def test_graphql_links_on_a_page_share_one_lookup(
+    server_url: str,
+    api_key: str,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+    lookups: list[tuple[str, list[Any]]],
+) -> None:
+    calls = _lookups(fake, monkeypatch)
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    body = response.json()
+    assert "errors" not in body, body["errors"]
+    assert calls == lookups
+
+
+def test_graphql_sources_make_only_their_own_two_lookups(
+    graphql: GraphqlClient, fake: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The web's citations come with their links, so the links look nothing up."""
+    calls = _lookups(fake, monkeypatch)
+    sources = graphql.sources(chunk_ids=["c-2", "c-1"], fact_ids=["f-1"])
+    assert [chunk.filing.company.ticker for chunk in sources.chunks] == ["AAPL", "AAPL"]
+    assert sorted(calls) == [("get_chunks", ["c-2", "c-1"]), ("get_facts", ["f-1"])]
+
+
+def test_graphql_lookups_start_afresh_with_each_request(
+    server_url: str, api_key: str, fake: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _lookups(fake, monkeypatch)
+    query = "{ filings(first: 20) { edges { node { company { ticker } } } } }"
+    for _ in range(2):
+        httpx2.post(f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key})
+    assert calls == [("get_companies", [320193, 789019])] * 2
+
+
+def test_graphql_a_failed_lookup_fails_its_links_with_one_masked_error(
+    server_url: str, api_key: str, fake: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def get_companies(ciks: Sequence[int]) -> Any:
+        raise RuntimeError("password=hunter2 leaked from a driver")
+
+    monkeypatch.setattr(fake, "get_companies", get_companies)
+    query = "{ filings(first: 20) { edges { node { company { ticker } } } } }"
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    assert [(e["message"], e["extensions"], e["path"]) for e in response.json()["errors"]] == [
+        ("Unexpected error.", {"code": "internal"}, ["filings", "edges", 0, "node", "company"])
+    ]
+
+
+# A row the backend no longer has fails its own link with not_found, at that link's place.
+GONE: list[tuple[str, str, Callable[[Any], bool], str, tuple[str, list[str | int]]]] = [
+    (
+        "Apple's company row",
+        "get_companies",
+        lambda company: company.cik == 320193,
+        "{ filings(formType: FORM_10K, first: 20) { edges { node { company { ticker } } } } }",
+        ("No company with CIK 320193.", ["filings", "edges", 0, "node", "company"]),
+    ),
+    (
+        "chunk c-1, whose filing is no longer indexed",
+        "get_chunks",
+        lambda source: source.chunk.id == "c-1",
+        '{ chunks(ids: ["c-2"]) { filing { chunks(first: 20) { edges { node {'
+        " section { item } } } } } } }",
+        (
+            "This chunk's filing is not indexed.",
+            ["chunks", 0, "filing", "chunks", "edges", 0, "node", "section"],
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("lookup", "gone", "query", "error"), [row[1:] for row in GONE], ids=[row[0] for row in GONE]
+)
+def test_graphql_a_missing_row_fails_its_own_link_with_not_found(
+    server_url: str,
+    api_key: str,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    lookup: str,
+    gone: Callable[[Any], bool],
+    query: str,
+    error: tuple[str, list[str | int]],
+) -> None:
+    real = getattr(fake, lookup)
+
+    async def without(keys: Sequence[Any]) -> list[Any]:
+        return [row for row in await real(keys) if not gone(row)]
+
+    monkeypatch.setattr(fake, lookup, without)
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    message, path = error
+    assert [(e["message"], e["extensions"], e["path"]) for e in response.json()["errors"]] == [
+        (message, {"code": "not_found"}, path)
+    ]
+
+
+# One filing's sections fail while links elsewhere in the query wait on a lookup they share with
+# links under the failed one: the Apple 10-K's company, or chunks c-2 and c-3 listed twice.
+SHARED: list[tuple[str, str, str, list[str | int]]] = [
+    (
+        "a company",
+        "{ filings(first: 20) { edges { node { company { ticker } sections { item } } } } }",
+        "0000320193-25-000073",
+        ["filings", "edges", 1, "node", "sections"],
+    ),
+    (
+        "a chunk's source",
+        '{ chunks(ids: ["c-2"]) {'
+        " section { chunks(first: 20) { edges { node { filing { accessionNumber } } } } }"
+        " filing { sections { item } chunks(first: 20) { edges { node { section { item } } } } }"
+        " } }",
+        "0000320193-25-000079",
+        ["chunks", 0, "filing", "sections"],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("query", "failing", "path"), [row[1:] for row in SHARED], ids=[row[0] for row in SHARED]
+)
+def test_graphql_a_failing_sibling_leaves_a_shared_lookup_to_the_other_links(
+    server_url: str,
+    api_key: str,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+    failing: str,
+    path: list[str | int],
+) -> None:
+    _lookups(fake, monkeypatch)  # its yield keeps the shared lookup waiting
+    real = fake.list_sections
+
+    async def list_sections(accession_number: str) -> Any:
+        if accession_number == failing:
+            raise RuntimeError("the database went away")
+        return await real(accession_number)
+
+    monkeypatch.setattr(fake, "list_sections", list_sections)
+    response = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    )
+    assert response.status_code == 200
+    assert [(e["message"], e["extensions"], e["path"]) for e in response.json()["errors"]] == [
+        ("Unexpected error.", {"code": "internal"}, path)
+    ]
 
 
 def test_graphql_limits_pass_the_deepest_query_the_web_needs(graphql: GraphqlClient) -> None:

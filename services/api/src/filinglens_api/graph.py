@@ -1,7 +1,9 @@
 """GraphQL contract (Strawberry). Resolvers read through the same Backend as the REST routes."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import date
+from functools import partial
 from typing import Annotated, Any
 
 import strawberry
@@ -9,6 +11,7 @@ import structlog
 from fastapi import Depends
 from graphql import GraphQLError, ValueNode, VariableNode
 from pydantic import BaseModel, ValidationError
+from strawberry.dataloader import DataLoader
 from strawberry.extensions import (
     DisableIntrospection,
     MaskErrors,
@@ -103,10 +106,8 @@ def _ids(ids: list[strawberry.ID]) -> list[str]:
 
 
 async def _company(info: strawberry.Info, known: schemas.Company | None, cik: int) -> "Company":
-    # ponytail: one lookup per filing or fact on connection pages; a DataLoader if pages need it.
-    company = known or await _backend(info).get_company(cik)
-    if company is None:
-        raise NotFoundError(f"No company with CIK {cik}.")
+    # Shielded: a link cancelled by a sibling's error must not cancel what other links await.
+    company = known or await asyncio.shield(info.context["companies"].load(cik))
     return Company(**company.model_dump())
 
 
@@ -172,13 +173,8 @@ class Chunk:
         return cls(**chunk.model_dump(), source=source)
 
     async def _source(self, info: strawberry.Info) -> ChunkSource:
-        if self.source is None:
-            # ponytail: one lookup per chunk on connection pages; a DataLoader if pages need it.
-            found = await _backend(info).get_chunks([self.id])
-            if not found:
-                raise NotFoundError("This chunk's filing is not indexed.")
-            self.source = found[0]
-        return self.source
+        # Shielded, as in _company: other links may await the same lookup.
+        return self.source or await asyncio.shield(info.context["chunk_sources"].load(self.id))
 
     @strawberry.field(description="The section the chunk belongs to.")
     async def section(self, info: strawberry.Info) -> "Section":
@@ -451,11 +447,27 @@ class Schema(strawberry.Schema):
                 log.warning("graphql_error", code=code, path=error.path)
 
 
+async def _chunk_sources(backend: Backend, ids: list[str]) -> list[ChunkSource | NotFoundError]:
+    found = {source.chunk.id: source for source in await backend.get_chunks(ids)}
+    return [found.get(i) or NotFoundError("This chunk's filing is not indexed.") for i in ids]
+
+
+async def _companies(backend: Backend, ciks: list[int]) -> list[schemas.Company | NotFoundError]:
+    found = {company.cik: company for company in await backend.get_companies(ciks)}
+    return [found.get(cik) or NotFoundError(f"No company with CIK {cik}.") for cik in ciks]
+
+
 async def get_context(
     backend: Annotated[Backend, Depends(get_backend)],
     answer_limits: Annotated[Callable[[], Awaitable[None]], Depends(answer_limits_for)],
 ) -> dict[str, Any]:
-    return {"backend": backend, "answer_limits": answer_limits}
+    # New loaders per request: the links on one page wait for each other and share one lookup.
+    return {
+        "backend": backend,
+        "answer_limits": answer_limits,
+        "chunk_sources": DataLoader(partial(_chunk_sources, backend)),
+        "companies": DataLoader(partial(_companies, backend)),
+    }
 
 
 # The limits are validation rules, so a query past them is refused before any resolver runs.

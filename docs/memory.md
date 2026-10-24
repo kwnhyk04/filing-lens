@@ -670,6 +670,35 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
   - **Not verifiable offline:** that Vercel's Node `fetch` sends no `Origin`. undici adds none, and `web/lib/server.ts` forwards no headers. Step B24, the phone test, covers it: every BFF call would get 403 otherwise.
 - 2026-10-21: Pitfall: asyncpg's own `DataError` quotes up to 40 characters of a bound value, which `hide_parameters` does not cover. So input bounds belong at validation (the review's CIK and fiscal-year rows).
 
+From PR 10b (2026-10-21, branch `step-10-dataloader`):
+
+- 2026-10-21: The GraphQL links off the citation path load through two DataLoaders (`strawberry.dataloader`), made per request in `graph.get_context`: `chunk_sources` batches `Backend.get_chunks`, and `companies` batches `Backend.get_companies`.
+  - Each load function lines the rows up by key and gives a missing key its own `NotFoundError`, with the old messages. The rows pre-joined on the citation path still skip the loaders.
+  - **Effect:** the links on one page make one lookup by id, each id once. For the 2026-10-18 worst query (20 cited chunks, `first: 100`), that is at most one per listed page, about 60, against thousands before. The figure uses the same counting and was not measured.
+  - **Not changed:** page queries. Each parent still runs its own `list_sections`, `list_chunks`, `list_facts` or `Company.filings` query (the next entry).
+  - **Shield:** each link awaits `asyncio.shield(loader.load(key))`.
+    - Why: the loader hands every link on a key the same future. graphql-core 3.3 cancels a failed field's siblings, and cancelling a task cancels the future it awaits.
+    - Without the shield, a sibling's error cancelled the shared future for links elsewhere in the query. Their `CancelledError` is a BaseException, which no layer catches, so a GraphQL error became an HTTP 500, and the real error went unlogged.
+    - The final review found it by reading the code; a test row per shield gave 500 without it (3 runs of 3).
+  - **Ruling:** `get_companies` replaces `get_company` rather than joining it, since `_company` was its only caller. Like `get_chunks`, it returns rows once each in the order given and leaves unknown keys out.
+- 2026-10-21: Open, the user decides (the final review): page queries still run once per parent.
+  - `{ filings(first: 100) { edges { node { sections { chunks(first: 100) { edges { cursor } } } } } } }` passes the depth limit of 6. On corpus-v1 (30 filings, 677 sections), it makes 1 + 30 + 677 = 708 page queries, each reading up to 101 chunk rows with their text.
+  - It is not a regression. The key is server-only, and the web never sends such a query.
+  - Options: cap a nested `first`, batch `Section.chunks`, or leave it.
+  - **Decided, and done by 10c** (2026-10-24, merged as #28): the user chose the nested `first` cap, 20 inside a list and 100 on the outermost list (PR 10c below). The numbers with the loaders and the cap together are in the 10b merge entry below.
+- 2026-10-21: Pitfall: the fake backend answers without suspending. So B1's tests never saw `section` and `filing` make two lookups for one chunk: the first resolver set `Chunk.source` before the second started. A real backend waits on I/O, so both start first.
+  - The call-count spy now yields once (`asyncio.sleep(0)`) before the fake answers. With it, main's code made 7 lookups for the fake's 3-chunk page (1, plus 2 per chunk). Without it, main's code made 4.
+  - The loaders make 2.
+- 2026-10-21: Lesson: graphql-core 3.3 cancels sibling resolvers at the first error (`gather_with_cancel`), and every link field is non-null. So a missing row nulls `data` and leaves exactly one error.
+  - The test of the loaders' lining up checks that error's message, code and path.
+  - A scratch mutation, loaders that pad the results instead, put the error on another item and failed both rows.
+  - The same cancellation reaches the loaders' shared futures, hence the shield (above).
+- 2026-10-21: Mutation runs, from scratch pytest plugins in the scratchpad, with no repo change. Each failed the tests named for it:
+  - padded loaders: both missing-row rows;
+  - one shield removed at a time: only that shield's row;
+  - one loader for the whole process: the per-request pin;
+  - a failed lookup swallowed as `not_found`: the masked-error pin.
+
 From PR 10c (2026-10-24, branch `step-10-deploy-config` from main at 7979cdb):
 
 - 2026-10-24: The nested `first` cap (user: "Include the nested 'first' cap on GraphQL lists that was planned for 10c, test first"). It is the first of the three options 10b's final review left open: cap a nested `first`, batch `Section.chunks`, or leave it. That entry sits in 10b's memory.md, on its unmerged branch.
@@ -689,6 +718,35 @@ From PR 10c (2026-10-24, branch `step-10-deploy-config` from main at 7979cdb):
   - **Not added:** a lasting test. PyYAML is only a transitive dependency, and a new dependency needs the user's approval. The 10c check script (activity-log.md) does the audit by `docker compose config`.
 - 2026-10-24: Container go for 10c (user, asked once every other check had passed): Testcontainers for one `make test-int` run. FreightAudit's ten running containers were the same before and after. Any other container needs a new go.
 - 2026-10-24: 10b is not on main. Its commit 305b123 sits on `step-10-dataloader` (pushed), and main's `graph.py` still has the two `ponytail:` one-lookup comments. 10c was built from main as the user asked. The plan puts the DataLoader before go-live, so deploy.md's steps 5 to 23 wait for 10a, 10b and 10c. Expect conflicts when 10b takes main: `graph.py` (both touch the resolvers) and `test_contract.py` (both add tests at the end; keep both).
+
+From the 10b merge (2026-10-24, main at 8e638a2 merged into `step-10-dataloader`, uncommitted):
+
+- 2026-10-24: Main merged into 10b (user: "Merge main into the 10b branch so it can ship"; `git merge main --no-commit`; the user's ship concludes it).
+  - **Text conflicts:** four docs only, each resolved by keeping both sides, entries in date order. `graph.py` and `test_contract.py` merged cleanly: the loaders and the cap touch different lines. The 10c entry above expected a conflict there.
+  - **The conflict git could not see:** four of 10b's test rows asked for `first: 100` inside a list (under `chunks(ids: …)`), which 10c's cap refuses. The merged contract tests failed exactly those 4. They now ask for 20; the fake lists at most 3 rows, so each row's lookups stay the same.
+- 2026-10-24: 10b's worst queries, measured with the loaders and the cap together, on corpus-v1's rows (the dev Postgres: revision 0008, 30 indexed filings, 677 sections, 11,263 chunks).
+  - **How:** a scratch script outside the repo ran each query in process through the real schema and `graph.get_context` (the per-request DataLoaders), over a `LiveBackend` subclass that counted every SQL statement and the rows it returned, by backend method. "Before the cap" set `graph.NESTED_FIRST` to 100 in that process only. Three runs: page queries and rows were the same each time; lookups by id varied.
+  - **Q1, 10b's review query:** `{ filings(first: 100) { edges { node { sections { chunks(first: N) { edges { cursor } } } } } } }`.
+
+    | Run | Page queries | Lookups by id | Rows read |
+    | --- | --- | --- | --- |
+    | before the cap, N = 100 | 708 (1 + 30 + 677) | 0 | 9,081 (30 + 677 + 8,374) |
+    | cap, N = 100 | 6, then refused (`invalid_input`) | 0 | 145 |
+    | cap, N = 20, the most it allows | 708 | 0 | 4,413 (30 + 677 + 3,706) |
+
+  - **Q2, links under a list:** 20 cited chunks from 20 filings, each filing's `chunks(first: N)` with `section` and `filing`, and `facts(first: N)` with `company` (the 2026-10-18 worst shape).
+
+    | Run | Page queries | Lookups by id | Rows read |
+    | --- | --- | --- | --- |
+    | before the cap, N = 100 | 40 | 24 to 29 | 6,080 (2,020 + 2,020 + 2,020 + 20) |
+    | cap, N = 100 | 0, refused | 1 (the cited ids) | 20 |
+    | cap, N = 20 | 40 | 28 to 33 | 1,280 (420 + 420 + 420 + 20) |
+
+    The rows are chunk pages, fact pages, chunk lookups (the cited ids plus each listed chunk once) and companies.
+  - **Corrections:** 10b's "each reading up to 101 chunk rows" and 10c's "about 71,500" and "about 14,900" were upper bounds from the page size. Measured, Q1's chunk pages read 8,374 rows before the cap and 3,706 with it: most sections hold fewer chunks than a page. 10b's unmeasured "about 60" lookups by id came out at 24 to 33, the cited-ids lookup included.
+  - **Why the lookups vary:** a loader batches the links that wait in the same event-loop turn. Pages finish at different times, so the same query makes a different number of batches. Each id is still looked up once per request.
+  - **What the cap leaves:** page queries still run once per parent (708 for Q1). Batching `Section.chunks` is the upgrade path.
+- 2026-10-24: Container go for the 10b merge (user): Testcontainers for one `make test-int`, and `filinglens-postgres-1` by exact name for the measurement, with two conditions: the script stays outside the repo (it is in the scratchpad), and the container ends as found (it was stopped, so it was stopped again). Port 5433 was free first; afterwards only closed connections (`TIME_WAIT`) remained on it.
 
 ## Preferences and Instructions
 

@@ -69,7 +69,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - Options: widen `JITTER_S` (the calibration knob) in its own small PR, or leave it, since CI runs it on Linux.
 - [ ] (B1 review minors, 2026-10-18; deferred, user decides) Found by B1's final review, not fixed:
   - **Combined filings:** facts listed under a filing take the filing's CIK (`Filing.facts`). So a combined filing's facts of another registrant would show the wrong company. Latent: none of the 30 companies share a filing.
-  - **Comment:** the `ponytail:` comment on `Chunk._source` says one lookup per chunk. But `section` and `filing` resolve at once and make two; step 10's DataLoader fixes it.
+  - **Comment:** the `ponytail:` comment on `Chunk._source` says one lookup per chunk. But `section` and `filing` resolve at once and make two; step 10's DataLoader fixes it. Fixed in 10b: the loader makes one lookup per page, and the comment is gone.
   - **Test strength:**
     - The FakeBackend maps every chunk to `FILINGS[0]` and every fact to AAPL, so the link tests cannot tell a link that follows its row from a constant.
     - "No lookup on an empty list" has no test.
@@ -86,7 +86,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - **Web:** Vercel, with Root Directory `web` and files outside it included, region `hkg1`, and only main deploying.
     - **Database:** `corpus-v1`, restored once (0 SEC requests, 0 model calls).
   - [x] **0. Docs:** todo, activity log, memory, context (2026-10-21). Uncommitted; they ride with 10a.
-  - [ ] **10a. API hardening** (branch `step-10-api-hardening`), each change test first (activity-log.md, 2026-10-21):
+  - [x] **10a. API hardening** (branch `step-10-api-hardening`), each change test first (activity-log.md, 2026-10-21); merged as #19 (1f15729):
     - [x] a browser `Origin` gets 403 (an app-wide dependency, before the key check);
     - [x] `/readyz` is cached for 5 s (its state created in `lifespan`, the stamp taken when a round ends);
     - [x] `/docs`, `/redoc` and `/openapi.json` are off;
@@ -107,13 +107,36 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make contracts-breaking`: nothing breaking;
       - gitleaks on 16 files: clean;
       - the eval check: no model call.
-    - [x] (user) ship: merged as #19 (1f15729, git log).
-  - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`):
-    - per-request loaders for chunk sources and companies (`Backend.get_companies`);
-    - call-count tests;
-    - (user) ship.
-    - **Not on main (git log, 2026-10-24):** committed as 305b123 on `step-10-dataloader` (pushed), never merged. Main's `graph.py` still has the two `ponytail:` one-lookup comments. The plan puts the DataLoader before go-live.
-  - [ ] **10c. Deploy config and runbook** (branch `step-10-deploy-config` from main at 7979cdb, Claude first merged as #22), with the user's two updates (2026-10-24):
+    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #19 (1f15729, git log).
+  - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`), test first (activity-log.md, 2026-10-21):
+    - [x] per-request loaders for chunk sources and companies, in `graph.get_context`;
+    - [x] `Backend.get_companies`, which replaces `get_company` (its only caller was `_company`);
+    - [x] call-count tests: a page of links makes one lookup, each id once; `Sources` keeps its two;
+    - [x] a missing row gets `not_found` at its own link;
+    - [x] `get_companies` on Postgres (integration);
+    - [x] the final review's fixes:
+      - each link's load is shielded, since a failing sibling turned a GraphQL error into a 500;
+      - pins for a fresh loader per request, and for a failed lookup's one masked error;
+      - the `Sources` pin compares its lookups in any order;
+    - [x] checks:
+      - `make lint` and `make typecheck` (0 errors) clean;
+      - `make test` 426, `make test-int` 31;
+      - `make contracts-breaking`: no changes; both contracts match a fresh export;
+      - gitleaks on 9 files: clean;
+      - the eval check: no model call.
+    - **Not on main until this merge (git log, 2026-10-24):** committed as 305b123 on `step-10-dataloader` (pushed) on 2026-10-21, never merged, while main moved on to 10c (#28) and the commit-message rule (#26).
+    - [x] main merged in (2026-10-24, user): `git merge main --no-commit` at 8e638a2, uncommitted; the user's ship concludes the merge (activity-log.md, 2026-10-24).
+      - Text conflicts in four docs only; `graph.py` and `test_contract.py` merged cleanly, so the loaders and 10c's nested `first` cap sit side by side.
+      - Four of 10b's test rows asked for `first: 100` inside a list, which the cap refuses ("first must be between 1 and 20 inside another list."). They now ask for 20. The fake backend lists at most 3 rows, so each row's lookups stay the same.
+    - [x] checks after the merge (activity-log.md, 2026-10-24):
+      - the DataLoader and nested-cap tests: all 105 contract tests pass;
+      - `make lint` clean (140 files), `make typecheck` 0 errors, `make test` 457;
+      - `make vuln-scan`: 0 on all three lockfiles;
+      - `make test-int` (the user's go): 32 passed, the running containers the same before and after.
+    - [x] the 10b numbers with the loaders and the cap together, measured on corpus-v1's rows (memory.md, the 10b merge): 10b's review query makes 708 page queries and reads 4,413 rows (9,081 before the cap), and asking for 100 inside a list is refused; 20 cited chunks' filings with their links make 40 page queries, 28 to 33 lookups by id and 1,280 rows (6,080 before the cap).
+    - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+  - [x] (user decides, before 10c; found by 10b's review) Page queries still run once per parent: one nested query makes 708 of them on corpus-v1 (memory.md, PR 10b). Options: cap a nested `first`, batch `Section.chunks`, or leave it. **Done by 10c** (merged as #28): the user chose the nested `first` cap (20 inside a list, 100 on the outermost list). It cuts the rows each nested page reads, not the page queries: measured, that query still makes 708 page queries but reads 4,413 rows instead of 9,081 (memory.md, the 10b merge).
+  - [x] **10c. Deploy config and runbook**, merged as #28 (e75cb57, git log) (branch `step-10-deploy-config` from main at 7979cdb, Claude first merged as #22), with the user's two updates (2026-10-24):
     - [x] the nested `first` cap, test first: a connection inside another list takes `first` 1 to 20 (the default page size), the outermost list keeps 1 to 100. It is the option 10b's review left open ("cap a nested `first`"; 10b's memory entry, on its branch). It shrinks the rows each nested page reads, not the number of page queries (memory.md). Red: 5 refused rows failed, the 2 pin rows passed; a scratch mutant with the cap on every list failed only the outermost-100 pin;
     - [x] the prod override: project name, GHCR images by `IMAGE_TAG`, no build, no host port, the `data` network, the `ingest` profile, the tailscale service; no forced providers and no forced empty `ANTHROPIC_API_KEY` (Claude first); `RETRIEVAL_EMBEDDING_COLUMN` required;
     - [x] `CLAUDE_DAILY_TOKEN_BUDGET` reaches the api: compose never passed it, so a value in `.env` or `.env.prod` had no effect (found 2026-10-24 by an audit of `ApiSettings` against the api's compose environment; the only field missing). Red: the rendered prod config had no such variable although the env file set one;
@@ -127,7 +150,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - gitleaks on the changed files;
       - the eval check: only `graph.py` of the eval inputs, which the harness never loads.
     - [x] `make test-int` (the user's go, 2026-10-24): 32 passed in 3 min 30 s; the running containers were the same before and after. The read-under-load test's nested `chunks(first: 50)` became 20, since the cap would refuse 50.
-    - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #28.
   - [ ] **Manual (user), anytime:**
     - B1: make the GHCR packages public (irreversible). Not shown done by the docs or any local setting.
     - B2: add `tag:filinglens` to `tagOwners` and to the funnel `nodeAttrs`. Not shown done.
@@ -205,7 +228,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] Step 10's 10c, on branch `step-10-deploy-config` from main at 7979cdb (Claude first merged as #22), uncommitted: built and checked; the user ships it. 10b (305b123, `step-10-dataloader`) is still not on main (git log, 2026-10-24), and go-live needs it. The checklists are under Pending, item 10.
+- [ ] Step 10's 10b, on branch `step-10-dataloader` (305b123) with main (8e638a2: 10c as #28, the commit-message rule as #26) merged in, uncommitted (2026-10-24). The user's ship concludes the merge; go-live needs it. The checklists are under Pending, item 10.
 
 ## Completed
 

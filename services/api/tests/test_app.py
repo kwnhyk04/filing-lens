@@ -364,9 +364,9 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
         assert revenue.items == facts[:1]
 
         # Lookups by id, as citations make them: in the order given, once each, unknown ids out.
-        company = await backend.get_company(filings[0].cik)
-        assert company is not None
-        assert await backend.get_company(1) is None
+        companies = await backend.get_companies([CIK_BASE + 1, 1, CIK_BASE, CIK_BASE + 1])
+        assert [c.cik for c in companies] == [CIK_BASE + 1, CIK_BASE]
+        company = next(c for c in companies if c.cik == filings[0].cik)
         cited = await backend.get_chunks([chunks[4].id, "unknown", chunks[0].id, chunks[4].id])
         assert [source.chunk for source in cited] == [chunks[4], chunks[0]]
         assert (cited[0].section, cited[0].filing, cited[0].company) == (

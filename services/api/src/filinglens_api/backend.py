@@ -218,7 +218,9 @@ class Backend(Protocol):
         """Facts among `ids`, once each in the order given; others left out."""
         ...
 
-    async def get_company(self, cik: int) -> Company | None: ...
+    async def get_companies(self, ciks: Sequence[int]) -> list[Company]:
+        """Companies among `ciks`, once each in the order given; unknown CIKs left out."""
+        ...
 
     async def search(
         self,
@@ -558,10 +560,11 @@ class LiveBackend:
         }
         return [found[i] for i in dict.fromkeys(ids) if i in found]
 
-    async def get_company(self, cik: int) -> Company | None:
+    async def get_companies(self, ciks: Sequence[int]) -> list[Company]:
         query = select(CompanyRow.cik, CompanyRow.ticker, CompanyRow.name)
-        rows = await self._rows(query.where(CompanyRow.cik == cik))
-        return Company(cik=rows[0].cik, ticker=rows[0].ticker, name=rows[0].name) if rows else None
+        rows = await self._rows(query.where(CompanyRow.cik.in_(ciks)))
+        found = {row.cik: Company(cik=row.cik, ticker=row.ticker, name=row.name) for row in rows}
+        return [found[cik] for cik in dict.fromkeys(ciks) if cik in found]
 
     async def search(
         self,
