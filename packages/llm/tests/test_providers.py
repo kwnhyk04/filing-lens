@@ -5,6 +5,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from datetime import date, timedelta
+from typing import Any, cast
 
 import httpx2
 import pytest
@@ -93,9 +94,35 @@ def claude(
 
     client = httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
     model = Anthropic(
-        "claude-haiku-5-5", "k", expires=EXPIRES, today=lambda: today, http_client=client
+        "claude-haiku-5-5",
+        "k",
+        expires=EXPIRES,
+        ledger=cast(Any, Ledger()),
+        today=lambda: today,
+        http_client=client,
     )
     return model, sent
+
+
+class Ledger:
+    """budget.ClaudeLedger in memory: no budget used, Claude on."""
+
+    daily_tokens = 1_500_000
+
+    def __init__(self) -> None:
+        self.used, self.reason = 0, None
+
+    async def off(self) -> str | None:
+        return self.reason
+
+    async def turn_off(self, kind: str, reason: str) -> None:
+        self.reason = reason
+
+    async def tokens_today(self) -> int:
+        return self.used
+
+    async def record(self, tokens: int) -> None:
+        self.used += tokens
 
 
 async def ask(model: Anthropic) -> Completion:
@@ -107,7 +134,6 @@ async def ask(model: Anthropic) -> Completion:
     [
         (error(402, "billing_error", "Your credit balance is too low."), "402 billing_error"),
         (error(400, "invalid_request_error", SPEND_LIMIT), "400 invalid_request_error"),
-        (error(429, "rate_limit_error", SPEND_CAP), "429 without Retry-After"),  # the spend cap
     ],
 )
 async def test_credits_gone_turn_claude_off_for_the_rest_of_the_credit_period(
@@ -121,6 +147,13 @@ async def test_credits_gone_turn_claude_off_for_the_rest_of_the_credit_period(
     with pytest.raises(AiUnavailableError):
         await ask(model)
     assert len(sent) == 1  # no request once the credits are gone
+
+
+async def test_a_429_without_retry_after_is_a_rate_limit_and_keeps_claude_on() -> None:
+    model, sent = claude(error(429, "rate_limit_error", SPEND_CAP))  # user rule, 2026-10-21
+    with pytest.raises(RateLimitedError) as raised:
+        await ask(model)
+    assert raised.value.retry_after_s is None and model.off() is None and len(sent) == 1
 
 
 async def test_any_other_400_fails_the_call_but_keeps_claude_on() -> None:

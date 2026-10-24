@@ -8,8 +8,9 @@ scope, so it changes when an answer arrives, never what it says. The primary mod
 writes the answer with [n] markers and quotes, and every sentence must pass validation
 (filinglens_llm.answer.check); a failure gets one regeneration, then the failing sentences are
 dropped with a warning. A router call
-that fails falls back to LLM_FALLBACK; an answer call tries LLM_ANSWER_FALLBACK first while it is on
-(Claude, until its credits are gone or expire), then LLM_FALLBACK. Evals turn fallbacks off
+that fails falls back to LLM_FALLBACK; an answer call tries LLM_ANSWER_FALLBACK, then LLM_FALLBACK.
+Production puts Claude first (LLM_PRIMARY) and Gemini as LLM_ANSWER_FALLBACK; Claude sits out
+while it cannot answer (filinglens_llm.providers.Anthropic). Evals turn fallbacks off
 (allow_fallback), and each fallback is logged and counted. Out-of-scope questions, unknown
 companies, fiscal years with no 10-K yet and questions without relevant evidence get a refusal
 instead of a model answer.
@@ -219,6 +220,8 @@ class Answerer:
                 outcome = self._refusal(*plan, run)
             else:
                 kept = early.task if early.agrees(request, routing, plan) else None
+                if kept is None:  # a guess the plan does not use must not hold the reranker
+                    early.task.cancel()
                 async for event in self._answer(request.question, routing, plan, run, kept):
                     if isinstance(event, AnswerCompleted):
                         outcome = event.answer
@@ -441,22 +444,32 @@ class Answerer:
         )
         yield AnswerCompleted(answer=answer)
 
-    def _chain(self, role: str) -> list[Provider]:
+    async def _chain(self, role: str) -> list[Provider]:
         """The models a router or answer call tries in order: its own, then for answers
-        LLM_ANSWER_FALLBACK unless it is off for the credit period, then LLM_FALLBACK; evals turn
-        fallbacks off."""
+        LLM_ANSWER_FALLBACK, then LLM_FALLBACK; evals turn fallbacks off. Claude is left out
+        while it cannot answer (off for good, or today's budget used up), with no fallback logged;
+        alone in the chain, its reason is raised."""
         models = self._models
         chain = [models.router if role == "router" else models.primary]
         if self._allow_fallback:
-            extra = models.answer_fallback
-            if role == "primary" and extra and not (isinstance(extra, Anthropic) and extra.off()):
-                chain.append(extra)
+            if role == "primary" and models.answer_fallback:
+                chain.append(models.answer_fallback)
             chain.append(models.fallback)
-        return list(dict.fromkeys(chain))  # a model in two places is tried once
+        usable: list[Provider] = []
+        skipped: FilingLensError | None = None
+        for provider in dict.fromkeys(chain):  # a model in two places is tried once
+            reason = await provider.unusable() if isinstance(provider, Anthropic) else None
+            if reason is None:
+                usable.append(provider)
+            else:
+                skipped = reason
+        if skipped is not None and not usable:
+            raise skipped
+        return usable
 
     async def _stream(self, system: str, user: str, run: _Run) -> AsyncIterator[str | Completion]:
         """The answer's stream; a failure before the first text tries the next model."""
-        chain = self._chain("primary")
+        chain = await self._chain("primary")
         for attempt, provider in enumerate(chain):
             started = False
             try:
@@ -475,7 +488,7 @@ class Answerer:
     async def _with_fallback[T](
         self, role: str, call: Callable[[Provider], Awaitable[T]], run: _Run
     ) -> T:
-        chain = self._chain(role)
+        chain = await self._chain(role)
         for provider, next_one in itertools.pairwise(chain):
             try:
                 return await call(provider)
@@ -512,6 +525,8 @@ class Answerer:
         run.cost_usd += credits_usd(
             completion.model, completion.input_tokens, completion.output_tokens
         )
+        if completion.model.startswith("anthropic:"):  # Claude counts in its own ledger
+            return
         try:
             await budget.record(self._redis, completion.input_tokens + completion.output_tokens)
         except RedisError as error:  # the answer already cost the tokens; keep it

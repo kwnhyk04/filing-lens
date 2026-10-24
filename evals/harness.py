@@ -96,9 +96,11 @@ from filinglens_db.models import (
 )
 from filinglens_llm import answer as drafting
 from filinglens_llm import router
+from filinglens_llm.budget import ClaudeLedger
 from filinglens_llm.local import REVISIONS
 from filinglens_llm.providers import (
     CLAUDE_EFFORT,
+    CLAUDE_MAX_TOKENS,
     CLAUDE_THINKING,
     TIMEOUT,
     Gemini,
@@ -121,7 +123,7 @@ REPORTS = EVALS / "reports"
 THRESHOLDS = EVALS / "thresholds.json"
 PROVIDERS = EVALS / "providers.json"
 CALIBRATION = EVALS / "calibration" / VERSION / "result.json"
-RETRIEVAL_TIMEOUT_S = 60.0  # never degraded: the measurement needs the reranker's own order
+RETRIEVAL_TIMEOUT_S = 60.0  # never degraded: the reranker's own order, in both suites
 THINKING_MAX_TOKENS = 4096  # Gemini's own thinking spends output tokens (decision 3)
 JUDGE_KAPPA_MIN = 0.7
 EVAL_REDIS_DB = 15
@@ -154,6 +156,10 @@ BINARY = (
 # next dev questions in golden.assign_splits' seeded rank order, each kind in proportion to dev's
 # mix. Golden v1 stays frozen; this widens only what --subset=ci runs.
 CI_EXTRA = ("a04", "a07", "a09", "t04", "t08")
+# The labelled local configuration (--claude-primary): production's first answer model, measured
+# beside the official free-model run; never a floor, never in CI (user, 2026-10-21).
+CLAUDE_PRIMARY = "anthropic:claude-haiku-5-5"
+CLAUDE_LABEL = "claude-primary (local)"
 STAGES = ("route", "facts", "retrieve", "generate", "regenerate")
 LABELS = {
     "recall@10": "Retrieval recall@10",
@@ -204,6 +210,33 @@ class EvalSettings(ApiSettings):
         if value.startswith("anthropic:"):
             raise ValueError("cannot be Claude: the judge's reference labels came from Claude")
         return value
+
+
+def eval_settings() -> EvalSettings:
+    """EvalSettings with the retrieval suite's reranker deadline. Past the API's, a search keeps
+    fused order, so an answer's passages, and the cache keys of its replies, would follow the
+    runner's speed (10b's CI eval, 2026-10-21)."""
+    deadline_ms = int(RETRIEVAL_TIMEOUT_S * 1000)
+    return load_settings(EvalSettings).model_copy(update={"rerank_timeout_ms": deadline_ms})
+
+
+def answer_model(args: argparse.Namespace, settings: EvalSettings) -> EvalSettings:
+    """The official eval answers with the free models. --claude-primary swaps in Claude for a
+    labelled local run that reuses the official run's routes; CI never runs it."""
+    if not args.claude_primary:
+        if settings.llm_primary.startswith("anthropic:"):
+            raise SystemExit(
+                "The official eval runs the free models; for Claude add --claude-primary"
+                " (local, labelled, never floors)."
+            )
+        return settings
+    if args.ci or os.environ.get("CI"):
+        raise SystemExit("--claude-primary is local only: CI runs the official free models.")
+    if settings.anthropic_api_key is None or not settings.anthropic_api_key.get_secret_value():
+        raise SystemExit("--claude-primary needs ANTHROPIC_API_KEY.")
+    # The official free run's routes, whatever .env's LLM_PRIMARY says: a fair comparison.
+    args.router_primary = EvalSettings.model_fields["llm_primary"].default
+    return settings.model_copy(update={"llm_primary": CLAUDE_PRIMARY})
 
 
 @dataclass(frozen=True)
@@ -469,13 +502,15 @@ def answer_path(
     return path | {"tag": tag} if tag else path
 
 
-def primary_provider(settings: EvalSettings, http: httpx.AsyncClient, thinking: str) -> Provider:
+def primary_provider(
+    settings: EvalSettings, http: httpx.AsyncClient, thinking: str, ledger: ClaudeLedger
+) -> Provider:
     """LLM_PRIMARY; Gemini keeps its own thinking when `thinking` is "default" (decision 3)."""
     name, _, model = settings.llm_primary.partition(":")
     if name == "gemini" and thinking == "default":
         key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
         return Gemini(model, key, http, minimal_thinking=False)
-    return provider(settings.llm_primary, settings, http)
+    return provider(settings.llm_primary, settings, http, ledger)
 
 
 def routed(
@@ -637,7 +672,10 @@ class AnswerSuite:
         self.redis = Redis.from_url(eval_redis_url(settings))
         self.evidence = PostgresEvidence(engine, settings)
         self.router = provider(settings.llm_router, settings, self.http)
-        self.primary = primary_provider(settings, self.http, args.thinking)
+        # Claude's ledger lives in the API's Redis database, not db 15: one budget with the api.
+        self.claude_redis = Redis.from_url(str(settings.redis_url.get_secret_value()))
+        ledger = ClaudeLedger(self.claude_redis, settings.claude_daily_token_budget)
+        self.primary = primary_provider(settings, self.http, args.thinking, ledger)
         self.judge = provider(settings.llm_judge, settings, self.http)
         self.tracked: dict[str, str] = {}  # the router's companies, read when the run starts
         gemini = settings.llm_primary.startswith("gemini:")
@@ -647,6 +685,8 @@ class AnswerSuite:
         if args.primary_tag:  # a new key for the primary only: router replies stay cached
             self.options |= {"tag": args.primary_tag}
         self.max_tokens = THINKING_MAX_TOKENS if gemini and args.thinking == "default" else None
+        if settings.llm_primary.startswith("anthropic:"):  # Claude's own cap, in its keys too
+            self.max_tokens = CLAUDE_MAX_TOKENS
         self.path = answer_path(settings, index, args.tag)
         # --router-primary: the router replies another primary's run got, so both models get the
         # same routes (a fair comparison); without it, the same path as the primary's.
@@ -830,6 +870,7 @@ class AnswerSuite:
     async def close(self) -> None:
         await self.http.aclose()
         await self.redis.aclose()
+        await self.claude_redis.aclose()
 
 
 def paid_cost(record: Mapping[str, Any], prices: Mapping[str, Any]) -> float | None:
@@ -1044,6 +1085,8 @@ def markdown(report: Mapping[str, Any]) -> str:
                 f"| `{model}` | {n['calls']} | {n['live']} | {n['input_tokens']:,} |"
                 f" {n['output_tokens']:,} |"
             )
+    if versus := report.get("versus"):
+        lines += side_by_side(report, versus)
     return "\n".join(lines) + "\n"
 
 
@@ -1062,11 +1105,12 @@ def call_totals(records: Mapping[str, list[dict[str, Any]]]) -> dict[str, dict[s
 
 
 def previous(report: Mapping[str, Any]) -> dict[str, Any] | None:
-    """The latest earlier report with the same suite, split and subset."""
+    """The latest earlier report with the same suite, split, subset and answer model."""
     same: list[dict[str, Any]] = []
     for path in [*REPORTS.glob("*.json"), *REPORTS.glob("runs/*.json")]:
         earlier = json.loads(path.read_text(encoding="utf-8"))
-        if all(earlier.get(key) == report[key] for key in ("suite", "split", "subset")):
+        model = earlier.get("config", {}).get("primary") == report["config"]["primary"]
+        if model and all(earlier.get(key) == report[key] for key in ("suite", "split", "subset")):
             same.append(earlier)
     return max(same, key=lambda earlier: earlier["created_at"], default=None)
 
@@ -1087,14 +1131,44 @@ def write_report(report: Mapping[str, Any]) -> Path:
     """evals/reports/runs/<UTC time>-<suite>-<split>-<subset>.json and .md; the full test run
     of every suite goes to evals/reports/<date>.json and .md."""
     final = (report["suite"], report["split"], report["subset"]) == ("all", "test", "full")
+    final = final and not report["config"].get("label")  # a labelled run never takes the date
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    name = f"{stamp}-{report['suite']}-{report['split']}-{report['subset']}"
+    name = run_name(report, stamp)
     base = REPORTS / date.today().isoformat() if final else REPORTS / "runs" / name
     base.parent.mkdir(parents=True, exist_ok=True)
     body = json.dumps(report, indent=1, ensure_ascii=False, default=str) + "\n"
     base.with_suffix(".json").write_text(body, encoding="utf-8", newline="\n")
     base.with_suffix(".md").write_text(markdown(report), encoding="utf-8", newline="\n")
     return base.with_suffix(".md")
+
+
+def run_name(report: Mapping[str, Any], stamp: str) -> str:
+    """A run report's name: <UTC time>-<suite>-<split>-<subset>, a Claude run's marked."""
+    name = f"{stamp}-{report['suite']}-{report['split']}-{report['subset']}"
+    return f"{name}-claude-primary" if report["config"].get("label") == CLAUDE_LABEL else name
+
+
+def side_by_side(report: Mapping[str, Any], official: Mapping[str, Any]) -> list[str]:
+    """A labelled run's metrics beside the official run's, for its markdown report."""
+    lines = [
+        "",
+        f"## {report['config']['label']} beside the official run of {official['created_at']}"
+        f" (`{official['config']['primary']}`)",
+        "",
+        "| Metric | Official | This run |",
+        "| --- | --- | --- |",
+    ]
+    for suite, metrics in report["metrics"].items():
+        for name, entry in metrics.items():
+            old = official["metrics"].get(suite, {}).get(name, {}).get("value")
+            if old is None and entry["value"] is None:
+                continue
+            label = LABELS.get(name, name.removesuffix("_ms").replace("_", " ").capitalize())
+            cells = [
+                shown(name, value) if value is not None else "-" for value in (old, entry["value"])
+            ]
+            lines.append(f"| {label} | {cells[0]} | {cells[1]} |")
+    return lines
 
 
 def floor_key(report: Mapping[str, Any], suite: str) -> str:
@@ -1239,7 +1313,7 @@ async def evaluate(args: argparse.Namespace) -> int:
     if answers:
         os.environ["AI_ENABLED"] = "true"  # an answer run calls the models on purpose
     os.environ.setdefault("HF_HUB_OFFLINE", "1")  # pinned local models load from HF_HOME
-    settings = load_settings(EvalSettings)
+    settings = answer_model(args, eval_settings())
     configure_logging("eval", "WARNING")
     if args.ci and (missing := unfloored(args, settings.llm_primary)):  # before any call
         raise Stop(
@@ -1284,6 +1358,7 @@ async def evaluate(args: argparse.Namespace) -> int:
             "tag": args.tag or None,
             "primary_tag": args.primary_tag or None,
             "router_primary": args.router_primary or None,
+            "label": CLAUDE_LABEL if args.claude_primary else None,
         }
         print(
             f"Golden set {VERSION}: {len(questions)} {args.split} questions ({args.subset});"
@@ -1326,6 +1401,8 @@ async def evaluate(args: argparse.Namespace) -> int:
             "records": records,
         }
         report["notes"] = notes(report)
+        if args.claude_primary:  # beside the official run of the same questions
+            report["versus"] = previous({**report, "config": {"primary": args.router_primary}})
         before = previous(report)
         path = write_report(report)
         await save_run(engine, report)
@@ -1333,6 +1410,9 @@ async def evaluate(args: argparse.Namespace) -> int:
             suite.run_file.unlink(missing_ok=True)  # complete: a rerun starts over, from the cache
         print(f"Report: {path}")
         print_deltas(report, before)
+        if args.claude_primary:
+            print("A Claude run checks no floors; its report sits beside the official run.")
+            return 0
         past, checked, unchecked = apply_floors(  # floors come from --set-floors
             report, False, calibrated(result), latency=not args.ci
         )
@@ -1485,6 +1565,10 @@ def set_floors(path: Path, replace: bool = False) -> None:
     every metric with a target (quality, tokens, cost and latency), keeping only tighter ones;
     with replace, the report's keys get these floors whether tighter or not."""
     report = json.loads(path.read_text(encoding="utf-8"))
+    if report["config"].get("label") or report["config"]["primary"].startswith("anthropic:"):
+        raise SystemExit(
+            "Claude runs never set floors: the floors come from the free models' runs."
+        )
     judge_ok = calibrated(report.get("judge_calibration"))
     past, _, _ = apply_floors(report, True, judge_ok, replace=replace)
     for line in past:
@@ -1519,6 +1603,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--compare", nargs=2, type=Path, metavar="REPORT")
     parser.add_argument("--sweep", type=Path, metavar="REPORT", help="refusal threshold sweep")
+    parser.add_argument(
+        "--claude-primary", action="store_true",
+        help="a labelled local run with Claude answering, beside the official run; never floors",
+    )  # fmt: skip
     return parser.parse_args(argv)
 
 

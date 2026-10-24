@@ -26,6 +26,7 @@ from filinglens_api import limits
 from filinglens_api.answering import Answerer, Evidence, Models
 from filinglens_api.schemas import Answer, AnswerCompleted, AnswerDelta, AnswerRequest
 from filinglens_core.errors import AiUnavailableError, OverloadedError, UpstreamError
+from filinglens_llm import budget
 from filinglens_llm.providers import (
     BASE_URLS,
     Anthropic,
@@ -175,10 +176,31 @@ def claude_stream(text: str) -> httpx2.Response:
     return httpx2.Response(200, text=body, headers=SSE)
 
 
+class Ledger:
+    """Claude's daily tokens and its switch-off in memory, as budget.ClaudeLedger keeps them in
+    Redis; one Ledger shared by two models stands for two processes, or a restart."""
+
+    def __init__(self, used: int = 0, daily_tokens: int = 1_500_000) -> None:
+        self.used, self.daily_tokens = used, daily_tokens
+        self.switched_off: tuple[str, str] | None = None  # kind and reason
+
+    async def off(self) -> str | None:
+        return self.switched_off[1] if self.switched_off else None
+
+    async def turn_off(self, kind: str, reason: str) -> None:
+        self.switched_off = (kind, reason)
+
+    async def tokens_today(self) -> int:
+        return self.used
+
+    async def record(self, tokens: int) -> None:
+        self.used += tokens
+
+
 def claude(
-    *replies: httpx2.Response, today: date = date(2026, 10, 17)
+    *replies: httpx2.Response, today: date = date(2026, 10, 17), ledger: Ledger | None = None
 ) -> tuple[Anthropic, list[httpx2.Request]]:
-    """Claude (LLM_ANSWER_FALLBACK) answering each request with the next reply, and its requests."""
+    """Claude answering each request with the next reply, and its requests."""
     sent: list[httpx2.Request] = []
     queue = list(replies)
 
@@ -189,7 +211,12 @@ def claude(
     client = httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
     expires = date(2026, 11, 10)
     model = Anthropic(
-        "claude-haiku-5-5", "k", expires=expires, today=lambda: today, http_client=client
+        "claude-haiku-5-5",
+        "k",
+        expires=expires,
+        ledger=cast(Any, ledger or Ledger()),
+        today=lambda: today,
+        http_client=client,
     )
     return model, sent
 
@@ -200,12 +227,15 @@ def answerer(
     max_inflight: int,
     evidence: RecordedEvidence | None = None,
     answer_fallback: Provider | None = None,
+    first: Provider | None = None,
     **options: Any,
 ) -> Answerer:
     groq = OpenAICompatible("groq", BASE_URLS["groq"], "openai/gpt-oss-20b", "k", http)
     nvidia = OpenAICompatible("nvidia", BASE_URLS["nvidia"], "openai/gpt-oss-20b", "k", http)
     gemini = Gemini("gemini-3.5-flash-lite", KEY, http)
-    models = Models(groq, gemini, nvidia, answer_fallback)
+    # Claude first, as production runs it: LLM_PRIMARY Claude, LLM_ANSWER_FALLBACK Gemini.
+    free = Models(groq, gemini, nvidia, answer_fallback)
+    models = Models(groq, first, nvidia, gemini) if first else free
     redis = Redis.from_url("redis://0.0.0.0:1/0")  # down: usage is logged, not counted
     evidence = evidence or RecordedEvidence(recorded["evidence"])
     return Answerer(evidence, models, redis, max_inflight=max_inflight, **options)
@@ -215,6 +245,7 @@ async def run(
     name: str,
     evidence: RecordedEvidence | None = None,
     answer_fallback: Provider | None = None,
+    first: Provider | None = None,
     **options: Any,
 ) -> tuple[Answer, str, dict[str, Any]]:
     """Answer the fixture's question; returns the answer, the joined deltas and the stats."""
@@ -224,7 +255,7 @@ async def run(
         deltas: list[str] = []
         answer = None
         request = AnswerRequest(question=recorded["question"])
-        pipeline = answerer(recorded, http, 2, evidence, answer_fallback, **options)
+        pipeline = answerer(recorded, http, 2, evidence, answer_fallback, first, **options)
         async for event in pipeline.events(request, stats):
             if isinstance(event, AnswerDelta):
                 deltas.append(event.text)
@@ -272,17 +303,42 @@ async def test_the_search_started_with_the_router_is_kept_when_the_router_agrees
     assert evidence.scopes == [Scope([320193], None)]  # one search, the early one
 
 
-async def test_a_router_that_disagrees_gets_its_own_search(mocked: respx.MockRouter) -> None:
+class SlowGuess(RecordedEvidence):
+    """The guessed search waits until cancelled; the plan's own search notes whether it was."""
+
+    def __init__(self, calls: list[dict[str, Any]]) -> None:
+        super().__init__(calls)
+        self.guess_cancelled = asyncio.Event()
+        self.cancelled_first: bool | None = None
+
+    async def search(self, question: str, scope: Scope) -> Ranking:
+        if not self.scopes:  # the guess, started with the router
+            self.scopes.append(scope)
+            try:
+                await asyncio.Event().wait()  # still in its SQL or queued for the reranker
+            except asyncio.CancelledError:
+                self.guess_cancelled.set()
+                raise
+        await asyncio.sleep(0)  # a cancellation already asked for lands first
+        self.cancelled_first = self.guess_cancelled.is_set()
+        return await super().search(question, scope)
+
+
+async def test_a_router_that_disagrees_gets_its_own_search_once_the_guess_is_cancelled(
+    mocked: respx.MockRouter,
+) -> None:
+    """A discarded guess must not hold the reranker while the plan's search waits for it."""
     recorded = fixture("textual")
     content = json.loads(
         json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
     )
     mocked.post(host=GROQ).mock(return_value=router_reply(**content | {"fiscal_years": [2024]}))
     replay(mocked, textual_exchanges()[1:])
-    evidence = RecordedEvidence(recorded["evidence"])
+    evidence = SlowGuess(recorded["evidence"])
     answer, _, stats = await run("textual", evidence)
     assert not answer.refused and stats["early_search"] is False
     assert evidence.scopes == [Scope([320193], None), Scope([320193], [2024])]
+    assert evidence.cancelled_first is True
 
 
 async def test_a_best_hit_under_min_relevance_is_refused_without_an_answer_call(
@@ -442,6 +498,130 @@ async def test_an_eval_pinned_to_claude_stops_once_its_credits_are_gone(
         with pytest.raises(AiUnavailableError, match="off for the credit period"):
             async for _ in pipeline.events(AnswerRequest(question=recorded["question"])):
                 pass  # evals exit 4 on this error (evals.harness)
+
+
+CLAUDE_ERRORS = {  # Anthropic's error bodies (type, message) by status
+    400: ("invalid_request_error", "You have reached your specified API usage limits."),
+    401: ("authentication_error", "invalid x-api-key"),
+    402: ("billing_error", "Your credit balance is too low to access the Anthropic API."),
+    403: ("permission_error", "Your API key does not have permission to use this resource."),
+    404: ("not_found_error", "model: claude-haiku-5-5"),
+    429: ("rate_limit_error", "Number of requests has exceeded your rate limit."),
+    500: ("api_error", "Internal server error."),
+}
+
+
+def claude_error(status: int, headers: dict[str, str] | None = None) -> httpx2.Response:
+    kind, message = CLAUDE_ERRORS[status]
+    body = {"type": "error", "error": {"type": kind, "message": message}}
+    return httpx2.Response(status, headers=headers, json=body)
+
+
+def fell_back_from(stats: dict[str, Any]) -> list[str]:
+    return [entry.split(": ")[1] for entry in stats["fallbacks"]]
+
+
+async def test_claude_answers_first_with_its_own_budget_and_output_cap(
+    mocked: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1])  # the router's reply
+    gemini = mocked.post(host=GEMINI, path=STREAM)
+    free: list[int] = []
+
+    async def counted(redis: Any, tokens: int) -> None:  # the free models' daily counter
+        free.append(tokens)
+
+    monkeypatch.setattr(budget, "record", counted)
+    ledger = Ledger()
+    model, sent = claude(claude_stream(reply_text(recorded["exchanges"][1]["body"])), ledger=ledger)
+    answer, _, stats = await run("numeric", first=model)
+    assert not answer.refused and stats["fallbacks"] == [] and not gemini.called
+    assert ledger.used == 960 and 960 not in free and len(free) == 1  # the router's call only
+    assert json.loads(sent[0].content)["max_tokens"] == 1052
+
+
+@pytest.mark.parametrize(
+    ("status", "kind"),
+    [(402, "credits"), (400, "credits"), (401, "key_or_model"), (403, "key_or_model"),
+     (404, "key_or_model")],
+)  # fmt: skip
+async def test_claude_off_for_good_hands_this_and_every_later_answer_to_the_free_chain(
+    mocked: respx.MockRouter, status: int, kind: str
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1] * 2)  # the router's reply, for two answers
+    text = reply_text(recorded["exchanges"][1]["body"])
+    mocked.post(host=GEMINI, path=STREAM).mock(side_effect=[gemini_stream(text)] * 2)
+    ledger = Ledger()
+    model, sent = claude(claude_error(status), ledger=ledger)
+    first, _, stats = await run("numeric", first=model)
+    assert not first.refused and fell_back_from(stats) == ["anthropic:claude-haiku-5-5"]
+    assert ledger.switched_off is not None and ledger.switched_off[0] == kind
+    restarted, never_sent = claude(ledger=ledger)  # another process, or this one restarted
+    later, _, stats = await run("numeric", first=restarted)
+    assert not later.refused and stats["fallbacks"] == [] and never_sent == [] and len(sent) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "headers"),
+    [(429, None), (429, {"retry-after": "60"}), (500, None)],
+    ids=["429 without Retry-After", "429 asking 60 s", "a server error"],
+)
+async def test_a_claude_429_or_error_hands_only_that_answer_to_the_free_chain(
+    mocked: respx.MockRouter, status: int, headers: dict[str, str] | None
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1] * 2)
+    text = reply_text(recorded["exchanges"][1]["body"])
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=gemini_stream(text))
+    ledger = Ledger()
+    model, sent = claude(claude_error(status, headers), claude_stream(text), ledger=ledger)
+    first, _, stats = await run("numeric", first=model)
+    assert not first.refused and fell_back_from(stats) == ["anthropic:claude-haiku-5-5"]
+    later, _, stats = await run("numeric", first=model)
+    assert not later.refused and stats["fallbacks"] == [] and len(sent) == 2
+    assert ledger.switched_off is None
+
+
+@pytest.mark.parametrize(("used", "asked"), [(1_499_999, 1), (1_500_000, 0)])
+async def test_claude_is_skipped_while_its_daily_budget_is_used_up(
+    mocked: respx.MockRouter, used: int, asked: int
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"][:1])
+    text = reply_text(recorded["exchanges"][1]["body"])
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=gemini_stream(text))
+    ledger = Ledger(used=used)
+    model, sent = claude(claude_stream(text), ledger=ledger)
+    answer, _, stats = await run("numeric", first=model)
+    assert not answer.refused and stats["fallbacks"] == [] and len(sent) == asked
+    assert ledger.switched_off is None  # a new day brings Claude back
+
+
+async def test_claude_never_gets_a_prompt_that_could_pass_100000_tokens() -> None:
+    model, sent = claude(claude_stream("A short answer."), ledger=Ledger())
+    system = "You answer questions."  # 21 bytes; a token is at least one byte
+    with pytest.raises(UpstreamError, match="100,000"):
+        async for _ in model.stream(system, "x" * 100_000, max_tokens=10):
+            pass
+    assert sent == []
+    items = [item async for item in model.stream(system, "x" * 99_000, max_tokens=10)]
+    assert items[0] == "A short answer." and len(sent) == 1
+
+
+async def test_with_claude_off_and_the_free_models_used_up_ask_says_try_again_later(
+    mocked: respx.MockRouter,
+) -> None:
+    replay(mocked, fixture("numeric")["exchanges"][:1])
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=RATE_LIMITED)
+    nvidia = mocked.post(host="integrate.api.nvidia.com", path=NVIDIA_CHAT)
+    nvidia.mock(return_value=httpx.Response(429))
+    ledger = Ledger()
+    ledger.switched_off = ("credits", "402 billing_error: Your credit balance is too low.")
+    with pytest.raises(AiUnavailableError, match="try again shortly") as raised:
+        await run("numeric", first=claude(ledger=ledger)[0])
+    assert raised.value.http_status == 503 and raised.value.retry_after_s
 
 
 async def test_a_failed_router_call_routes_with_the_fallback(mocked: respx.MockRouter) -> None:

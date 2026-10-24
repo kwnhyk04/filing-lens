@@ -6,6 +6,14 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
+- [x] (user, 2026-10-24) **next-security**, merged as #27 (5c62f7f, git log) (branch `next-security` from main at fe90d5f). CI's vuln-scan: next 16.3.8 (GHSA-2464-fhr4-w9xw and GHSA-673q-mjm6-r5xr CRITICAL, CVE-2026-94482 HIGH), filelock 4.1.1 and virtualenv 21.14.7 (HIGH, dev-only). Fixed by upgrading, no ignore entries.
+  - [x] next 16.4.1; `uv lock --upgrade-package filelock --upgrade-package virtualenv`, header back to `revision = 3`.
+  - [x] Checks: the three Trivy scans 0; `make lint` clean; `make test` 418; web typecheck, `npm test` 84, build, Playwright 72.
+  - [x] (user) ship: merged as #27. Then Dependabot's next PR, if any, is obsolete.
+- [x] (user, 2026-10-21) **certifi bump**, merged as #23 (fe90d5f, git log) (branch `certifi-bump` from main at aca22a6). CI's vuln-scan failed on PR #22 with one CRITICAL in `uv.lock`: certifi 2026.7.22, GHSA-6q48-6c7w-9gw2, fixed in 2026.10.19. Fixed at the source, with no ignore file or allowlist (memory.md, Preferences).
+  - [x] `uv lock --upgrade-package certifi`: only certifi's three lines change, and the header stays at `revision = 3`. `uv sync` changed only certifi.
+  - [x] Checks: `make vuln-scan` 0 on all three lockfiles; `make image-scan` 0 CRITICAL on api and ingest rebuilt from this branch (the old `filinglens-api:ci` showed the CRITICAL); `make lint` clean; `make test` 418.
+  - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #23. Then `claude-first` takes main so PR #22's vuln-scan passes; activity-log.md's top conflicts there: keep both entries.
 - [ ] (later) Lift Dependabot's typescript-major ignore once an openapi-typescript release accepts typescript 7, and its `@types/node` rule when the runtime moves past Node 24 (both comments in `.github/dependabot.yml`).
 - [ ] (manual, user; the fix merged as #7) Nightly eval: start one run by hand (Actions, Nightly eval, Run workflow), then check that the next scheduled run happens (19:17 UTC, 03:17 Taipei). Expected: PASS, and the artifact holds the report JSON under `reports/`.
   - The first manual run (39068994474, 2026-10-18, main at febbe5f) proved the workflow runs. All 30 test questions ran, then it exited 4 on x18's judge error: a dangling `[12]` the validator let through. c15 was refused after validation dropped every sentence twice, which is answer-model variation, not a regression. Its artifact held only the verdict (activity-log.md, memory.md).
@@ -21,7 +29,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 - [ ] Claude Haiku 5.5 as the answer fallback, in dev only: `LLM_ANSWER_FALLBACK=anthropic:claude-haiku-5-5` is set in `.env` (user, 2026-10-17).
   - `.env` has no `AI_ENABLED` line, so the default (false) applies and no answer calls run.
   - Its credits expire 2026-11-10.
-  - CI never calls Claude (step 7). Neither will production: the public deployment runs free providers only, with no Anthropic key (the user's standing rule, 2026-10-21; memory.md).
+  - CI never calls Claude (step 7). Neither will production: the public deployment runs free providers only, with no Anthropic key (the user's standing rule, 2026-10-21; memory.md). Superseded the same day: production runs Claude Haiku first, with its limits (Claude first, merged as #22).
 - [ ] (v2, with golden set v2) The known weaknesses from the test run (README, "Known weaknesses"):
   - router fixes: an out-of-scope guard, and a ticker fill;
   - a time-trap check in code for a fiscal year the question names but the router leaves out (t07, "fiscal 2026"), instead of relying on the model to refuse (user, 2026-10-17). Not built now: the exam results stay tied to the exam's code;
@@ -74,7 +82,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - a compose project `filinglens-prod` (`infra/docker-compose.prod.yml` + `.env.prod`);
       - GHCR images by `sha-` tag, and no host port;
       - Funnel in FilingLens's own `tailscale` sidecar (`tag:filinglens`, port 443), as FreightAudit runs it;
-      - free providers only, with no Anthropic key.
+      - free providers only, with no Anthropic key (superseded on 2026-10-21: Claude Haiku first, its key in `.env.prod` only, never on Vercel).
     - **Web:** Vercel, with Root Directory `web` and files outside it included, region `hkg1`, and only main deploying.
     - **Database:** `corpus-v1`, restored once (0 SEC requests, 0 model calls).
   - [x] **0. Docs:** todo, activity log, memory, context (2026-10-21). Uncommitted; they ride with 10a.
@@ -99,7 +107,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make contracts-breaking`: nothing breaking;
       - gitleaks on 16 files: clean;
       - the eval check: no model call.
-    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
+    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #19 (1f15729, git log).
   - [ ] **10b. GraphQL DataLoader** (branch `step-10-dataloader`), test first (activity-log.md, 2026-10-21):
     - [x] per-request loaders for chunk sources and companies, in `graph.get_context`;
     - [x] `Backend.get_companies`, which replaces `get_company` (its only caller was `_company`);
@@ -116,29 +124,87 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - `make contracts-breaking`: no changes; both contracts match a fresh export;
       - gitleaks on 9 files: clean;
       - the eval check: no model call.
+    - **Not on main until this merge (git log, 2026-10-24):** committed as 305b123 on `step-10-dataloader` (pushed) on 2026-10-21, never merged, while main moved on to 10c (#28) and the commit-message rule (#26).
+    - [x] main merged in (2026-10-24, user): `git merge main --no-commit` at 8e638a2, uncommitted; the user's ship concludes the merge (activity-log.md, 2026-10-24).
+      - Text conflicts in four docs only; `graph.py` and `test_contract.py` merged cleanly, so the loaders and 10c's nested `first` cap sit side by side.
+      - Four of 10b's test rows asked for `first: 100` inside a list, which the cap refuses ("first must be between 1 and 20 inside another list."). They now ask for 20. The fake backend lists at most 3 rows, so each row's lookups stay the same.
+    - [x] checks after the merge (activity-log.md, 2026-10-24):
+      - the DataLoader and nested-cap tests: all 105 contract tests pass;
+      - `make lint` clean (140 files), `make typecheck` 0 errors, `make test` 457;
+      - `make vuln-scan`: 0 on all three lockfiles;
+      - `make test-int` (the user's go): 32 passed, the running containers the same before and after.
+    - [x] the 10b numbers with the loaders and the cap together, measured on corpus-v1's rows (memory.md, the 10b merge): 10b's review query makes 708 page queries and reads 4,413 rows (9,081 before the cap), and asking for 100 inside a list is refused; 20 cited chunks' filings with their links make 40 page queries, 28 to 33 lookups by id and 1,280 rows (6,080 before the cap).
     - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
-  - [ ] (user decides, before 10c; found by 10b's review) Page queries still run once per parent: one nested query makes 708 of them on corpus-v1 (memory.md, PR 10b). Options: cap a nested `first`, batch `Section.chunks`, or leave it.
-  - [ ] **10c. Deploy config and runbook** (branch `step-10-deploy-config`):
-    - the prod override: project name, GHCR images, the `data` network, the `ingest` profile, the tailscale service, free providers forced;
-    - `infra/tailscale/serve.json`, `web/vercel.json`, `engines.node` `^24.7.0`, and `docs/deploy.md`;
-    - the `docker compose config` checks;
-    - (user) ship.
+  - [x] (user decides, before 10c; found by 10b's review) Page queries still run once per parent: one nested query makes 708 of them on corpus-v1 (memory.md, PR 10b). Options: cap a nested `first`, batch `Section.chunks`, or leave it. **Done by 10c** (merged as #28): the user chose the nested `first` cap (20 inside a list, 100 on the outermost list). It cuts the rows each nested page reads, not the page queries: measured, that query still makes 708 page queries but reads 4,413 rows instead of 9,081 (memory.md, the 10b merge).
+  - [x] **10c. Deploy config and runbook**, merged as #28 (e75cb57, git log) (branch `step-10-deploy-config` from main at 7979cdb, Claude first merged as #22), with the user's two updates (2026-10-24):
+    - [x] the nested `first` cap, test first: a connection inside another list takes `first` 1 to 20 (the default page size), the outermost list keeps 1 to 100. It is the option 10b's review left open ("cap a nested `first`"; 10b's memory entry, on its branch). It shrinks the rows each nested page reads, not the number of page queries (memory.md). Red: 5 refused rows failed, the 2 pin rows passed; a scratch mutant with the cap on every list failed only the outermost-100 pin;
+    - [x] the prod override: project name, GHCR images by `IMAGE_TAG`, no build, no host port, the `data` network, the `ingest` profile, the tailscale service; no forced providers and no forced empty `ANTHROPIC_API_KEY` (Claude first); `RETRIEVAL_EMBEDDING_COLUMN` required;
+    - [x] `CLAUDE_DAILY_TOKEN_BUDGET` reaches the api: compose never passed it, so a value in `.env` or `.env.prod` had no effect (found 2026-10-24 by an audit of `ApiSettings` against the api's compose environment; the only field missing). Red: the rendered prod config had no such variable although the env file set one;
+    - [x] `infra/tailscale/serve.json`, `web/vercel.json`, `engines.node` `^24.7.0`, and `docs/deploy.md` (runbook, the variable table and point 6 checked against Claude first, rollback);
+    - [x] checks (activity-log.md, 2026-10-24):
+      - the compose checks, 21 of 21, with dummy values (a control on main's files fails);
+      - both JSON files parse;
+      - `make lint` and `make typecheck` (0 errors) clean, `make test` 447;
+      - web: typecheck, `npm test` 84, build, `npx playwright test` 72;
+      - `make contracts-breaking`: no changes; `contracts/schema.graphql` changes 6 descriptions only;
+      - gitleaks on the changed files;
+      - the eval check: only `graph.py` of the eval inputs, which the harness never loads.
+    - [x] `make test-int` (the user's go, 2026-10-24): 32 passed in 3 min 30 s; the running containers were the same before and after. The read-under-load test's nested `chunks(first: 50)` became 20, since the cap would refuse 50.
+    - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #28.
   - [ ] **Manual (user), anytime:**
-    - B1: make the GHCR packages public (irreversible);
-    - B2: add `tag:filinglens` to `tagOwners` and to the funnel `nodeAttrs`;
-    - B3: create a Vercel account;
-    - B4 (optional): set the power and Docker Desktop start settings.
-  - [ ] **Manual (user), after 10c merges:**
+    - B1: make the GHCR packages public (irreversible). Not shown done by the docs or any local setting.
+    - B2: add `tag:filinglens` to `tagOwners` and to the funnel `nodeAttrs`. Not shown done.
+    - B3: create a Vercel account. Not shown done.
+    - [x] B4 (optional): both settings were already on (read 2026-10-24): Windows sleeps and hibernates never on AC power (`powercfg`, Power saver scheme; on battery it sleeps after 10 minutes), and Docker Desktop starts at sign-in (`AutoStart: true`, plus its `HKCU\...\Run` entry).
+  - [ ] **Manual (user), after 10a, 10b and 10c merge** (`docs/deploy.md`, steps 5 to 23):
     - B5-B17, the backend: the auth key, `.env.prod`, the external volume, pull, Postgres, the restore and its check, up, the search check, Funnel status, the public checks;
     - B18-B23, Vercel: the import, the settings, the four variables, the firewall rule.
   - [ ] **Phone test with AI off (user):** B24-B27: sign-in, the pages, 401, the PC off, the API down.
   - [ ] **B28 (user):** create a Gemini key in a new FilingLens Google project with billing off, and put it in `.env.prod`. Until then AI stays off.
-  - [ ] **B29 (on the user's go):** set `AI_ENABLED=true`, then ask exactly two questions (n01, x04). Expected: about 7,900 tokens, $0 billed; worst case about 13K tokens.
+  - [ ] **B29 (on the user's go):** set `AI_ENABLED=true`, then ask exactly two questions (n01, x04). Expected, Claude first: about 10,700 tokens and about $0.001 of credits (Claude 2 calls, about 8,450 tokens; Groq about 2,200); worst case about $0.0037 (`docs/deploy.md`, step 29). The old line here, "about 7,900 tokens, $0 billed", was the free-only estimate.
   - [ ] **10d. Docs after go-live:** the deploy record (the image tag, the times, the two answers' usage).
   - **Kept from the step 9 notes:** the sign-in limiter lives in each Vercel instance; the firewall rule on `POST /login` (10 a minute per IP) covers the rest.
     - On Vercel (`VERCEL=1`), its key is `x-real-ip`, which Vercel sets and no client can override (Vercel's request-headers doc, updated 2025-12-13).
     - Locally, all clients share one bucket.
   - **Superseded:** "Replace the example passwords in `.env`". The dev Postgres and RabbitMQ volumes keep the passwords they were created with, so `.env` stays as is, and production gets new values in `.env.prod`.
+- [ ] (from 10b's CI eval, 2026-10-21; user) **Rerank deadline** (branch `rerank-deadline`), each fix test first (memory.md, Solved Problems):
+  - [x] the answer eval's searches wait up to 60 s for the reranker, as the retrieval eval's do (`harness.eval_settings`);
+  - [x] a guessed search the plan does not use is cancelled at once, in production too, and a rerank it still has queued skips the model;
+  - [x] no cache key changes for a search that met 500 ms: a pin row for the deadline;
+  - [x] checks:
+    - `make lint` and `make typecheck` (0 errors) clean;
+    - `make test` 418, `make test-int` 31;
+    - `make contracts-breaking`: no changes;
+    - gitleaks on the changed files: clean.
+  - [x] (user) ship: merged as aca22a6.
+- [x] (user, 2026-10-21; before 10c) **Claude first** (branch `claude-first`), merged as #22 (7979cdb, git log), each part test first, with deliberate breaks:
+  - [x] **Chain:**
+    - production sets `LLM_PRIMARY=anthropic:claude-haiku-5-5`, `LLM_ANSWER_FALLBACK=gemini:gemini-3.5-flash-lite` and `LLM_FALLBACK` NVIDIA, so answers go Claude, then Gemini, then NVIDIA;
+    - **off for good, stored in Redis (`ai:claude:off`) so it outlives a restart:** credits gone (402, or a 400 naming a spend limit or the credit balance), and from `ANTHROPIC_CREDITS_EXPIRE` (2026-11-10);
+    - **off for good with an alert:** a rejected key or model (401, 403, 404);
+    - **free chain for that answer only:** a 429, with or without `Retry-After`;
+    - **free models used up too:** the existing 503 "try again shortly".
+  - [x] **Limits:**
+    - Claude's output cap per call: 1,052;
+    - no Claude prompt that could pass 100,000 tokens;
+    - Claude's own daily budget: 1,500,000 tokens, at most $0.75 a day, in `ai:claude:<date>` on the API's Redis database, shared by the api and the evals;
+    - Claude's tokens leave the free budget's counter; the free budgets keep their sizes.
+  - [x] **Plan:** the prod override that forced `LLM_ANSWER_FALLBACK` and `ANTHROPIC_API_KEY` empty goes; the variable table, point 6's live test and its stop rule follow Claude first. Point 6 now: about 10,700 tokens and $0.001 of credits; at worst about $0.0037.
+  - [x] **Evals:** the official answer eval stays on the free models. A labelled local `--claude-primary` configuration is reported side by side with the official run, never sets floors, and is refused in CI.
+  - [x] **Deliberate breaks:** 9 scratch mutants, each failing its own tests.
+  - [x] **Checks:**
+    - `make lint` and `make typecheck` (0 errors) clean;
+    - `make test` 438, `make test-int` 32;
+    - `make monitoring-check`: 14 rules, tests passed;
+    - `make contracts-breaking`: no changes;
+    - gitleaks: clean, apart from a CRLF artifact in `.env.example` that main's file shows too;
+    - the eval check: no cache key changes for the free models.
+  - [x] (user, 2026-10-21) **Budgets apart:** prod and the local `--claude-primary` evals keep separate Claude budgets, and prod's Redis gets no host port. Why: prod's worst case is $0.75 a day (about $15 to 2026-11-10, FilingLens's share), local Claude evals are rare and started by the user, and Anthropic's $50 monthly limit is the hard stop (memory.md). Docs only.
+  - [x] (user, 2026-10-21) **The docs pass's two findings, fixed before shipping** (memory.md, Solved Problems):
+    - `--claude-primary` always takes the official free run's routes, those of the default `LLM_PRIMARY`, whatever `.env` says. Test first: a `LLM_PRIMARY=anthropic:claude-haiku-5-5` row failed, then passed, and the bug put back fails it again.
+    - The comment on `Anthropic._gone` now says the switch-off is stored in Redis and survives restarts.
+    - Checks: `make lint` and `make typecheck` (0 errors) clean; `make test` 440, `make test-int` 32.
+  - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #22.
 - [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it.
   - The internet-facing api and tailscale containers would reach the internet only through an allowlist proxy, so they could no longer reach services on the PC's own ports through `host.docker.internal` (context.md, Known Limitations).
   - It needs FilingLens's own CI-built proxy image and an allowlist of the model providers' and Tailscale's hosts.
@@ -162,7 +228,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] Step 10 (deploy): PR 0's docs and PR 10a, on branch `step-10-api-hardening` from main at 86718cd (#18 merged), uncommitted. The checklist is under Pending, item 10.
+- [ ] Step 10's 10b, on branch `step-10-dataloader` (305b123) with main (8e638a2: 10c as #28, the commit-message rule as #26) merged in, uncommitted (2026-10-24). The user's ship concludes the merge; go-live needs it. The checklists are under Pending, item 10.
 
 ## Completed
 

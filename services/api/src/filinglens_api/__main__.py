@@ -24,6 +24,7 @@ redis = Redis.from_url(
 metrics.observe_answer_limits(
     partial(budget.tokens_today, redis), settings.daily_ai_token_budget, settings.llm_max_inflight
 )
+metrics.observe_claude(partial(budget.claude_off_kind, redis))  # ClaudeKeyOrModelRejected
 roles = (settings.llm_router, settings.llm_primary, settings.llm_fallback)
 metrics.start_answer_series({*roles, *filter(None, [settings.llm_answer_fallback])})
 uvicorn.run(app, host=settings.api_host, port=settings.api_port, log_config=None)

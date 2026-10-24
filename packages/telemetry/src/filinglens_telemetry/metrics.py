@@ -172,3 +172,19 @@ SPECS.extend(
         "filinglens.answers.inflight_limit",
     )
 )
+
+
+def observe_claude(off_kind: Callable[[], str | None]) -> None:
+    """A gauge, 1 while Claude is off for good with its kind (credits, key_or_model), else 0 under
+    kind none; ClaudeKeyOrModelRejected alerts on it. Once per process, as observe_answer_limits."""
+
+    def off(_: CallbackOptions) -> Iterable[Observation]:
+        kind = off_kind()
+        return [Observation(1, {"kind": kind})] if kind else [Observation(0, {"kind": "none"})]
+
+    meter.create_observable_gauge(
+        "filinglens.claude.off", callbacks=[off], unit="{switch}", description="Claude is off."
+    )
+
+
+SPECS.append(("filinglens.claude.off", "{switch}", "gauge"))

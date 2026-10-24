@@ -61,7 +61,7 @@ type Company {
     formType: FormType = null
     fiscalYear: Int = null
 
-    """Page size (at most 100)."""
+    """Page size: at most 100, or 20 inside another list."""
     first: Int! = 20
 
     """endCursor from the previous page."""
@@ -106,7 +106,7 @@ type Filing {
 
   """All text chunks of the filing, in reading order."""
   chunks(
-    """Page size (at most 100)."""
+    """Page size: at most 100, or 20 inside another list."""
     first: Int! = 20
 
     """endCursor from the previous page."""
@@ -117,7 +117,7 @@ type Filing {
   facts(
     concept: String = null
 
-    """Page size (at most 100)."""
+    """Page size: at most 100, or 20 inside another list."""
     first: Int! = 20
 
     """endCursor from the previous page."""
@@ -208,7 +208,7 @@ type PageInfo {
 type Query {
   """Tracked companies in CIK order."""
   companies(
-    """Page size (at most 100)."""
+    """Page size: at most 100, or 20 inside another list."""
     first: Int! = 20
 
     """endCursor from the previous page."""
@@ -221,7 +221,7 @@ type Query {
     formType: FormType = null
     fiscalYear: Int = null
 
-    """Page size (at most 100)."""
+    """Page size: at most 100, or 20 inside another list."""
     first: Int! = 20
 
     """endCursor from the previous page."""
@@ -261,7 +261,7 @@ type Section {
 
   """This section's text chunks, in reading order."""
   chunks(
-    """Page size (at most 100)."""
+    """Page size: at most 100, or 20 inside another list."""
     first: Int! = 20
 
     """endCursor from the previous page."""

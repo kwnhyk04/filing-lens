@@ -1,51 +1,138 @@
-# Production override, applied on top of the development file:
-#   docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up -d
-# Postgres, RabbitMQ and Redis publish no host ports; every service restarts and has a memory cap.
+# Production: the public backend on this PC, layered on docker-compose.yml as its own compose
+# project, so its containers, volumes and networks never mix with the dev stack's. Run every
+# command from the repo root as
+#   docker compose --env-file .env.prod <command>
+# .env.prod names both files (COMPOSE_FILE); docs/deploy.md lists every setting. No service
+# publishes a host port: the internet reaches only the api, through the tailscale container's
+# Funnel (infra/tailscale/serve.json). Models and keys come from .env.prod (Claude first).
+name: filinglens-prod
+
+# The data stores sit on `data`, which has no route out. The api and the ingest worker join
+# `default` too, for the model providers and SEC; the tailscale container joins `default` only.
+# No egress proxy yet: a container on `default` can reach the PC's own listeners at
+# host.docker.internal (docs/context.md, Known Limitations).
+networks:
+  data: { internal: true }
+
+volumes:
+  # The node's login and certificate. External, so no `down -v` can delete it (a new login needs
+  # a new auth key).
+  tailscale-state:
+    external: true
+    name: filinglens-prod-tailscale-state
+
+x-kept: &kept
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: "3" }
+
+# The api and the tailscale container write only to /tmp and need no capability.
+x-hardened: &hardened
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
   postgres:
+    <<: *kept
     ports: !reset []
-    restart: unless-stopped
     shm_size: 256mb # parallel HNSW builds keep their graph in /dev/shm (docs/migrations.md)
+    networks: [data]
     # 1.5 GB covers shm_size, a 512 MB maintenance_work_mem, shared_buffers and connections.
     deploy: { resources: { limits: { memory: 1536M } } }
 
   redis:
+    <<: *kept
     ports: !reset []
-    restart: unless-stopped
+    networks: [data]
     deploy: { resources: { limits: { memory: 256M } } }
 
   rabbitmq:
+    <<: *kept
     ports: !reset []
-    restart: unless-stopped
+    networks: [data]
     deploy: { resources: { limits: { memory: 512M } } }
 
+  # CI's image of the deployed main commit (sha-<7>), never built here and never `latest`.
   api:
-    restart: unless-stopped
+    <<: [*kept, *hardened]
+    image: ghcr.io/kwnhyk04/filinglens-api:${IMAGE_TAG:?set IMAGE_TAG in .env.prod; see docs/deploy.md}
+    build: !reset null
+    ports: !reset []
+    environment:
+      # corpus-v1 sits at revision 0008 with model A in `embedding`; the code's default
+      # (embedding_v2) would fail every search.
+      RETRIEVAL_EMBEDDING_COLUMN: ${RETRIEVAL_EMBEDDING_COLUMN:?set RETRIEVAL_EMBEDDING_COLUMN in .env.prod; see docs/deploy.md}
+    networks: [data, default]
     # torch, the query embedder and the reranker run in process.
     deploy: { resources: { limits: { memory: 1536M } } }
 
+  # The workers run only for an ingest (COMPOSE_PROFILES=ingest); serving needs the api alone.
   ingest:
-    restart: unless-stopped
+    <<: *kept
+    image: ghcr.io/kwnhyk04/filinglens-ingest:${IMAGE_TAG:?set IMAGE_TAG in .env.prod; see docs/deploy.md}
+    build: !reset null
+    profiles: [ingest]
+    networks: [data, default]
     deploy: { resources: { limits: { memory: 1G } } }
 
   embed:
-    restart: unless-stopped
+    <<: *kept
+    image: ghcr.io/kwnhyk04/filinglens-ingest:${IMAGE_TAG:?set IMAGE_TAG in .env.prod; see docs/deploy.md}
+    build: !reset null
+    profiles: [ingest]
+    environment:
+      RETRIEVAL_EMBEDDING_COLUMN: ${RETRIEVAL_EMBEDDING_COLUMN:?set RETRIEVAL_EMBEDDING_COLUMN in .env.prod; see docs/deploy.md}
+    networks: [data] # models load offline from the read-only HF_HOME mount
     deploy: { resources: { limits: { memory: 1536M } } }
 
+  # Monitoring stays off in production until alert delivery lands (todo.md, Alertmanager).
   otel-collector:
-    restart: unless-stopped
+    <<: *kept
     deploy: { resources: { limits: { memory: 256M } } }
 
   jaeger:
-    restart: unless-stopped
+    <<: *kept
     deploy: { resources: { limits: { memory: 512M } } }
 
   prometheus:
-    restart: unless-stopped
+    <<: *kept
     deploy: { resources: { limits: { memory: 512M } } }
 
   grafana:
-    restart: unless-stopped
+    <<: *kept
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false" # sign in with GRAFANA_ADMIN_PASSWORD
     deploy: { resources: { limits: { memory: 256M } } }
+
+  # The tailnet node is this container, not the PC (tag:filinglens). Userspace networking needs no
+  # capability; Funnel serves the api on 443.
+  tailscale:
+    <<: [*kept, *hardened]
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
+    hostname: ${TS_HOSTNAME:-filinglens}
+    environment:
+      # A one-off key tagged tag:filinglens, used once; the login then lives in tailscale-state.
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_AUTH_ONCE: "true"
+      TS_HOSTNAME: ${TS_HOSTNAME:-filinglens}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SOCKET: /tmp/tailscaled.sock
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_LOCAL_ADDR_PORT: 127.0.0.1:9002
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./tailscale:/config:ro
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9002/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    deploy: { resources: { limits: { memory: 128M } } }

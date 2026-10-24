@@ -685,6 +685,7 @@ From PR 10b (2026-10-21, branch `step-10-dataloader`):
   - `{ filings(first: 100) { edges { node { sections { chunks(first: 100) { edges { cursor } } } } } } }` passes the depth limit of 6. On corpus-v1 (30 filings, 677 sections), it makes 1 + 30 + 677 = 708 page queries, each reading up to 101 chunk rows with their text.
   - It is not a regression. The key is server-only, and the web never sends such a query.
   - Options: cap a nested `first`, batch `Section.chunks`, or leave it.
+  - **Decided, and done by 10c** (2026-10-24, merged as #28): the user chose the nested `first` cap, 20 inside a list and 100 on the outermost list (PR 10c below). The numbers with the loaders and the cap together are in the 10b merge entry below.
 - 2026-10-21: Pitfall: the fake backend answers without suspending. So B1's tests never saw `section` and `filing` make two lookups for one chunk: the first resolver set `Chunk.source` before the second started. A real backend waits on I/O, so both start first.
   - The call-count spy now yields once (`asyncio.sleep(0)`) before the fake answers. With it, main's code made 7 lookups for the fake's 3-chunk page (1, plus 2 per chunk). Without it, main's code made 4.
   - The loaders make 2.
@@ -697,6 +698,55 @@ From PR 10b (2026-10-21, branch `step-10-dataloader`):
   - one shield removed at a time: only that shield's row;
   - one loader for the whole process: the per-request pin;
   - a failed lookup swallowed as `not_found`: the masked-error pin.
+
+From PR 10c (2026-10-24, branch `step-10-deploy-config` from main at 7979cdb):
+
+- 2026-10-24: The nested `first` cap (user: "Include the nested 'first' cap on GraphQL lists that was planned for 10c, test first"). It is the first of the three options 10b's final review left open: cap a nested `first`, batch `Section.chunks`, or leave it. That entry sits in 10b's memory.md, on its unmerged branch.
+  - **Rule:** a connection with a list index on its path (`info.path`) takes `first` 1 to 20; the outermost list keeps 1 to 100. Past that, `invalid_input` ("first must be between 1 and 20 inside another list."), before its page is read.
+  - **Why 20 (ruling, cheap to change):** it is the default page size, so a nested list that leaves `first` out still passes. The web asks for 5 inside a list (Coverage, and the Filings operation's defaults). 10 would refuse the default and need a schema change.
+  - **Ceiling:** it bounds the rows each nested page reads, not the number of page queries. 10b's worst query, `filings(first: 100) { … sections { chunks(first: 100) … } }`, made 708 page queries of up to 101 rows on corpus-v1 (about 71,500 rows). That query is now refused; with `chunks(first: 20)` it passes and reads at most 21 rows a page (about 14,900). The query count stays 708. Upgrade path: batch `Section.chunks` into one query per parent list.
+  - **Reach:** the read-under-load integration test asked for `chunks(first: 50)` inside `filings`, now 20. Nothing else in the repo asks for more than 20 inside a list.
+- 2026-10-24: Rulings in the prod override (no user decision needed; each cheap to change):
+  - **Claude first:** nothing is forced. The 2026-10-21 approval ruling "the prod override also forces both empty" (`LLM_ANSWER_FALLBACK`, `ANTHROPIC_API_KEY`) is superseded by Claude first (user, 2026-10-21, merged as #22). Models and keys come from `.env.prod` alone.
+  - **Required in prod:** `IMAGE_TAG` and `RETRIEVAL_EMBEDDING_COLUMN` (`${VAR:?…; see docs/deploy.md}`). The column's code default, `embedding_v2`, would fail every search on corpus-v1 (plan, Review Focus 2), so compose now stops first.
+  - **From FreightAudit's prod file** (read again, read-only, under the 2026-10-20 permission "as the pattern", never its `.env` files): the `x-kept` and `x-hardened` anchors, the tailscale service with its environment, socket, health check and pinned image, the external state volume, and `serve.json`'s shape. Not taken: its egress proxy (first after go-live), its `IMAGE_REPO` variable and its `migrate` service (prod restores `corpus-v1` instead).
+  - **Monitoring in prod:** the observability services keep their limits but stay off. They sit on `default`, so RabbitMQ's metrics on `data` and the `embed` worker would be out of their reach; wiring them waits for the Alertmanager item.
+- 2026-10-24: Pitfall: compose passes a container only what its `environment:` lists, so every `ApiSettings` field needs its line in the api's compose environment.
+  - **What happened:** Claude first added `CLAUDE_DAILY_TOKEN_BUDGET` to the settings, `.env.example` and the plan's variable table, but not to compose. In a container, the default 1,500,000 always applied, whatever `.env` or `.env.prod` said.
+  - **Found:** while checking the variable table against the code (user: "check the variable table ... match"), by comparing `ApiSettings.model_fields` with the rendered prod config. It was the only field missing; `OLLAMA_URL` and `OTEL_SERVICE_NAME` stay out on purpose.
+  - **What we did, in order:** rendered the prod config with a dummy env file that sets 1234567 (red: no such variable in the api's environment); added one line to the api's environment in `infra/docker-compose.yml`, which covers dev and prod; rendered again (green). Kept in 10c, not a PR of its own: the step's own table names the variable. The user can still split it out.
+  - **Not added:** a lasting test. PyYAML is only a transitive dependency, and a new dependency needs the user's approval. The 10c check script (activity-log.md) does the audit by `docker compose config`.
+- 2026-10-24: Container go for 10c (user, asked once every other check had passed): Testcontainers for one `make test-int` run. FreightAudit's ten running containers were the same before and after. Any other container needs a new go.
+- 2026-10-24: 10b is not on main. Its commit 305b123 sits on `step-10-dataloader` (pushed), and main's `graph.py` still has the two `ponytail:` one-lookup comments. 10c was built from main as the user asked. The plan puts the DataLoader before go-live, so deploy.md's steps 5 to 23 wait for 10a, 10b and 10c. Expect conflicts when 10b takes main: `graph.py` (both touch the resolvers) and `test_contract.py` (both add tests at the end; keep both).
+
+From the 10b merge (2026-10-24, main at 8e638a2 merged into `step-10-dataloader`, uncommitted):
+
+- 2026-10-24: Main merged into 10b (user: "Merge main into the 10b branch so it can ship"; `git merge main --no-commit`; the user's ship concludes it).
+  - **Text conflicts:** four docs only, each resolved by keeping both sides, entries in date order. `graph.py` and `test_contract.py` merged cleanly: the loaders and the cap touch different lines. The 10c entry above expected a conflict there.
+  - **The conflict git could not see:** four of 10b's test rows asked for `first: 100` inside a list (under `chunks(ids: …)`), which 10c's cap refuses. The merged contract tests failed exactly those 4. They now ask for 20; the fake lists at most 3 rows, so each row's lookups stay the same.
+- 2026-10-24: 10b's worst queries, measured with the loaders and the cap together, on corpus-v1's rows (the dev Postgres: revision 0008, 30 indexed filings, 677 sections, 11,263 chunks).
+  - **How:** a scratch script outside the repo ran each query in process through the real schema and `graph.get_context` (the per-request DataLoaders), over a `LiveBackend` subclass that counted every SQL statement and the rows it returned, by backend method. "Before the cap" set `graph.NESTED_FIRST` to 100 in that process only. Three runs: page queries and rows were the same each time; lookups by id varied.
+  - **Q1, 10b's review query:** `{ filings(first: 100) { edges { node { sections { chunks(first: N) { edges { cursor } } } } } } }`.
+
+    | Run | Page queries | Lookups by id | Rows read |
+    | --- | --- | --- | --- |
+    | before the cap, N = 100 | 708 (1 + 30 + 677) | 0 | 9,081 (30 + 677 + 8,374) |
+    | cap, N = 100 | 6, then refused (`invalid_input`) | 0 | 145 |
+    | cap, N = 20, the most it allows | 708 | 0 | 4,413 (30 + 677 + 3,706) |
+
+  - **Q2, links under a list:** 20 cited chunks from 20 filings, each filing's `chunks(first: N)` with `section` and `filing`, and `facts(first: N)` with `company` (the 2026-10-18 worst shape).
+
+    | Run | Page queries | Lookups by id | Rows read |
+    | --- | --- | --- | --- |
+    | before the cap, N = 100 | 40 | 24 to 29 | 6,080 (2,020 + 2,020 + 2,020 + 20) |
+    | cap, N = 100 | 0, refused | 1 (the cited ids) | 20 |
+    | cap, N = 20 | 40 | 28 to 33 | 1,280 (420 + 420 + 420 + 20) |
+
+    The rows are chunk pages, fact pages, chunk lookups (the cited ids plus each listed chunk once) and companies.
+  - **Corrections:** 10b's "each reading up to 101 chunk rows" and 10c's "about 71,500" and "about 14,900" were upper bounds from the page size. Measured, Q1's chunk pages read 8,374 rows before the cap and 3,706 with it: most sections hold fewer chunks than a page. 10b's unmeasured "about 60" lookups by id came out at 24 to 33, the cited-ids lookup included.
+  - **Why the lookups vary:** a loader batches the links that wait in the same event-loop turn. Pages finish at different times, so the same query makes a different number of batches. Each id is still looked up once per request.
+  - **What the cap leaves:** page queries still run once per parent (708 for Q1). Batching `Section.chunks` is the upgrade path.
+- 2026-10-24: Container go for the 10b merge (user): Testcontainers for one `make test-int`, and `filinglens-postgres-1` by exact name for the measurement, with two conditions: the script stays outside the repo (it is in the scratchpad), and the container ends as found (it was stopped, so it was stopped again). Port 5433 was free first; afterwards only closed connections (`TIME_WAIT`) remained on it.
 
 ## Preferences and Instructions
 
@@ -714,18 +764,99 @@ From PR 10b (2026-10-21, branch `step-10-dataloader`):
   - it touches only code the answer suite never runs, so every cache key is the one main's last eval saved. The user then confirms the repo's `eval-calls-*` Actions cache still exists.
   - If any miss is possible, stop and give the estimate first. A cold dev ci run is about 28K gpt-oss-20b tokens and about 20 Gemini requests.
 - 2026-10-18: Weaknesses found while planning get their own PR before the step, like bugs (user, step 9 plan). An unused route is turned off rather than tested, unless something uses it.
+- 2026-10-21: A vulnerability that CI's scans report is fixed at the source, in its own PR from main, never with an ignore file or allowlist (user). First case, branch `certifi-bump`: CI's vuln-scan failed on PR #22 with one CRITICAL in `uv.lock`, certifi 2026.7.22, GHSA-6q48-6c7w-9gw2 (emSign roots with compromised intermediate keys), fixed in 2026.10.19.
+  - **Steps, in order:**
+    1. branch from main at aca22a6, which an anonymous fetch showed as GitHub's main;
+    2. `uv lock --upgrade-package certifi`, then the lock's header set back to `revision = 3` (the pitfall below);
+    3. `uv lock --check`, then `uv sync`;
+    4. `make vuln-scan`; a control scan of an old image; both images rebuilt and scanned;
+    5. `make lint`, `make test`.
+  - **Why from main:** the advisory is in main's lock, so every PR's vuln-scan fails until main has the fix.
+  - **Pitfall, the lock's header:** uv 0.12.23 (pinned on the PC, in the Dockerfile and in CI) writes `revision = 5` whenever it writes a lock. Main's lock was at revision 3, last written by Dependabot (#4).
+    - The header went back to 3 by hand, so the diff is certifi's three lines.
+    - uv 0.12.23 reads a revision-3 lock as current: `uv lock --check` passed, and `uv sync` changed only certifi.
+  - **Control:** the local Trivy database knew the advisory. The 4-day-old `filinglens-api:ci` image showed exactly this CRITICAL, and the images rebuilt from the branch showed none.
+  - **Age:** 2026.10.19 was uploaded on 2026-10-20, inside Dependabot's 7-day cooldown for uv. It was taken at the user's request, as a security fix. Its wheel's PEP 740 attestation names `certifi/python-certifi`, workflow `release.yml`.
+- 2026-10-24: Second scan fix, branch `next-security` (same rule as above: fix at the source, no ignore entries). Trivy found next 16.3.8 (2 CRITICAL, 1 HIGH), and in `uv.lock` filelock 4.1.1 and virtualenv 21.14.7 (4 HIGH, dev-only). All fixed by upgrading (activity-log.md).
+  - **Does FL's web use the affected features?** No for the two RCEs: no `next/image`, no `images` config (so no SVG image optimization), no `"use cache"` or `cacheComponents`. Yes for the DoS: `web/app/login/actions.ts` is a Server Action. Not confirmed: whether the default `/_next/image` route was reachable; it needs SVG enabled, which is not set.
+  - **Pitfalls:** `make vuln-scan` stops at the first failing lockfile, so run the web and `clients/ts` scans by hand to see every finding. `uv lock --upgrade-package` rewrites the header to `revision = 5` again; set it back to 3 until main moves.
 - 2026-10-18: UI accessibility is checked by axe on every page plus keyboard-only and phone-width specs (user). Reason: axe misses focus order and keyboard-only flows.
 - 2026-10-18: Container go for step 9 (user), also during Triage Copilot's exam window, since neither use makes a model call:
   - Uses: Testcontainers for `make test-int`, and FilingLens's own dev Postgres (`filinglens-postgres-1`) for `make demo-export`.
   - Conditions: check ports first; start and stop only FilingLens's own containers, by exact name; never touch FreightAudit's or Triage Copilot's containers or volumes; never stop Docker.
   - Model calls stay off. Any other container needs a new go.
 - 2026-10-21: No Anthropic key on the public deployment: production runs free providers only (the user's standing rule, stated at the step 10 plan's approval). Claude stays a dev and eval option while its credits last.
+- 2026-10-21: Correction to the eval check above (2026-10-18). "Every cache key is main's" covers code only. A question that searches takes its prompt's passages from the search, so it can still miss when the search ran differently on the runner.
+  - Since `rerank-deadline`, the answer suite's searches never degrade. A miss is then a variant CI's cache never answered (Solved Problems, 2026-10-21).
+  - Before a PR is reported ready, give the estimate for those misses.
+- 2026-10-21: Anthropic spend (user). The organization's monthly limit is $50, shared by FreightAudit, FilingLens and Triage Copilot. FilingLens's share is $15 until 2026-11-10, when the credits expire. FilingLens's daily Claude budget is sized from the $15, not the $50.
+- 2026-10-21: Claude first in production (user, branch `claude-first`, before 10c). It supersedes the rule above that kept any Anthropic key off the public deployment.
+  - **Chain:**
+    - production sets `LLM_PRIMARY=anthropic:claude-haiku-5-5` and `LLM_ANSWER_FALLBACK=gemini:gemini-3.5-flash-lite`, then NVIDIA;
+    - no setting was renamed.
+  - **Off for good, in every process** (`budget.ClaudeLedger`; Redis `ai:claude:off`, no expiry):
+    - credits gone (a 402, or a 400 naming a spend limit or the credit balance);
+    - a rejected key or model (401, 403, 404), with a log error and the `ClaudeKeyOrModelRejected` alert;
+    - from `ANTHROPIC_CREDITS_EXPIRE`.
+    - Turning Claude back on means deleting that key and restarting the api.
+  - **One answer only:**
+    - a 429, with or without `Retry-After`; this replaced the old reading of a 429 without it as a spend cap;
+    - the daily budget used up (`ai:claude:<date>`, `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000, at most $0.75);
+    - a ledger that cannot be read (fail closed).
+  - **Limits:** `CLAUDE_MAX_TOKENS` 1,052 per call. A prompt over 100,000 UTF-8 bytes never goes to Claude: a token holds at least one byte, so such a prompt stays under `LONG_PROMPT` tokens.
+  - **Budgets:** Claude's tokens leave the free counter (`ai:usage:<date>`), so the free budget keeps counting the router and the free models.
+  - **Evals share Claude's ledger:** it lives on the API's Redis database, not db 15. The prod stack has its own Redis with no host port, so prod and the local evals still count apart.
+  - **Evals:** the official run refuses a Claude `LLM_PRIMARY`. `--claude-primary` is a labelled local run: it reuses the official routes, is reported beside the official run, is never floored and is refused under `--ci` or `CI`.
+- 2026-10-21: Claude's two daily budgets stay separate, and prod's Redis gets no host port (user, answering the question `claude-first` left open before shipping).
+  - **The question:** the evals keep Claude's ledger in the Redis database of `.env`'s `REDIS_URL`, the dev api's (`claude_redis` in `evals/harness.py`). Prod's Redis publishes no host port, so prod counts its own day. One budget for both would need prod's Redis on a host port.
+  - **Decision:** two budgets, each `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000 tokens (at most $0.75):
+    - prod's, in its own Redis;
+    - dev's, shared by the dev api and the local `--claude-primary` runs.
+    - Prod's Redis keeps no host port, as plan point 2 has it for every data store.
+  - **Why (user):**
+    - prod's worst case is $0.75 a day, about $15 to 2026-11-10, FilingLens's share;
+    - local `--claude-primary` evals are rare, and only the user starts them;
+    - the Anthropic organization's $50 monthly limit is the hard stop.
+  - **Cost of the choice:** on a day with a local Claude run, the two budgets together can spend up to $1.50.
+  - **What we did, in order:** recorded it here, in the step 10 plan (Context, and the `CLAUDE_DAILY_TOKEN_BUDGET` row), todo, context, README and the activity log; then ran `make lint`. No code changed, since the code already counts apart.
 
 ## Solved Problems
 
-None yet.
+- 2026-10-21: `--claude-primary` took its routes from `.env`'s `LLM_PRIMARY` (found in the docs pass on `claude-first`; fixed the same day at the user's request, test first).
+  - **Problem:** with `LLM_PRIMARY=anthropic:claude-haiku-5-5` in `.env`, README step 9's setup and where the official run's refusal points, the run reused Claude's own router replies. Its report then sat beside an earlier Claude report, not the official run. The test pinned only a free `LLM_PRIMARY`.
+  - **Fix (user's rule):** `--claude-primary` always takes the official free run's routes, those of the default `LLM_PRIMARY` (`EvalSettings.model_fields`), whatever `.env` says. An explicit `--router-primary` is overridden too; no test pins that.
+  - **Test:** the Claude-configuration test runs a free and a Claude `LLM_PRIMARY` row. The Claude row failed first (`'anthropic:claude-haiku-5-5' == 'gemini:gemini-3.5-flash-lite'`), passed after the fix, and failed again with the bug put back. The official run's untouched-settings check moved to its own test.
+  - **Lesson:** a configuration that must match the official run names the official model itself, rather than reading it from the environment.
+
+- 2026-10-21: CI's answer eval missed its reply cache on x15 and a09 on 10b's PR. Then Google failed both live calls: a 503, and an answer unfinished at 30 s. A read-only investigation found the cause; branch `rerank-deadline` fixes it.
+  - **Cause:** the primary call's key hashes its prompt, and the prompt holds the 12 passages search returns.
+    - The answer suite searched with the API's 500 ms rerank deadline. Past it, search keeps fused order, so the passages, the prompt and the key followed the runner's speed.
+    - Not 10b: it changed no key input, and both router keys still hit.
+  - **Why x15 and a09:** with the router reply cached, the guessed search (`router.guess`, "Caterpillar" to CAT) and the plan's search start almost together.
+    - When the route names no tickers, the guess is discarded but ran on until the answer ended.
+    - Reranks queue on `_rerank_lock`, so the plan's rerank waited inside its own 500 ms. On this PC a rerank takes 128-138 ms.
+  - **Fix (a):** the answer suite waits up to 60 s for the reranker, as the retrieval suite does (`harness.eval_settings`).
+  - **Fix (b):** a guess the plan does not use is cancelled as soon as the plan is known, in production too. `_rerank` now marks a cancelled call abandoned, so a call still queued skips the model.
+  - **No key changes for a search that met 500 ms:**
+    - The deadline is no key input. `answer_path` holds the models, revisions, rerank candidates and tokens, and the index hash; a pin row covers the deadline.
+    - A search that met 500 ms ranks the same under 60 s, so its prompt and key stay the same.
+    - Cancelling a guess the plan never used changes no prompt.
+    - Only the resume file's name changes, since its digest holds the deadline. That matters only for a run interrupted across the change.
+  - **What can still go live in CI:** only a question that searches, and only where CI's cache lacks the reranker-order variant. Each calls once, and the router calls stay cached.
+    - dev ci: 9 questions (c06, c07, c11, x06, x11, x15, x16, a02, a09). At worst 11 Gemini calls, about 59,500 input tokens.
+    - nightly (test split): 11 questions. At worst 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000).
+    - All on free tiers, so $0 billed. A different CPU's float results can still reorder close scores (rare).
+  - **CI's cache:** only CI runs fill it, never local runs. Locally, 2 of 1,015 answer records were degraded, so local replies are almost all the reranker-order variant.
+    - A PR run's cache can be restored only by re-runs of that PR, not by `main` (GitHub's dependency-caching reference, read 2026-10-21). So the push to `main` after a merge can make the PR run's live calls once more.
+    - Entries unused for 7 days are evicted, which would make the next run cold.
 
 ## Known Issues and Pitfalls
+
+- 2026-10-21: Pitfall: gitleaks' `generic-api-key` rule matches across CRLF line ends.
+  - In `.env.example`, `GEMINI_API_KEY=` followed by `GROQ_API_KEY=` is flagged in a Windows working copy (`core.autocrlf=true`).
+  - main's own file with CRs added gives the same finding, and with LF it scans clean. CI scans LF blobs.
+  - So scan files with CRs stripped before reading such a finding as a secret.
+- 2026-10-21: Pitfall: a deliberate break of `set_floors` wrote the repo's `evals/thresholds.json`, because the new test had not pointed `THRESHOLDS` at a temp file. The rewrite equalled HEAD's bytes, and the CRLF checkout was restored. Tests that could write floors now monkeypatch `THRESHOLDS`.
 
 - 2026-10-14: RabbitMQ 4.3 refuses transient non-exclusive queues. Celery needs `control_queue_exclusive=True` and `event_queue_exclusive=True`, or the worker's consumer crash-loops while the broker still looks reachable. That is why the ingest `/readyz` pings the worker through RabbitMQ.
 - 2026-10-14: Windows Application Control on this PC blocks some uv console-script launchers (alembic, celery, uvicorn: os error 4551). Run tools as `uv run python -m <tool>`, as the Makefile does.

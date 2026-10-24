@@ -1,5 +1,6 @@
 # promtool tests for prometheus-alerts.yml (make monitoring-check): each alert has a firing case,
-# and the last group is a quiet case for all 13, at low traffic where a rule has a minimum count.
+# and the last group is a quiet case for the first 13, at low traffic where a rule has a minimum
+# count; ClaudeKeyOrModelRejected has its own quiet case.
 rule_files:
   - prometheus-alerts.yml
 evaluation_interval: 15s
@@ -98,6 +99,34 @@ tests:
               runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#aibudgetexhausted
       - eval_time: 6m
         alertname: AiBudgetNearlyUsed
+        exp_alerts: []
+
+  # ClaudeKeyOrModelRejected: process p1 saw a 401; p2's credits ran out, which does not alert.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_claude_off{job="filinglens-api",instance="p1",kind="key_or_model"}'
+        values: "1x8"
+      - series: 'filinglens_claude_off{job="filinglens-api",instance="p2",kind="credits"}'
+        values: "1x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ClaudeKeyOrModelRejected
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: Anthropic rejected Claude's key or model; answers use the free models until it is fixed.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#claudekeyormodelrejected
+
+  # ClaudeKeyOrModelRejected, quiet: Claude on, then off for credits only.
+  - interval: 15s
+    input_series:
+      - series: 'filinglens_claude_off{job="filinglens-api",instance="p1",kind="none"}'
+        values: "0x4"
+      - series: 'filinglens_claude_off{job="filinglens-api",instance="p2",kind="credits"}'
+        values: "_x4 1x4"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ClaudeKeyOrModelRejected
         exp_alerts: []
 
   # AiBudgetNearlyUsed: 85% used.

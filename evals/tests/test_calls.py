@@ -16,12 +16,22 @@ from evals import harness, judge
 from evals.calibrate import FOLLOWUP_MODELS, draw, draw_followup, imported, spot_check
 from evals.calls import Cache, Call, Recorded, Stop, patiently
 from evals.harness import EvalSettings, answer_path, code_version, refusal_sweep, routed
+from filinglens_api import answering
+from filinglens_api.answering import PostgresEvidence
 from filinglens_api.schemas import Answer
 from filinglens_core.errors import AiUnavailableError, RateLimitedError
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_llm.providers import Completion
+from filinglens_retrieval import Ranking, Scope
 
 TEXTUAL = Path(__file__).parents[2] / "services/api/tests/fixtures/answers/textual.json"
+ENV = {  # what load_settings(EvalSettings) needs; nothing listens on these
+    "DATABASE_URL": "postgresql+asyncpg://app:p@localhost:5433/app",
+    "REDIS_URL": "redis://localhost:6380/0",
+    "BROKER_URL": "amqp://app:p@localhost:5672//",
+    "API_KEY": "k" * 32,
+    "ADMIN_API_KEY": "a" * 32,
+}
 
 
 class Scripted:
@@ -96,6 +106,27 @@ def test_a_tag_joins_the_answer_path_only_when_set() -> None:
     claude = cast(ApiSettings, SimpleNamespace(**vars(stub) | {"llm_primary": "anthropic:x"}))
     routes = answer_path(claude, {"sha256": "abc"}, "", "gemini:gemini-3.5-flash-lite")
     assert routes == untagged and answer_path(claude, {"sha256": "abc"}, "") != untagged
+    # The reranker's deadline is in no key: a search that met the API's 500 ms keeps its passages.
+    patient = cast(ApiSettings, SimpleNamespace(**vars(stub) | {"rerank_timeout_ms": 60_000}))
+    assert answer_path(patient, {"sha256": "abc"}, "") == untagged
+
+
+async def test_the_answer_suite_waits_for_the_reranker_as_the_retrieval_suite_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past the API's 500 ms a search keeps fused order, so an answer's passages, and the cache
+    keys of its replies, would follow the runner's speed (10b's CI eval, 2026-10-21)."""
+    for name, value in (ENV | {"RERANK_TIMEOUT_MS": "500"}).items():  # as .env.example sets it
+        monkeypatch.setenv(name, value)
+    deadlines: list[float] = []
+
+    async def search(*args: Any, timeout_s: float, **kwargs: Any) -> Ranking:
+        deadlines.append(timeout_s)
+        return Ranking([], False, None, {})
+
+    monkeypatch.setattr(answering, "search", search)
+    await PostgresEvidence(cast(Any, None), harness.eval_settings()).search("q", Scope())
+    assert deadlines == [harness.RETRIEVAL_TIMEOUT_S]
 
 
 async def test_a_429_waits_and_the_third_in_a_row_stops_the_run(
@@ -257,22 +288,14 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
         "metrics": {"answer": {"cost_billed_usd": entry(0.0006, 0.0005, 0.0007)}},
     }
     saved.write_text(json.dumps(claude), encoding="utf-8")
-    harness.set_floors(saved)
-    floors = json.loads(thresholds.read_text(encoding="utf-8"))
-    # Credits spent: the efficiency rule, min(high x 1.5, target), under its own key.
-    assert floors["answer:test:full:anthropic:claude-haiku-5-5"] == {"cost_billed_usd": 0.00105}
-    assert floors[free]["cost_billed_usd"] == 0.0
+    before = thresholds.read_text(encoding="utf-8")
+    with pytest.raises(SystemExit, match="never set floors"):  # measured beside, never gated
+        harness.set_floors(saved)
+    assert thresholds.read_text(encoding="utf-8") == before
 
 
 def test_the_judge_can_never_be_claude(monkeypatch: pytest.MonkeyPatch) -> None:
-    env = {
-        "DATABASE_URL": "postgresql+asyncpg://app:p@localhost:5433/app",
-        "REDIS_URL": "redis://localhost:6380/0",
-        "BROKER_URL": "amqp://app:p@localhost:5672//",
-        "API_KEY": "k" * 32,
-        "ADMIN_API_KEY": "a" * 32,
-        "LLM_JUDGE": "anthropic:claude-haiku-5-5",  # its reference labels came from Claude
-    }
+    env = ENV | {"LLM_JUDGE": "anthropic:claude-haiku-5-5"}  # its reference labels came from Claude
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     with pytest.raises(SystemExit, match=r"LLM_JUDGE: .*cannot be Claude"):
@@ -369,3 +392,77 @@ def test_the_sweep_takes_the_midpoint_of_the_best_range_under_5_percent_false_re
     assert result["excluded"] == 2
     assert [row["correct"] for row in result["ranges"]] == [1 / 3, 2 / 3, 1.0, 1.0]
     assert result["ranges"][-1]["false"] == 0.5  # gating c too breaks the 5% limit
+
+
+CLAUDE = "anthropic:claude-haiku-5-5"
+REFUSED: list[tuple[str, list[str], dict[str, str], str]] = [
+    ("the official eval", [], {"LLM_PRIMARY": CLAUDE}, "official eval runs the free models"),
+    ("--ci", ["--claude-primary", "--ci"], {}, "local only"),
+    ("a CI runner", ["--claude-primary"], {"CI": "true"}, "local only"),
+    ("no key", ["--claude-primary"], {"ANTHROPIC_API_KEY": ""}, "needs ANTHROPIC_API_KEY"),
+]
+
+
+@pytest.mark.parametrize(
+    ("argv", "env", "refusal"), [row[1:] for row in REFUSED], ids=[row[0] for row in REFUSED]
+)
+def test_claude_answers_an_eval_only_in_the_labelled_local_configuration(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], env: dict[str, str], refusal: str
+) -> None:
+    monkeypatch.delenv("CI", raising=False)  # GitHub sets it on its runners
+    for name, value in (ENV | {"ANTHROPIC_API_KEY": "sk-test"} | env).items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(SystemExit, match=refusal):
+        harness.answer_model(harness.parse_args(argv), harness.eval_settings())
+
+
+FREE: str = EvalSettings.model_fields["llm_primary"].default  # the official run's answer model
+
+
+# .env's LLM_PRIMARY: the free default, or Claude first as production runs it (README).
+@pytest.mark.parametrize("primary", [FREE, CLAUDE], ids=["free primary", "Claude primary"])
+def test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes(
+    monkeypatch: pytest.MonkeyPatch, primary: str
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    for name, value in (ENV | {"ANTHROPIC_API_KEY": "sk-test", "LLM_PRIMARY": primary}).items():
+        monkeypatch.setenv(name, value)
+    args = harness.parse_args(["--claude-primary"])
+    assert harness.answer_model(args, harness.eval_settings()).llm_primary == CLAUDE
+    assert args.router_primary == FREE  # the official free run's routes: a fair comparison
+
+
+def test_the_official_eval_keeps_the_free_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in (ENV | {"LLM_PRIMARY": FREE}).items():
+        monkeypatch.setenv(name, value)
+    official = harness.eval_settings()
+    assert harness.answer_model(harness.parse_args([]), official) is official  # untouched
+
+
+def test_a_claude_run_never_sets_floors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    thresholds = tmp_path / "thresholds.json"  # a broken refusal must not reach the repo's file
+    monkeypatch.setattr(harness, "THRESHOLDS", thresholds)
+    report = {"config": {"primary": CLAUDE, "label": harness.CLAUDE_LABEL}, "metrics": {}}
+    path = tmp_path / "claude.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(SystemExit, match="never set floors"):
+        harness.set_floors(path)
+    assert not thresholds.exists()
+
+
+def test_a_claude_run_is_labelled_and_reported_beside_the_official_run() -> None:
+    official = {
+        "created_at": "2026-10-17T15:49:12+00:00",
+        "config": {"primary": "gemini:gemini-3.5-flash-lite"},
+        "metrics": {"answer": {"false_refusal": {"value": 0.096}}},
+    }
+    claude = {
+        "suite": "answer", "split": "dev", "subset": "full",
+        "config": {"primary": CLAUDE, "label": harness.CLAUDE_LABEL},
+        "metrics": {"answer": {"false_refusal": {"value": 0.12}}},
+    }  # fmt: skip
+    lines = harness.side_by_side(claude, official)
+    assert harness.CLAUDE_LABEL in lines[1] and official["created_at"] in lines[1]
+    official_value, claude_value = (harness.shown("false_refusal", v) for v in (0.096, 0.12))
+    assert any(official_value in line and claude_value in line for line in lines)
+    assert harness.run_name(claude, "20261021T120000Z").endswith("-answer-dev-full-claude-primary")

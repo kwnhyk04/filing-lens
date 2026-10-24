@@ -15,6 +15,282 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-24: 10b takes main (10c's nested cap and the commit-message rule); 10b's numbers measured with both (uncommitted merge)
+
+- Changes, on `step-10-dataloader` (305b123) with main at 8e638a2 merged in by `git merge main --no-commit` (the user's request; the user's ship concludes the merge):
+  - **Code:** none beyond the merge. `graph.py` and `test_contract.py` merged cleanly, so 10b's loaders and 10c's nested `first` cap sit side by side.
+  - **Tests:** four of 10b's rows in `test_contract.py` asked for `first: 100` inside a list, which the cap refuses. They now ask for 20.
+  - **Docs:** the four text conflicts resolved (below); the numbers measured with both in (memory.md, the 10b merge); todo, context, memory and this log.
+- Small events, in order:
+  1. **Precondition, first try:** the tree was clean, but main ended at e75cb57 (10c, #28) without the commit-message rule. A read-only `git ls-remote` (credential helper off) showed GitHub's main there too, and `commit-message-rule` (e0717f7) pushed but unmerged. So I stopped and reported, as the request said.
+  2. **Precondition, second try** (the user merged #26): clean, on main at 8e638a2 (#26) after e75cb57 (#28), the same as GitHub's.
+  3. **Merge:** `git switch step-10-dataloader`, then `git merge main --no-commit`: conflicts in `docs/{activity-log,context,memory,todo}.md`; `graph.py` and `test_contract.py` auto-merged. The merged `graph.py` was read in full: the loaders in `get_context`, `_company` and `Chunk._source`, and `_page_size(info, first)` at every page.
+  4. **The conflict git could not see:** the merged contract tests failed 4 of 105, each on "first must be between 1 and 20 inside another list.": two `LOOKUPS` rows, one `GONE` row and one `SHARED` row, all with `first: 100` under `chunks(ids: …)`. Each now asks for 20. The fake lists at most 3 chunks or facts, so their expected lookups did not change. Then 105 of 105 passed.
+  5. **Doc conflicts, each keeping both sides:**
+     - `todo.md`: 10a's ship line from main (#19); 10b's checklist from its branch, with a merge item instead of main's "not on main" note; 10b's open page-query decision marked done by 10c, not planned again; 10c's built block from main, marked merged as #28; In Progress now names this merge.
+     - `context.md`: one GraphQL paragraph with 10b's loaders and 10c's cap (main's "each item makes one backend lookup" no longer holds); the status lines give both PRs' state.
+     - `memory.md`: 10b's block, then 10c's, in date order. 10b's open entry gained one "Decided, and done by 10c" line.
+     - This log: main's side already held every newer entry, so 10b's 2026-10-21 entry moved below main's 2026-10-21 entries, above PR 10a. A script compared the result with git's two conflict sides: 10b's entry matches its side, and the log without it equals main's file.
+  6. **Checks:** listed under Validation.
+  7. **Container go** (asked, then given with two conditions): Testcontainers for `make test-int`, and `filinglens-postgres-1` for the measurement. The script stays outside the repo (scratchpad), and the container ends as found. It was stopped, so `docker start` by name, then `docker stop` by name. Port 5433 was free first; afterwards netstat showed only `TIME_WAIT` lines, the script's closed connections.
+  8. **Measurement:** a scratch script ran 10b's two worst queries in process through the real schema and `graph.get_context`, over a `LiveBackend` that counted each SQL statement and its rows, three times, before the cap (`graph.NESTED_FIRST` set to 100 in that process) and with it. It printed the corpus first: revision 0008, 30 indexed filings, 677 sections, 11,263 chunks. The numbers are in memory.md; the lookups by id varied between runs (24 to 33), the page queries and rows did not.
+  9. **Nothing live:** no model and no SEC call. Docker ran Trivy and gitleaks (`--rm`), the Testcontainers and the dev Postgres.
+- Files: `services/api/tests/test_contract.py` (4 rows), `docs/{activity-log,context,memory,todo}.md`; the rest of the diff is main's (#26, #27, #28 and earlier).
+- Validation:
+  - The DataLoader and nested-cap tests: `test_contract.py` 105 of 105.
+  - `make lint` clean (140 files formatted); `make typecheck` 0 errors; `make test` 457 passed.
+  - `make vuln-scan`: 0 HIGH or CRITICAL in `uv.lock`, `web/package-lock.json` and `clients/ts/package-lock.json`.
+  - `make test-int` 32 passed (3 min 20 s); FreightAudit's ten running containers were the same before and after.
+  - gitleaks (`dir --redact`) on each of the 9 files that differ from main, this log included: no leaks; the control exits 1.
+  - Eval check: of the eval inputs, `backend.py` and `graph.py` differ from main. The harness loads `filinglens_api.{answering,backend,limits,problems,schemas}` only (`sys.modules`) and calls no `Backend` lookup, so every cache key is main's. CI's eval runs because an input changed. At worst, as before, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed) if main's cache lacks their replies, and the nightly's next run measures (at worst 11 Gemini and 8 judge calls, $0 billed).
+- Outstanding: the user confirms the `eval-calls-*` cache and ships, which concludes the merge. Then deploy.md's steps 5 to 23.
+
+### 2026-10-24: Step 10c, the deploy config and runbook, with the nested `first` cap (uncommitted)
+
+- Changes, on `step-10-deploy-config` from main at 7979cdb (Claude first merged as #22), with the user's two updates to the plan (prod Claude first, nothing forced; the nested `first` cap, test first):
+  - **Nested `first` cap** (`graph.py`): a connection with a list index on its path takes `first` 1 to 20, the outermost list 1 to 100; past that, `invalid_input` before its page is read. The `first` description says so, so `contracts/schema.graphql` changes 6 descriptions. 7 rows in `test_contract.py`. The read-under-load integration test's nested `chunks(first: 50)` became 20.
+  - **Prod override** (`infra/docker-compose.prod.yml`, rewritten): project `filinglens-prod`; GHCR images by `IMAGE_TAG` with no build; no host port; `data` (internal) for the stores; the `ingest` profile for the workers; the `tailscale` sidecar with its external state volume; `x-kept` on every service and `x-hardened` on api and tailscale; `IMAGE_TAG` and `RETRIEVAL_EMBEDDING_COLUMN` required. No provider or key is forced (Claude first).
+  - **`CLAUDE_DAILY_TOKEN_BUDGET`** now reaches the api (`infra/docker-compose.yml`, one line); before, compose never passed it.
+  - **New:** `infra/tailscale/serve.json` (443 to `http://api:4100`, Funnel on), `web/vercel.json` (main only, `hkg1`), `docs/deploy.md` (the runbook, both variable tables, point 6's live test, the rollback).
+  - **`web/package.json`:** `engines.node` `^24.7.0`; the lock's root entry only.
+  - **Docs:** README (the Deploy line replaces the old Production command, which used `.env`; the cap under Limits), context, memory, todo, this log.
+- Small events, in order:
+  1. **Base:** the tree was clean on main at 7979cdb. No fetch: the user's request named main.
+  2. **10b not on main:** `git log main` has no 10b; 305b123 sits on `step-10-dataloader` (pushed), and main's `graph.py` keeps the two `ponytail:` lookup comments. The plan for the cap ("cap a nested `first`") exists only in 10b's docs on that branch. Built from main as asked; reported to the user.
+  3. **Gates:** GateGuard held each file's first edit or write, the scratch files' included, until their facts were given. The prod override's and deploy.md's writes were held twice; each retry passed.
+  4. **B4 from local settings:** the first `powercfg /query` failed ("Invalid Parameters", exit 1), because Git Bash rewrote `/query` as a path. With `MSYS_NO_PATHCONV=1`: AC sleep and hibernate are 0 (never), on the Power saver scheme; DC sleep is 600 s. Docker Desktop's `settings-store.json` has `AutoStart: true`, and its `HKCU\...\Run` entry exists. B1 to B3 show in no doc or local setting.
+  5. **FreightAudit:** its `infra/docker-compose.prod.yml` and `infra/tailscale/serve.json` read again, read-only, under the 2026-10-20 permission; no `.env` file opened (memory.md, PR 10c).
+  6. **Cap, test first:** red, 5 refused rows failed and the 2 pin rows passed; green, 7 of 7. A scratch mutant with the cap on every list (a pytest plugin in the scratchpad, no repo change) failed only the outermost-100 pin, so the pin bounds the check.
+  7. **Contracts:** only `strawberry export-schema` ran, not `make codegen`: no GraphQL client embeds schema descriptions (grep of `clients/`), and no REST code changed. The export wrote CRLF; git's `eol=lf` stores LF, and `git diff` shows the 6 description lines only. `make contracts-check` was not run: it fails on any unstaged change under `contracts/`, and its codegen rewrites files in CRLF on this PC (memory.md, 2026-10-20).
+  8. **Budget variable, test first:** rendered with a dummy env file that sets 1234567, the prod api's environment had no `CLAUDE_DAILY_TOKEN_BUDGET` (red). After the one line, it carries 1234567 in prod and dev (green).
+  9. **Compose checks:** a scratch script renders the configs with dummy values (`docker compose config`, no container starts) and checks 21 points: the project name, the services with and without `--profile ingest`, the images, no build, no host port, the networks, the external volume, the hardening, the restart policy, every `ApiSettings` field in the api's environment (`OLLAMA_URL` and `OTEL_SERVICE_NAME` left out on purpose), Claude first unforced, the embedding column, the read-only `/config` mount, the two required variables' messages, and the dev project. 21 of 21 passed. A control on main's files (extracted with `git archive`) failed: the script stopped at the missing `tailscale` service with a `KeyError`, rather than listing each failed check.
+  10. **Runbook claim checked:** with profiles off, compose still stops without `GRAFANA_ADMIN_PASSWORD` or `SEC_USER_AGENT` (exit 1, both messages).
+  11. **Mistakes, mine:** one compose run wrote its stderr to `$TEMP` on C:, not to the scratchpad. Two scratch env copies (step 10) and the list of running containers (step 13) were written with a shell redirect (`>`), against AGENTS.md's rule on writing files. None touched a repo file.
+  12. **gitleaks control:** the first synthetic token (sequential characters) went unfound, so the control proved nothing; a random 36-character one was found (1 leak, exit 1).
+  13. **`make test-int`, on the user's go** (asked once everything else had passed): 32 passed in 3 min 30 s. The running containers, FreightAudit's ten, were the same before and after.
+  14. **Nothing live:** no model and no SEC call. Docker ran `docker compose config`, `--rm` tool containers (oasdiff, gitleaks) and the Testcontainers of `make test-int`.
+- Files: `services/api/src/filinglens_api/graph.py`, `services/api/tests/{test_contract,test_under_load}.py`, `contracts/schema.graphql`, `infra/docker-compose{,.prod}.yml`, `infra/tailscale/serve.json`, `web/{vercel.json,package.json,package-lock.json}`, `README.md`, `docs/{deploy,context,memory,todo,activity-log}.md`.
+- Validation:
+  - `make lint` clean (139 files formatted); `make typecheck` 0 errors; `make test` 447 passed; `make test-int` 32 passed.
+  - web: `tsc` clean, `npm test` 84, `next build` clean, `npx playwright test` 72.
+  - The compose checks 21 of 21; both JSON files parse (`JSON.parse`).
+  - `make contracts-breaking`: "No changes detected".
+  - gitleaks (`dir --redact`) on each of the 15 changed and new files, then on this log once written: no leaks; the control exits 1.
+  - Eval check: of the eval inputs only `graph.py` changed, and the harness loads `filinglens_api.{answering,backend,limits,problems,schemas}` only (`sys.modules`), so every cache key is main's. CI's eval runs because an input changed. At worst, as for the certifi bump, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed) if main's cache lacks their replies; the nightly's input hash changes too, so its next run measures: at worst 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000), $0 billed.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships; 10b still has to reach main before deploy.md's steps 5 to 23.
+
+### 2026-10-24: next 16.4.1, filelock and virtualenv upgraded for CI's vuln-scan findings (uncommitted)
+
+- Changes, on `next-security` from main at fe90d5f (the user's request; the findings fail every PR's vuln-scan until main has the fix):
+  - `web/package.json` and `web/package-lock.json`: next 16.3.8 to 16.4.1 (exact pin, as before), with its `@next/*` packages. Fixes GHSA-2464-fhr4-w9xw (CRITICAL, image optimization with SVG), GHSA-673q-mjm6-r5xr (CRITICAL, `use cache` with typed arrays) and CVE-2026-94482 (HIGH, DoS through Server Actions; Trivy lists the CVE id, and its match to the user's GHSA-p3m5-59mp-jv5r is not confirmed).
+  - `uv.lock`: filelock 4.1.1 to 4.2.4 (CVE-2026-112940, HIGH) and virtualenv 21.14.7 to 21.14.13 (CVE-2026-113718, -113722, -113723, HIGH). These were not in the user's note. They are dev-only. No ignore file or allowlist.
+  - Docs: memory, todo, this log.
+- Small events, in order:
+  1. **Gates:** GateGuard held the first Bash call, and the first edit of `web/package.json`, `uv.lock` and these docs, until facts were given. Each retry passed.
+  2. **Wrong order, mine:** `npm install --package-lock-only` ran in the same batch as the first, blocked `package.json` edit, so it did nothing ("up to date"). It was re-run after the edit went through.
+  3. **Version in the note:** the user's note said 16.4.0. The repo was on 16.3.8 (lock and `package.json`); 16.4.0 was only a Dependabot candidate, never installed.
+  4. **Scan stops at the first failure:** `make vuln-scan` ended at `uv.lock`, so the web lock was scanned with the same Trivy command by hand. `clients/ts` was clean.
+  5. **The lock's header:** `uv lock --upgrade-package` set `revision = 5` again (memory.md, 2026-10-21 pitfall). It was set back to 3 with the edit tool. `uv lock --check` passed and `uv sync` swapped only the two packages.
+  6. **Nothing live:** no model, SEC or container call beyond the `--rm` Trivy runs.
+- Files: `web/package.json`, `web/package-lock.json`, `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation: the three Trivy scans (the `make vuln-scan` commands) 0 findings; `make lint` clean; `make test` 418; web `tsc` clean, `npm test` 84, `next build` clean, `npx playwright test` 72.
+- Outstanding: the user ships it. No `EVAL_INPUTS` path is touched.
+
+### 2026-10-21: certifi 2026.10.19 for GHSA-6q48-6c7w-9gw2, fixed at the source (uncommitted)
+
+- Changes, on `certifi-bump` from main at aca22a6 (the user's request; PR #22's vuln-scan fails until main has the fix):
+  - `uv.lock`: certifi 2026.7.22 to 2026.10.19, its version, sdist and wheel lines only. No ignore file or allowlist.
+  - Docs: memory (Preferences), todo, this log.
+- Small events, in order:
+  1. **Base:** `claude-first` was committed (d509b17) and pushed, and the tree was clean. An anonymous `git fetch origin main` (credential helper off, no prompt) showed GitHub's main still at aca22a6. The branch was made from it with `--no-track`.
+  2. **Gates:** GateGuard held the first Bash call and the first edit of `uv.lock` and of these docs until their facts were given. Each retry passed.
+  3. **The lock's header:** `uv lock --upgrade-package certifi` ("Updated certifi v2026.7.22 -> v2026.10.19") also rewrote `revision = 3` to `revision = 5`. uv 0.12.23, the version on the PC, in the Dockerfile and in CI, writes 5.
+     - The header was set back to 3 with the edit tool.
+     - `uv lock --check` exited 0, and `uv sync` swapped certifi 2026.7.22 for 2026.10.19, nothing else.
+  4. **Line ends:** uv wrote the lock with LF, and git warns that the working copy will get CRLF. The committed blob is LF either way.
+  5. **Control:** `make image-scan IMAGE=filinglens-api:ci`, an image built 4 days ago, failed with exactly one CRITICAL: certifi 2026.7.22, GHSA-6q48-6c7w-9gw2, fixed in 2026.10.19. So the local Trivy database knew the advisory.
+  6. **Images:** both were rebuilt from this branch as CI builds them (`infra/Dockerfile`, `PACKAGE=filinglens-<api|ingest>`).
+     - They are tagged `filinglens-api:certifi-bump` and `filinglens-ingest:certifi-bump`, so the existing `:ci` and `:latest` images stayed as they were.
+     - The two new tags are still there, and so is `.cache/images/scan.tar`.
+  7. **Provenance:** certifi 2026.10.19 was uploaded on 2026-10-20, inside Dependabot's 7-day cooldown for uv. PyPI's integrity API shows its wheel's PEP 740 attestation from `certifi/python-certifi`, workflow `release.yml`, environment `release`.
+  8. **Nothing live:** no model call and no SEC call. Docker ran only Trivy (`--rm`) and the two builds.
+- Files: `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation:
+  - `make vuln-scan`: 0 HIGH or CRITICAL in `uv.lock`, `web/package-lock.json` and `clients/ts/package-lock.json`.
+  - `make image-scan`: 0 CRITICAL in both rebuilt images; each lists `certifi-2026.10.19.dist-info`.
+  - `make lint` clean (139 files already formatted); `make test` 418 passed.
+  - Lock diff: 3 lines, all certifi's (`git diff --numstat`: `3 3 uv.lock`).
+  - Eval check:
+    - `uv.lock` is in CI's `EVAL_INPUTS`, so CI's eval runs.
+    - The reply cache keys hold the models, the index and the prompts, none of which certifi changes, so CI replays main's cache.
+    - At worst, as for `rerank-deadline`, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed), if main's cache lacks their reranker-order replies.
+    - The nightly's input hash changes too, so its next scheduled run measures instead of skipping. At worst that is 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000), $0 billed.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships. Then `claude-first` takes main, where this log's top conflicts: keep both entries.
+
+### 2026-10-21: `--claude-primary` always takes the official free run's routes; the switch-off comment corrected (uncommitted)
+
+- Changes, on `claude-first`, uncommitted with the branch (the user's request, before shipping):
+  - **Routes:** `harness.answer_model` sets `args.router_primary` to the default `LLM_PRIMARY` (`EvalSettings.model_fields["llm_primary"].default`, `gemini:gemini-3.5-flash-lite`), whatever `.env` says.
+    - Before, it took `.env`'s `LLM_PRIMARY`. With Claude there, a run reused Claude's own router replies and sat beside an earlier Claude report.
+    - An explicit `--router-primary` is now overridden under `--claude-primary`; no test pins that.
+  - **Test, first:** `test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes` runs two rows, `free primary` and `Claude primary` (`LLM_PRIMARY=anthropic:claude-haiku-5-5`).
+    - Each row sets `LLM_PRIMARY`, so a shell variable cannot leak in.
+    - The official run's untouched-settings check moved to `test_the_official_eval_keeps_the_free_models`.
+  - **Comment:** the `ponytail:` comment on `Anthropic._gone` (`providers.py:441`) now reads "Why Claude is off here; the switch-off is stored in Redis and survives restarts." It has no test: no behaviour changed, and the stored switch-off already has its tests.
+  - **Docs:** memory (Solved Problems), todo, context (the eval section), README (the `make eval` row), this log.
+- Small events, in order:
+  1. The request came as pasted text alone. It named `providers.py:44`; line 44 is in `BASE_URLS`, so the comment at 441, the one reported, was taken as meant.
+  2. GateGuard held the first edit of `test_calls.py`, `harness.py` and `providers.py` until their facts were given. Each retry passed.
+  3. **Red:** `[Claude primary]` failed: `AssertionError: assert 'anthropic:claude-haiku-5-5' == 'gemini:gemini-3.5-flash-lite'`. `[free primary]` and the moved check passed, as before.
+  4. **Green:** 7 passed (those three, plus the four refusal rows).
+  5. **Deliberate break:** with the old line put back (`args.router_primary or settings.llm_primary`), `[Claude primary]` failed with the same assertion. The fix was restored, and the file's sha256 matched the fixed version (c1be941d...).
+  6. **Containers:** `make test-int` ran with the user's go. The same 13 containers ran before and after (FreightAudit's dev and prod, Triage Copilot's); none of FilingLens's stayed up.
+  7. Nothing live: no model call, no SEC call.
+- Files: `evals/harness.py`, `evals/tests/test_calls.py`, `packages/llm/src/filinglens_llm/providers.py`; `docs/{memory,todo,context,activity-log}.md`, `README.md`.
+- Validation:
+  - `make lint` clean ("All checks passed!", 139 files already formatted); `make typecheck` 0 errors.
+  - `make test` 440 passed (438 before: the new row and the moved check); `make test-int` 32 passed (3 min 06 s).
+  - Eval check: only the `--claude-primary` branch changed, and CI refuses it, so the official run's cache keys stay as they were. CI's eval runs, since eval inputs changed. At worst, as for `rerank-deadline`, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed) if main's cache lacks their reranker-order replies.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships `claude-first`; then 10c.
+
+### 2026-10-21: Claude's two daily budgets stay separate (user decision; docs only, uncommitted)
+
+- Changes: docs only, on `claude-first`, uncommitted beside the branch's code. Nothing was rebuilt.
+  - **The decision** (memory.md, Preferences; the step 10 plan's Context and its `CLAUDE_DAILY_TOKEN_BUDGET` row; todo): prod and the local `--claude-primary` evals keep separate Claude budgets, and prod's Redis gets no host port.
+    - The user's reasons: prod's worst case is $0.75 a day (about $15 to 2026-11-10, FilingLens's share); local `--claude-primary` evals are rare and started by the user; Anthropic's $50 monthly limit is the hard stop.
+  - **Stale lines, fixed against the code:**
+    - context.md said that a 429 without `Retry-After` meant credits gone, and that Claude's switch-off lived in the process. In `providers.Anthropic` a 429 hands on one answer, and the switch-off is stored in Redis.
+    - context.md's step 10 status still had 10a in progress and production on free providers only.
+    - README's budget line read as if prod and the evals shared one budget, and its `make eval` row lacked `--claude-primary`.
+    - todo: 10a marked shipped (#19, 1f15729, git log); In Progress now names `claude-first`.
+- Small events, in order:
+  1. The request came as pasted text alone: the user's answer to the question the previous session left open.
+  2. GateGuard held the first Bash call and each file's first edit until their facts were given. Each retry passed.
+  3. **Found, not fixed** (code; the user asked for no rebuild), listed in todo for the user's call:
+     - `evals/harness.py:237`: `--claude-primary` takes its routes from `LLM_PRIMARY`. With `LLM_PRIMARY=anthropic:claude-haiku-5-5` in `.env` (README step 9's setup), the run reuses Claude's own router replies and sits beside an earlier Claude report, not the official run. The official run's refusal does not fire, since `--claude-primary` is set, and its message points there. The test (`test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes`) covers only a free `LLM_PRIMARY`.
+     - `packages/llm/src/filinglens_llm/providers.py:441`: the `ponytail:` comment says Claude's switch-off lives per process and a restart learns it again from one refused call. The ledger now stores it in Redis, and `unusable()` reads it back.
+  4. Nothing live: no model call, no SEC call, no container.
+- Files: `docs/{memory,todo,context,activity-log}.md`, `README.md`, the plan file (`C:\Users\kwonhyuk\.claude\plans\pasted-content-id-ee81-source-fiscal-validated-dolphin.md`).
+- Validation: `make lint`: "All checks passed!", and 139 files already formatted. No tests run: docs only.
+- Outstanding: the user's call on the two findings; then the user confirms the `eval-calls-*` cache and ships `claude-first`; then 10c.
+
+### 2026-10-21: Claude first in production, with its limits (uncommitted)
+
+- Changes, each test first, on `claude-first` from main at aca22a6 (rerank-deadline merged; 10b still open). Details are in memory.md, Preferences, 2026-10-21.
+  - **Chain:**
+    - Claude first through settings (`LLM_PRIMARY` Claude, `LLM_ANSWER_FALLBACK` Gemini);
+    - `Answerer._chain` is async and leaves Claude out silently while it cannot answer;
+    - `Anthropic` gains `unusable()`, stored switch-offs (`budget.ClaudeLedger`) and the new 429 and 401/403/404 rules.
+  - **Limits:**
+    - `CLAUDE_MAX_TOKENS` 1,052;
+    - the 100,000-byte prompt guard;
+    - `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000, shared by the api and the evals on the API's Redis database;
+    - Claude's tokens left the free counter.
+  - **Alert:** the gauge `filinglens.claude.off{kind}`, the rule `ClaudeKeyOrModelRejected` (the 14th) with promtool firing and quiet cases, and its runbook in `docs/monitoring.md`.
+  - **Evals:** `--claude-primary`, labelled and local. It reuses the official routes, is reported beside the official run, never sets floors, and is refused under `--ci` or `CI`. The official run refuses a Claude primary.
+  - **Plan file:**
+    - the prod override that emptied `LLM_ANSWER_FALLBACK` and `ANTHROPIC_API_KEY` is gone;
+    - the variable table now has `LLM_PRIMARY`, `LLM_ANSWER_FALLBACK`, `ANTHROPIC_API_KEY`, `ANTHROPIC_CREDITS_EXPIRE` and `CLAUDE_DAILY_TOKEN_BUDGET`;
+    - point 6 now plans 2 Groq and 2 Claude calls, about 10,700 tokens and about $0.001; at worst about $0.0037;
+    - its stop rule now treats any fallback as Claude failing.
+  - **Docs:** README, `.env.example`, context, memory, todo, this log.
+- Small events, in order:
+  1. **The request** came as pasted text alone. It reversed the standing no-Anthropic rule, and was taken as the user's decision.
+  2. **Base:** an anonymous `git fetch` (credential helper off) showed `main` at aca22a6, without 10b. The new branch had picked up `origin/main` as its upstream, which was unset.
+  3. **Context:** the user was asked how to proceed at about 75% context and chose to continue.
+  4. **Gates:** GateGuard held first edits and, after its session restarts, Bash again. Each retry passed.
+  5. **Red, by part:**
+     - the answer tests failed on the missing `ledger` (17), the eval tests on the missing configuration (7), and the Redis test on the missing `ClaudeLedger`;
+     - an old provider test pinned "a 429 without Retry-After means off" and was rewritten to the new rule;
+     - an old floors test expected Claude floors and now expects the refusal.
+  6. **Deliberate breaks:** 9 scratch mutants (Claude never sits out; the switch-off not stored; a 429 switching off; a rejected key not switching off; Claude counted in the free budget; no prompt guard; the free models' cap; the official eval taking Claude; Claude floors). Each failed its tests.
+  7. **The floors break wrote the repo's `evals/thresholds.json`:** the new test had not redirected `THRESHOLDS`.
+     - The rewrite equalled HEAD's bytes in LF.
+     - The CRLF checkout was restored with `git checkout --`, after the gate's facts.
+     - The test now redirects `THRESHOLDS`, and the break still fails it.
+  8. **gitleaks** flagged `.env.example` (`generic-api-key` at `GEMINI_API_KEY=`). Main's file with CRs added gives the same finding, and mine with LF scans clean: a CRLF artifact (memory.md, pitfalls).
+  9. **Nothing live:** no model call and no SEC call.
+- Files:
+  - code: `packages/llm/src/filinglens_llm/{budget,providers}.py`, `packages/core/.../settings.py`, `packages/telemetry/.../metrics.py`, `services/api/src/filinglens_api/{answering,main,__main__}.py`, `evals/harness.py`;
+  - tests: `services/api/tests/{test_answering,test_limits}.py`, `packages/llm/tests/test_providers.py`, `evals/tests/test_calls.py`;
+  - infra: `infra/prometheus-alerts{,.test}.yml`;
+  - docs and config: `.env.example`, `README.md`, `docs/{monitoring,context,memory,todo,activity-log}.md`.
+- Validation:
+  - `make lint` clean; `make typecheck` 0 errors.
+  - `make test` 438 passed; `make test-int` 32 passed (3 min 50 s, same containers before and after).
+  - `make monitoring-check`: 14 rules, tests passed. `make contracts-breaking`: "No changes detected".
+  - gitleaks: as above.
+  - Eval check: the official eval's keys are unchanged. The free primary's prompts, options and output cap are as on main; only a Claude primary gets the 1,052 cap in its keys. CI's eval runs, since eval inputs changed, and replays main's cache.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships; then 10c.
+
+### 2026-10-21: Rerank deadline: the answer eval waits for the reranker, and an unused guess is cancelled (uncommitted)
+
+- Changes, each fix test first, on `rerank-deadline` from main at 1f15729. Details are in memory.md, Solved Problems.
+  - **(a)** The answer eval's searches wait up to 60 s for the reranker, as the retrieval eval's do (`harness.eval_settings`, used by `evaluate`).
+  - **(b)** `Answerer.events` cancels a guessed search the plan does not use as soon as the plan is known, in production too. `_rerank` marks its call abandoned on any exit, so a cancelled call still queued on the lock skips the model.
+  - **Tests:**
+    - the disagreeing-router test now gets a guess that waits until cancelled, and checks it is cancelled before the plan's search;
+    - a new `packages/retrieval/tests/test_rerank.py` (a cancelled search's queued rerank skips the model);
+    - an eval test that the answer suite's search gets 60 s;
+    - a pin row that the deadline is in no cache key. The settings env became a shared `ENV` in `test_calls.py`.
+  - **Docs:** memory (a preference correcting the eval check, the Anthropic spend, Solved Problems), todo (this PR, and the Haiku limits for the next branch), context (the guess, the answer suite), this log.
+- Small events, in order:
+  1. **Base:** local `main` and `origin/main` were at 1f15729 (10a). 10b (305b123) was on its own branch, not merged. The user's rule bars checking GitHub, so "current main" was taken as 1f15729.
+  2. **The investigation's docs:** their edits were uncommitted on `step-10-dataloader`, which blocked the switch.
+     - They were saved as a patch (`git diff --output`, scratchpad), then restored to that branch's commit. The gate held the restore as destructive until its files and rollback were given.
+     - They were then written again here, in places 10b's PR does not touch: memory's Preferences and Solved Problems, todo after step 10's block, two context lines.
+     - Only this log's top will conflict with 10b's entry when the second PR merges: keep both entries.
+  3. **The user's mid-turn addition** (Haiku limits). Two questions were asked: FilingLens's share is $15 of the organization's $50 until 2026-11-10, and the limits get their own branch after this one. The Haiku numbers were read from the four local Claude runs of 2026-10-17; nothing was built yet.
+  4. **Gates:** GateGuard held each file's first edit and the first Bash call until their facts were given. In one batch it held three first edits, but let two later `harness.py` edits through; the held three were sent again and passed.
+  5. **Red:** the three new tests failed, each on its missing behaviour:
+     - the guess was not cancelled first;
+     - the queued rerank was not told;
+     - `eval_settings` was missing.
+     - The deadline pin and the refactored judge test passed.
+  6. **Green:** the three test files passed (53 tests). Two new comment lines ran past 100 characters and were shortened before lint.
+  7. **Containers:** `make test-int` passed, but the before-and-after list of running containers differed.
+     - Triage Copilot's three containers (elasticmq, postgres, toxiproxy) were gone afterwards, removed rather than stopped.
+     - This run only used Testcontainers, whose reaper removes containers with its own session label. Cause not confirmed: most likely Triage Copilot's own session. They were not touched here.
+  8. **Web:** GitHub's dependency-caching reference was read (public docs, no CI data) to confirm that a PR run's cache can be restored only by re-runs of that PR.
+  9. **Nothing else run:** no model call, no eval run.
+  10. **Update onto main, waiting:** the user then said 10b was merged. An anonymous `git fetch origin main` (credential helper off, no prompt) and `git ls-remote` showed GitHub's `main` still at 1f15729 and `step-10-dataloader` at 305b123, not merged. So there was nothing to update yet. The branch waits for 10b to reach `main`.
+- Files: `evals/harness.py`, `evals/tests/test_calls.py`, `services/api/src/filinglens_api/answering.py`, `services/api/tests/test_answering.py`, `packages/retrieval/src/filinglens_retrieval/__init__.py`, `packages/retrieval/tests/test_rerank.py` (new), docs (memory, todo, context, this log).
+- Validation:
+  - `make lint` clean (139 files formatted); `make typecheck` 0 errors.
+  - `make test` 418 passed; `make test-int` 31 passed (3 min 17 s).
+  - `make contracts-breaking`: "No changes detected".
+  - gitleaks (`dir --redact`) on the 10 changed files: no leaks. The synthetic-token control finds its 1 and exits 1.
+  - Eval check: this PR changes eval inputs (`evals/`, `services/api/src`, `packages/retrieval/src`), so CI's eval runs.
+    - Keys stay the same for every search that met 500 ms.
+    - At worst the dev ci run calls Gemini live 11 times for its 9 searching questions (about 59,500 input tokens, $0 billed), and the next nightly 11 times plus 8 judge calls.
+  - No live model or SEC call.
+- Outstanding:
+  - the user ships this PR;
+  - the Haiku limits, on their own branch.
+
+### 2026-10-21: 10b's CI answer eval failed on x15 and a09: why they missed the reply cache (read only)
+
+- Changes: docs only, written first on `step-10-dataloader` and moved to `rerank-deadline` (the entry above).
+  - **Report from the user:** x15 got a Gemini 503. a09 got "no answer within 30 s" after "reranker timed out" warnings. Each showed 1 cached call where the 2026-10-17 report had 2.
+  - **Finding:** 10b changed no key input. The primary call's key hashes its prompt, and the prompt's passages depend on whether the reranker met its 500 ms deadline on the runner. A miss shows only the router call, because a failed call is not recorded.
+    - **Why x15 and a09:** both route with no tickers while the guess names Caterpillar. Their discarded guess held the rerank lock while the plan's rerank waited inside its deadline.
+    - **The failure itself:** Google failed both live calls.
+  - **Correction:** the 10b report's eval check ("no model call") was wrong. Code alone does not fix the keys; the runner's rerank time does too.
+- Small events, in order:
+  1. **Report layout:** two inline scripts failed on the reports' layout:
+     - `KeyError: 'code'`: the older dev-ci reports have no `code`;
+     - `TypeError: string indices must be integers`: records sit under `records['answer']`.
+     - The third script read `records['answer']`.
+  2. **Which report:** `evals/reports/2026-10-17.json` is the test split, so x15 and a09 (dev) are not in it. The dev comparison is `evals/reports/runs/20261017T154912Z-answer-dev-ci.json`, a local run on this PC. There, both questions made 2 live calls, and CI's cache never saw those replies.
+  3. **Not read:** CI logs, artifacts and caches. AGENTS.md has the user report CI results, so there was no gh and no fetch of CI data.
+  4. **Nothing run:** no model call, no eval run, no container.
+- Validation: read-only. The code read was:
+  - `evals/calls.py` (keys) and `evals/harness.py` (the answer suite, `answer_path`, the ci subset, `CI_EXTRA`);
+  - `answering.py` (the early search, `MAX_CHUNKS`, the relevance gate) and `filinglens_retrieval` (`_rerank`);
+  - `filinglens_llm.local` (`_rerank_lock`), `router.guess`, and the Gemini provider (`attempts=1`);
+  - `nightly-eval.yml`, which runs only the test split.
+- Outstanding: the user re-ran 10b's failed job; the fix is the entry above.
+
 ### 2026-10-21: PR 10b, GraphQL DataLoader (uncommitted)
 
 - Changes, each test first, on `step-10-dataloader` from main at 1f15729 (10a merged as #19). Details are in memory.md, PR 10b.
