@@ -15,6 +15,23 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-24: next 16.4.1, filelock and virtualenv upgraded for CI's vuln-scan findings (uncommitted)
+
+- Changes, on `next-security` from main at fe90d5f (the user's request; the findings fail every PR's vuln-scan until main has the fix):
+  - `web/package.json` and `web/package-lock.json`: next 16.3.8 to 16.4.1 (exact pin, as before), with its `@next/*` packages. Fixes GHSA-2464-fhr4-w9xw (CRITICAL, image optimization with SVG), GHSA-673q-mjm6-r5xr (CRITICAL, `use cache` with typed arrays) and CVE-2026-94482 (HIGH, DoS through Server Actions; Trivy lists the CVE id, and its match to the user's GHSA-p3m5-59mp-jv5r is not confirmed).
+  - `uv.lock`: filelock 4.1.1 to 4.2.4 (CVE-2026-112940, HIGH) and virtualenv 21.14.7 to 21.14.13 (CVE-2026-113718, -113722, -113723, HIGH). These were not in the user's note. They are dev-only. No ignore file or allowlist.
+  - Docs: memory, todo, this log.
+- Small events, in order:
+  1. **Gates:** GateGuard held the first Bash call, and the first edit of `web/package.json`, `uv.lock` and these docs, until facts were given. Each retry passed.
+  2. **Wrong order, mine:** `npm install --package-lock-only` ran in the same batch as the first, blocked `package.json` edit, so it did nothing ("up to date"). It was re-run after the edit went through.
+  3. **Version in the note:** the user's note said 16.4.0. The repo was on 16.3.8 (lock and `package.json`); 16.4.0 was only a Dependabot candidate, never installed.
+  4. **Scan stops at the first failure:** `make vuln-scan` ended at `uv.lock`, so the web lock was scanned with the same Trivy command by hand. `clients/ts` was clean.
+  5. **The lock's header:** `uv lock --upgrade-package` set `revision = 5` again (memory.md, 2026-10-21 pitfall). It was set back to 3 with the edit tool. `uv lock --check` passed and `uv sync` swapped only the two packages.
+  6. **Nothing live:** no model, SEC or container call beyond the `--rm` Trivy runs.
+- Files: `web/package.json`, `web/package-lock.json`, `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation: the three Trivy scans (the `make vuln-scan` commands) 0 findings; `make lint` clean; `make test` 418; web `tsc` clean, `npm test` 84, `next build` clean, `npx playwright test` 72.
+- Outstanding: the user ships it. No `EVAL_INPUTS` path is touched.
+
 ### 2026-10-21: certifi 2026.10.19 for GHSA-6q48-6c7w-9gw2, fixed at the source (uncommitted)
 
 - Changes, on `certifi-bump` from main at aca22a6 (the user's request; PR #22's vuln-scan fails until main has the fix):

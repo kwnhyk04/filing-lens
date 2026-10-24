@@ -18,7 +18,7 @@
     "postinstall": "npm --prefix ../clients/ts ci --omit=dev --ignore-scripts --no-audit --no-fund"
   },
   "dependencies": {
-    "next": "16.3.8",
+    "next": "16.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
