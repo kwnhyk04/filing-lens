@@ -32,7 +32,9 @@ from filinglens_api.limits import answer_limits_for, timed_answer
 from filinglens_api.schemas import FiscalPeriod, FormType
 from filinglens_core.errors import FilingLensError, InvalidInputError, NotFoundError
 
-FIRST = "Page size (at most 100)."
+MAX_FIRST = 100
+NESTED_FIRST = 20  # the default page size, so a list inside a list may leave `first` out
+FIRST = f"Page size: at most {MAX_FIRST}, or {NESTED_FIRST} inside another list."
 AFTER = "endCursor from the previous page."
 MAX_IDS = 20
 MAX_DEPTH = 6  # Coverage and Filings, the deepest operations in clients/operations.graphql
@@ -66,9 +68,13 @@ def _backend(info: strawberry.Info) -> Backend:
     return info.context["backend"]
 
 
-def _page_size(first: int) -> int:
-    if not 1 <= first <= 100:
-        raise InvalidInputError("first must be between 1 and 100.")
+def _page_size(info: strawberry.Info, first: int) -> int:
+    """A list below a list index (on its path) pages at most NESTED_FIRST, so a query cannot
+    read a full page for every parent."""
+    nested = any(isinstance(key, int) for key in info.path.as_list())
+    limit, where = (NESTED_FIRST, " inside another list") if nested else (MAX_FIRST, "")
+    if not 1 <= first <= limit:
+        raise InvalidInputError(f"first must be between 1 and {limit}{where}.")
     return first
 
 
@@ -228,7 +234,7 @@ class Section:
         after: Annotated[str | None, strawberry.argument(description=AFTER)] = None,
     ) -> Connection[Chunk]:
         page = await _backend(info).list_chunks(
-            self.accession_number, _page_size(first), after, section_id=self.id
+            self.accession_number, _page_size(info, first), after, section_id=self.id
         )
         return _connection(page, Chunk.of, _item_key)
 
@@ -265,7 +271,9 @@ class Filing:
         first: Annotated[int, strawberry.argument(description=FIRST)] = 20,
         after: Annotated[str | None, strawberry.argument(description=AFTER)] = None,
     ) -> Connection[Chunk]:
-        page = await _backend(info).list_chunks(self.accession_number, _page_size(first), after)
+        page = await _backend(info).list_chunks(
+            self.accession_number, _page_size(info, first), after
+        )
         return _connection(page, Chunk.of, _item_key)
 
     @strawberry.field(description="XBRL facts reported in the filing, optionally one concept.")
@@ -279,7 +287,7 @@ class Filing:
         if concept is not None and "\x00" in concept:  # Postgres refuses a NUL in text
             raise InvalidInputError("concept must not hold a NUL character.")
         page = await _backend(info).list_facts(
-            self.accession_number, _page_size(first), after, concept=concept
+            self.accession_number, _page_size(info, first), after, concept=concept
         )
         return _connection(page, lambda fact: FinancialFact.of(fact, self.cik), _item_key)
 
@@ -295,7 +303,7 @@ async def _filings(
     if fiscal_year is not None and not 1993 <= fiscal_year <= 2100:  # REST's bounds; SMALLINT
         raise InvalidInputError("fiscalYear must be between 1993 and 2100.")
     page = await _backend(info).list_filings(
-        _page_size(first), after, cik=cik, form_type=form_type, fiscal_year=fiscal_year
+        _page_size(info, first), after, cik=cik, form_type=form_type, fiscal_year=fiscal_year
     )
     return _connection(page, Filing.of, _filing_key)
 
@@ -327,7 +335,7 @@ class Query:
         first: Annotated[int, strawberry.argument(description=FIRST)] = 20,
         after: Annotated[str | None, strawberry.argument(description=AFTER)] = None,
     ) -> Connection[Company]:
-        page = await _backend(info).list_companies(_page_size(first), after)
+        page = await _backend(info).list_companies(_page_size(info, first), after)
         return _connection(
             page, lambda c: Company(**c.model_dump()), lambda c: CompanyKey(cik=c.cik)
         )

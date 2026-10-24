@@ -27,6 +27,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind, StatusCode
+from redis.exceptions import RedisError
 
 from filinglens_core.errors import (
     AiUnavailableError,
@@ -35,6 +36,7 @@ from filinglens_core.errors import (
     UpstreamError,
 )
 from filinglens_core.settings import PROVIDER_KEYS, ApiSettings
+from filinglens_llm.budget import ClaudeLedger, seconds_to_midnight
 from filinglens_telemetry import metrics
 
 TIMEOUT = httpx.Timeout(30.0, connect=5.0)  # read and write 30 s, connect 5 s
@@ -52,6 +54,7 @@ LONG_PROMPT = 100_000
 CLAUDE_THINKING: Final = "disabled"
 CLAUDE_EFFORT: Final = "low"
 CLAUDE_RETRY_MAX_S = 10.0  # a 429 that asks for a longer wait goes to the next model instead
+CLAUDE_MAX_TOKENS = 1052  # 956, the most Claude wrote with thinking off (122 calls), plus 10%
 # A 400 that means the credits cannot pay: a spend limit you set ("You have reached your specified
 # API usage limits", Anthropic's rate-limits page, read 2026-10-17) or an empty credit balance.
 CREDITS_GONE = re.compile(r"spend(ing)? limit|usage limit|credit balance", re.IGNORECASE)
@@ -401,11 +404,14 @@ def _retry_after(headers: Mapping[str, str]) -> float | None:
 class Anthropic:
     """Claude on the Anthropic API through the official SDK, paid from prepaid credits.
 
-    Credits gone (a 402, a 400 that names a spend limit or the credit balance, or a 429 without
-    Retry-After) turn it off for the rest of the credit period, and so does the day the credits
-    expire (UTC): each call then fails at once without a request, and the answer chain skips it
-    (`off`). A 429 that asks for CLAUDE_RETRY_MAX_S or less is retried once. It writes answers only,
-    never JSON replies, so settings keep it out of routing and judging.
+    Off for good, stored in its ledger so every process and a restart see it: credits gone (a 402,
+    or a 400 that names a spend limit or the credit balance) and a rejected key or model (401, 403,
+    404, logged as an error for the alert); from the day the credits expire (UTC) too. It also sits
+    out while today's ledger budget is used up. Each call then fails at once without a request, and
+    the answer chain skips it (`unusable`). A 429 hands that one call on: one asking for
+    CLAUDE_RETRY_MAX_S or less is retried once first. Answers get CLAUDE_MAX_TOKENS, and no prompt
+    goes that could pass LONG_PROMPT tokens. It writes answers only, never JSON replies, so settings
+    keep it out of routing and judging.
     """
 
     def __init__(
@@ -414,6 +420,7 @@ class Anthropic:
         key: str,
         *,
         expires: date,
+        ledger: ClaudeLedger,
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
         http_client: httpx2.AsyncClient | None = None,  # tests pass a mock transport
     ) -> None:
@@ -422,6 +429,7 @@ class Anthropic:
         self.name = f"anthropic:{model}"
         self._model = model
         self._expires = expires
+        self._ledger = ledger
         self._today = today
         self._client = anthropic.AsyncAnthropic(
             api_key=key,
@@ -430,8 +438,7 @@ class Anthropic:
             http_client=http_client,
             open_telemetry=False,  # traced_complete/_stream span every provider the same way
         )
-        # ponytail: per process, so a restart learns it again from one refused call; keep it in
-        # Redis if restarts get frequent.
+        # Why Claude is off here; the switch-off is stored in Redis and survives restarts.
         self._gone: str | None = None
 
     def off(self) -> str | None:
@@ -441,7 +448,7 @@ class Anthropic:
         return self._gone
 
     def _stop(self, reason: str) -> AiUnavailableError:
-        """Turn Claude off for the rest of the credit period, with one log line."""
+        """Turn Claude off in this process for the rest of the credit period, with one log line."""
         self._gone = reason
         log.warning(
             "claude is off for the rest of the credit period",
@@ -450,6 +457,52 @@ class Anthropic:
             credits_expire=self._expires.isoformat(),
         )
         return self._unavailable()
+
+    async def _switch_off(self, kind: str, reason: str) -> AiUnavailableError:
+        """Off for good in every process: credits gone, or a key or model the API rejects."""
+        if kind == "key_or_model":  # a setup error: ClaudeKeyOrModelRejected alerts on it
+            log.error("claude rejected the key or model", model=self.name, reason=reason)
+        error = self._stop(reason)
+        try:
+            await self._ledger.turn_off(kind, reason)
+        except RedisError as exc:  # this process still knows; another learns from its own call
+            log.warning("claude switch-off not stored", error=repr(exc))
+        return error
+
+    async def unusable(self) -> FilingLensError | None:
+        """Why a call cannot go to Claude now, or None: off for good, today's budget used up, or a
+        ledger that cannot say (fail closed: the free chain answers)."""
+        if self.off():
+            return self._unavailable()
+        try:
+            if (reason := await self._ledger.off()) is not None:
+                self._gone = reason
+                return self._unavailable()
+            if await self._ledger.tokens_today() >= self._ledger.daily_tokens:
+                daily = self._ledger.daily_tokens
+                return RateLimitedError(
+                    f"{self.name}'s budget of {daily:,} tokens a day is used up.",
+                    retry_after_s=seconds_to_midnight(datetime.now(UTC)),
+                )
+        except RedisError as exc:
+            return UpstreamError(f"{self.name}'s budget cannot be checked ({type(exc).__name__}).")
+        return None
+
+    async def _ready(self, system: str, user: str) -> None:
+        """Raise before any request when Claude cannot take this prompt."""
+        if (error := await self.unusable()) is not None:
+            raise error
+        size = len(system.encode()) + len(user.encode())  # a token holds at least one byte
+        if size > LONG_PROMPT:  # longer prompts cost 5x
+            raise UpstreamError(
+                f"{self.name} skipped a {size:,}-byte prompt: it could pass {LONG_PROMPT:,} tokens."
+            )
+
+    async def _spend(self, tokens: int) -> None:
+        try:
+            await self._ledger.record(tokens)
+        except RedisError as exc:  # the call already cost the tokens; keep its answer
+            log.warning("claude tokens not counted", error=repr(exc))
 
     def _unavailable(self) -> AiUnavailableError:
         return AiUnavailableError(f"{self.name} is off for the credit period: {self._gone}.")
@@ -460,18 +513,19 @@ class Anthropic:
             raise self._unavailable()
         try:
             return await request()
-        except anthropic.RateLimitError as exc:
+        except anthropic.RateLimitError as exc:  # this call only: Claude stays on
             wait = _retry_after(exc.response.headers)
-            if wait is None:
-                raise self._stop("429 without Retry-After (spend cap reached)") from exc
-            if not retry or wait > CLAUDE_RETRY_MAX_S:
-                seconds = math.ceil(wait) if math.isfinite(wait) else None
+            if wait is None or not retry or wait > CLAUDE_RETRY_MAX_S:
+                seconds = math.ceil(wait) if wait is not None and math.isfinite(wait) else None
                 message = f"{self.name} is rate limited (429)."
                 raise RateLimitedError(message, retry_after_s=seconds) from exc
         except anthropic.APIStatusError as exc:
+            reason = f"{exc.status_code} {exc.type or 'error'}: {exc.message}"
             credits = exc.status_code == 400 and CREDITS_GONE.search(exc.message)
             if exc.status_code == 402 or credits:
-                raise self._stop(f"{exc.status_code} {exc.type or 'error'}: {exc.message}") from exc
+                raise await self._switch_off("credits", reason) from exc
+            if exc.status_code in (401, 403, 404):
+                raise await self._switch_off("key_or_model", reason) from exc
             raise failure(self.name, exc.status_code) from exc
         except anthropic.APIConnectionError as exc:  # timeouts included
             raise UpstreamError(f"{self.name} did not answer ({type(exc).__name__}).") from exc
@@ -484,11 +538,12 @@ class Anthropic:
     ) -> Completion:
         if schema is not None:
             raise NotImplementedError(f"{self.name} writes answers only, not JSON replies.")
+        await self._ready(system, user)
         started = time.perf_counter()
         message = await self._send(
             lambda: self._client.messages.create(
                 model=self._model,
-                max_tokens=max_tokens,
+                max_tokens=CLAUDE_MAX_TOKENS,  # its own cap, sized from its answers
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 thinking={"type": CLAUDE_THINKING},
@@ -499,6 +554,7 @@ class Anthropic:
             raise UpstreamError(f"{self.name} declined to answer (refusal).")
         text = "".join(block.text for block in message.content if block.type == "text")
         usage = message.usage
+        await self._spend(usage.input_tokens + usage.output_tokens)
         return Completion(
             self.name, text, usage.input_tokens, usage.output_tokens, time.perf_counter() - started
         )
@@ -507,11 +563,12 @@ class Anthropic:
     async def stream(
         self, system: str, user: str, *, max_tokens: int
     ) -> AsyncIterator[str | Completion]:
+        await self._ready(system, user)
         started, first, parts = time.perf_counter(), None, list[str]()
         events = await self._send(
             lambda: self._client.messages.create(
                 model=self._model,
-                max_tokens=max_tokens,
+                max_tokens=CLAUDE_MAX_TOKENS,  # its own cap, sized from its answers
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 thinking={"type": CLAUDE_THINKING},
@@ -537,6 +594,7 @@ class Anthropic:
             raise UpstreamError(f"{self.name} failed mid-answer ({exc.type or 'error'}).") from exc
         except (anthropic.APIConnectionError, httpx2.HTTPError) as exc:
             raise UpstreamError(f"{self.name} did not answer ({type(exc).__name__}).") from exc
+        await self._spend(input_tokens + output_tokens)
         if stop_reason == "refusal":
             raise UpstreamError(f"{self.name} declined to answer (refusal).")
         yield Completion(
@@ -545,9 +603,11 @@ class Anthropic:
         )  # fmt: skip
 
 
-def provider(role: str, settings: ApiSettings, client: httpx.AsyncClient) -> Provider:
+def provider(
+    role: str, settings: ApiSettings, client: httpx.AsyncClient, ledger: ClaudeLedger | None = None
+) -> Provider:
     """The provider for a role such as LLM_PRIMARY (provider:model), with its key from settings.
-    Claude keeps its own HTTP client: the anthropic SDK runs on httpx2."""
+    Claude keeps its own HTTP client (the anthropic SDK runs on httpx2) and needs its ledger."""
     name, _, model = role.partition(":")
     field = PROVIDER_KEYS[name]
     secret = getattr(settings, field) if field else None
@@ -555,6 +615,8 @@ def provider(role: str, settings: ApiSettings, client: httpx.AsyncClient) -> Pro
     if name == "gemini":
         return Gemini(model, key or "", client)
     if name == "anthropic":
-        return Anthropic(model, key or "", expires=settings.anthropic_credits_expire)
+        if ledger is None:
+            raise ValueError("Claude needs its ledger: its daily tokens and switch-off.")
+        return Anthropic(model, key or "", expires=settings.anthropic_credits_expire, ledger=ledger)
     base_url = str(settings.ollama_url) if name == "ollama" else BASE_URLS[name]
     return OpenAICompatible(name, base_url, model, key, client)

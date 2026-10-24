@@ -1,7 +1,8 @@
 # Development stack: make dev / make down, or plain docker compose from the repo root (COMPOSE_FILE
 # in .env). Every port binds to 127.0.0.1 and comes from .env. Monitoring sits behind the
 # `observability` profile and Toxiproxy behind `test`, so a plain `up` starts only what the app needs.
-# docker-compose.prod.yml adds restart policies and memory limits and unpublishes the data stores.
+# docker-compose.prod.yml layers the production stack on this file (project filinglens-prod,
+# docs/deploy.md).
 name: filinglens
 
 x-app-environment: &app-environment
@@ -91,6 +92,7 @@ services:
       RERANK_TIMEOUT_MS: ${RERANK_TIMEOUT_MS:-500}
       AI_ENABLED: ${AI_ENABLED:-false}
       DAILY_AI_TOKEN_BUDGET: ${DAILY_AI_TOKEN_BUDGET:-1000000}
+      CLAUDE_DAILY_TOKEN_BUDGET: ${CLAUDE_DAILY_TOKEN_BUDGET:-1500000}
       LLM_MAX_INFLIGHT: ${LLM_MAX_INFLIGHT:-4}
       LLM_PRIMARY: ${LLM_PRIMARY:-gemini:gemini-3.5-flash-lite}
       LLM_ROUTER: ${LLM_ROUTER:-groq:openai/gpt-oss-20b}

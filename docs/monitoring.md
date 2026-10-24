@@ -126,6 +126,15 @@ A warning before answers stop. Same panels as above.
 
 The provider's error types are on `gen_ai_client_operation_duration_seconds` (label `error_type`). Check its status page and quota. Answers fall back meanwhile, which cites worse (decision 4, `docs/memory.md`) and is slower.
 
+### ClaudeKeyOrModelRejected
+
+Anthropic answered 401, 403 or 404, so Claude is off for good in every process (`filinglens_claude_off{kind="key_or_model"}` is 1) and answers use the free models. The api log has `claude rejected the key or model` with the status and Anthropic's message.
+1. Fix `ANTHROPIC_API_KEY` or the Claude model in `LLM_PRIMARY` (or `LLM_ANSWER_FALLBACK`).
+2. Delete the switch-off: `docker exec <redis container> redis-cli DEL ai:claude:off`.
+3. Restart the api, which also forgets it in memory.
+
+Credits running out also switch Claude off (`kind="credits"`); that is planned and does not alert.
+
 ### CitationValidationDegraded
 
 The production proxy for citation precision: more drafts fail validation. The share is of drafts (`generate` stages), whatever the answer's outcome. Open answer traces with a `regenerate` span, compare with the evals (`make eval`), and look for a provider or prompt change. The dev baseline is about 4% (2 of 53 drafts).

@@ -748,6 +748,91 @@ def test_graphql_refuses_a_fiscal_year_outside_rest_bounds_before_the_backend(
         assert (listed, len(body["data"]["filings"]["edges"])) == ([2025], 1)
 
 
+# A list inside another list pages at most 20 items (the default), so one query cannot read
+# 100 rows for every parent; the outermost list keeps 100.
+NESTED_FIRST: list[tuple[str, str, int, bool]] = [
+    (
+        "a filing's chunks, 20: the most inside a list",
+        "{ filings(first: 1) { edges { node { chunks(first: 20) { edges { cursor } } } } } }",
+        20,
+        False,
+    ),
+    (
+        "a filing's chunks, 21",
+        "{ filings(first: 1) { edges { node { chunks(first: 21) { edges { cursor } } } } } }",
+        21,
+        True,
+    ),
+    (
+        "a filing's facts, 21",
+        "{ filings(first: 1) { edges { node { facts(first: 21) { edges { cursor } } } } } }",
+        21,
+        True,
+    ),
+    (
+        "a section's chunks, 21",
+        "{ filings(first: 1) { edges { node { sections { chunks(first: 21) { edges { cursor } } }"
+        " } } } }",
+        21,
+        True,
+    ),
+    (
+        "a company's filings, 21",
+        "{ companies(first: 1) { edges { node { filings(first: 21) { edges { cursor } } } } } }",
+        21,
+        True,
+    ),
+    (
+        "a cited chunk's filing's chunks, 21",
+        '{ chunks(ids: ["c-1"]) { filing { chunks(first: 21) { edges { cursor } } } } }',
+        21,
+        True,
+    ),
+    (
+        "the outermost list, 100: its own cap",
+        "{ filings(first: 100) { edges { node { accessionNumber } } } }",
+        100,
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("query", "first", "refused"),
+    [row[1:] for row in NESTED_FIRST],
+    ids=[row[0] for row in NESTED_FIRST],
+)
+def test_a_list_inside_another_list_pages_at_most_20(
+    server_url: str,
+    api_key: str,
+    fake: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+    first: int,
+    refused: bool,
+) -> None:
+    sizes: list[int] = []  # the page size of every page the backend was asked for
+    for name, at in (("list_filings", 0), ("list_chunks", 1), ("list_facts", 1)):
+        real = getattr(fake, name)
+
+        async def spy(*args: Any, _real: Any = real, _at: int = at, **kwargs: Any) -> Any:
+            sizes.append(args[_at])
+            return await _real(*args, **kwargs)
+
+        monkeypatch.setattr(fake, name, spy)
+    body = httpx2.post(
+        f"{server_url}/graphql", json={"query": query}, headers={"X-API-Key": api_key}
+    ).json()
+    if refused:
+        assert [(error["message"], error["extensions"]) for error in body.get("errors", [])] == [
+            ("first must be between 1 and 20 inside another list.", {"code": "invalid_input"})
+        ]
+        assert first not in sizes
+    else:
+        assert "errors" not in body, body["errors"]
+        assert first in sizes
+
+
 def test_concurrent_readyz_calls_share_one_round_of_checks(
     server_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

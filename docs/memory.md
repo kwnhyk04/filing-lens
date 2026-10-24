@@ -670,6 +670,26 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
   - **Not verifiable offline:** that Vercel's Node `fetch` sends no `Origin`. undici adds none, and `web/lib/server.ts` forwards no headers. Step B24, the phone test, covers it: every BFF call would get 403 otherwise.
 - 2026-10-21: Pitfall: asyncpg's own `DataError` quotes up to 40 characters of a bound value, which `hide_parameters` does not cover. So input bounds belong at validation (the review's CIK and fiscal-year rows).
 
+From PR 10c (2026-10-24, branch `step-10-deploy-config` from main at 7979cdb):
+
+- 2026-10-24: The nested `first` cap (user: "Include the nested 'first' cap on GraphQL lists that was planned for 10c, test first"). It is the first of the three options 10b's final review left open: cap a nested `first`, batch `Section.chunks`, or leave it. That entry sits in 10b's memory.md, on its unmerged branch.
+  - **Rule:** a connection with a list index on its path (`info.path`) takes `first` 1 to 20; the outermost list keeps 1 to 100. Past that, `invalid_input` ("first must be between 1 and 20 inside another list."), before its page is read.
+  - **Why 20 (ruling, cheap to change):** it is the default page size, so a nested list that leaves `first` out still passes. The web asks for 5 inside a list (Coverage, and the Filings operation's defaults). 10 would refuse the default and need a schema change.
+  - **Ceiling:** it bounds the rows each nested page reads, not the number of page queries. 10b's worst query, `filings(first: 100) { … sections { chunks(first: 100) … } }`, made 708 page queries of up to 101 rows on corpus-v1 (about 71,500 rows). That query is now refused; with `chunks(first: 20)` it passes and reads at most 21 rows a page (about 14,900). The query count stays 708. Upgrade path: batch `Section.chunks` into one query per parent list.
+  - **Reach:** the read-under-load integration test asked for `chunks(first: 50)` inside `filings`, now 20. Nothing else in the repo asks for more than 20 inside a list.
+- 2026-10-24: Rulings in the prod override (no user decision needed; each cheap to change):
+  - **Claude first:** nothing is forced. The 2026-10-21 approval ruling "the prod override also forces both empty" (`LLM_ANSWER_FALLBACK`, `ANTHROPIC_API_KEY`) is superseded by Claude first (user, 2026-10-21, merged as #22). Models and keys come from `.env.prod` alone.
+  - **Required in prod:** `IMAGE_TAG` and `RETRIEVAL_EMBEDDING_COLUMN` (`${VAR:?…; see docs/deploy.md}`). The column's code default, `embedding_v2`, would fail every search on corpus-v1 (plan, Review Focus 2), so compose now stops first.
+  - **From FreightAudit's prod file** (read again, read-only, under the 2026-10-20 permission "as the pattern", never its `.env` files): the `x-kept` and `x-hardened` anchors, the tailscale service with its environment, socket, health check and pinned image, the external state volume, and `serve.json`'s shape. Not taken: its egress proxy (first after go-live), its `IMAGE_REPO` variable and its `migrate` service (prod restores `corpus-v1` instead).
+  - **Monitoring in prod:** the observability services keep their limits but stay off. They sit on `default`, so RabbitMQ's metrics on `data` and the `embed` worker would be out of their reach; wiring them waits for the Alertmanager item.
+- 2026-10-24: Pitfall: compose passes a container only what its `environment:` lists, so every `ApiSettings` field needs its line in the api's compose environment.
+  - **What happened:** Claude first added `CLAUDE_DAILY_TOKEN_BUDGET` to the settings, `.env.example` and the plan's variable table, but not to compose. In a container, the default 1,500,000 always applied, whatever `.env` or `.env.prod` said.
+  - **Found:** while checking the variable table against the code (user: "check the variable table ... match"), by comparing `ApiSettings.model_fields` with the rendered prod config. It was the only field missing; `OLLAMA_URL` and `OTEL_SERVICE_NAME` stay out on purpose.
+  - **What we did, in order:** rendered the prod config with a dummy env file that sets 1234567 (red: no such variable in the api's environment); added one line to the api's environment in `infra/docker-compose.yml`, which covers dev and prod; rendered again (green). Kept in 10c, not a PR of its own: the step's own table names the variable. The user can still split it out.
+  - **Not added:** a lasting test. PyYAML is only a transitive dependency, and a new dependency needs the user's approval. The 10c check script (activity-log.md) does the audit by `docker compose config`.
+- 2026-10-24: Container go for 10c (user, asked once every other check had passed): Testcontainers for one `make test-int` run. FreightAudit's ten running containers were the same before and after. Any other container needs a new go.
+- 2026-10-24: 10b is not on main. Its commit 305b123 sits on `step-10-dataloader` (pushed), and main's `graph.py` still has the two `ponytail:` one-lookup comments. 10c was built from main as the user asked. The plan puts the DataLoader before go-live, so deploy.md's steps 5 to 23 wait for 10a, 10b and 10c. Expect conflicts when 10b takes main: `graph.py` (both touch the resolvers) and `test_contract.py` (both add tests at the end; keep both).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).
@@ -699,6 +719,9 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
     - uv 0.12.23 reads a revision-3 lock as current: `uv lock --check` passed, and `uv sync` changed only certifi.
   - **Control:** the local Trivy database knew the advisory. The 4-day-old `filinglens-api:ci` image showed exactly this CRITICAL, and the images rebuilt from the branch showed none.
   - **Age:** 2026.10.19 was uploaded on 2026-10-20, inside Dependabot's 7-day cooldown for uv. It was taken at the user's request, as a security fix. Its wheel's PEP 740 attestation names `certifi/python-certifi`, workflow `release.yml`.
+- 2026-10-24: Second scan fix, branch `next-security` (same rule as above: fix at the source, no ignore entries). Trivy found next 16.3.8 (2 CRITICAL, 1 HIGH), and in `uv.lock` filelock 4.1.1 and virtualenv 21.14.7 (4 HIGH, dev-only). All fixed by upgrading (activity-log.md).
+  - **Does FL's web use the affected features?** No for the two RCEs: no `next/image`, no `images` config (so no SVG image optimization), no `"use cache"` or `cacheComponents`. Yes for the DoS: `web/app/login/actions.ts` is a Server Action. Not confirmed: whether the default `/_next/image` route was reachable; it needs SVG enabled, which is not set.
+  - **Pitfalls:** `make vuln-scan` stops at the first failing lockfile, so run the web and `clients/ts` scans by hand to see every finding. `uv lock --upgrade-package` rewrites the header to `revision = 5` again; set it back to 3 until main moves.
 - 2026-10-18: UI accessibility is checked by axe on every page plus keyboard-only and phone-width specs (user). Reason: axe misses focus order and keyboard-only flows.
 - 2026-10-18: Container go for step 9 (user), also during Triage Copilot's exam window, since neither use makes a model call:
   - Uses: Testcontainers for `make test-int`, and FilingLens's own dev Postgres (`filinglens-postgres-1`) for `make demo-export`.
@@ -709,8 +732,43 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
   - Since `rerank-deadline`, the answer suite's searches never degrade. A miss is then a variant CI's cache never answered (Solved Problems, 2026-10-21).
   - Before a PR is reported ready, give the estimate for those misses.
 - 2026-10-21: Anthropic spend (user). The organization's monthly limit is $50, shared by FreightAudit, FilingLens and Triage Copilot. FilingLens's share is $15 until 2026-11-10, when the credits expire. FilingLens's daily Claude budget is sized from the $15, not the $50.
+- 2026-10-21: Claude first in production (user, branch `claude-first`, before 10c). It supersedes the rule above that kept any Anthropic key off the public deployment.
+  - **Chain:**
+    - production sets `LLM_PRIMARY=anthropic:claude-haiku-5-5` and `LLM_ANSWER_FALLBACK=gemini:gemini-3.5-flash-lite`, then NVIDIA;
+    - no setting was renamed.
+  - **Off for good, in every process** (`budget.ClaudeLedger`; Redis `ai:claude:off`, no expiry):
+    - credits gone (a 402, or a 400 naming a spend limit or the credit balance);
+    - a rejected key or model (401, 403, 404), with a log error and the `ClaudeKeyOrModelRejected` alert;
+    - from `ANTHROPIC_CREDITS_EXPIRE`.
+    - Turning Claude back on means deleting that key and restarting the api.
+  - **One answer only:**
+    - a 429, with or without `Retry-After`; this replaced the old reading of a 429 without it as a spend cap;
+    - the daily budget used up (`ai:claude:<date>`, `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000, at most $0.75);
+    - a ledger that cannot be read (fail closed).
+  - **Limits:** `CLAUDE_MAX_TOKENS` 1,052 per call. A prompt over 100,000 UTF-8 bytes never goes to Claude: a token holds at least one byte, so such a prompt stays under `LONG_PROMPT` tokens.
+  - **Budgets:** Claude's tokens leave the free counter (`ai:usage:<date>`), so the free budget keeps counting the router and the free models.
+  - **Evals share Claude's ledger:** it lives on the API's Redis database, not db 15. The prod stack has its own Redis with no host port, so prod and the local evals still count apart.
+  - **Evals:** the official run refuses a Claude `LLM_PRIMARY`. `--claude-primary` is a labelled local run: it reuses the official routes, is reported beside the official run, is never floored and is refused under `--ci` or `CI`.
+- 2026-10-21: Claude's two daily budgets stay separate, and prod's Redis gets no host port (user, answering the question `claude-first` left open before shipping).
+  - **The question:** the evals keep Claude's ledger in the Redis database of `.env`'s `REDIS_URL`, the dev api's (`claude_redis` in `evals/harness.py`). Prod's Redis publishes no host port, so prod counts its own day. One budget for both would need prod's Redis on a host port.
+  - **Decision:** two budgets, each `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000 tokens (at most $0.75):
+    - prod's, in its own Redis;
+    - dev's, shared by the dev api and the local `--claude-primary` runs.
+    - Prod's Redis keeps no host port, as plan point 2 has it for every data store.
+  - **Why (user):**
+    - prod's worst case is $0.75 a day, about $15 to 2026-11-10, FilingLens's share;
+    - local `--claude-primary` evals are rare, and only the user starts them;
+    - the Anthropic organization's $50 monthly limit is the hard stop.
+  - **Cost of the choice:** on a day with a local Claude run, the two budgets together can spend up to $1.50.
+  - **What we did, in order:** recorded it here, in the step 10 plan (Context, and the `CLAUDE_DAILY_TOKEN_BUDGET` row), todo, context, README and the activity log; then ran `make lint`. No code changed, since the code already counts apart.
 
 ## Solved Problems
+
+- 2026-10-21: `--claude-primary` took its routes from `.env`'s `LLM_PRIMARY` (found in the docs pass on `claude-first`; fixed the same day at the user's request, test first).
+  - **Problem:** with `LLM_PRIMARY=anthropic:claude-haiku-5-5` in `.env`, README step 9's setup and where the official run's refusal points, the run reused Claude's own router replies. Its report then sat beside an earlier Claude report, not the official run. The test pinned only a free `LLM_PRIMARY`.
+  - **Fix (user's rule):** `--claude-primary` always takes the official free run's routes, those of the default `LLM_PRIMARY` (`EvalSettings.model_fields`), whatever `.env` says. An explicit `--router-primary` is overridden too; no test pins that.
+  - **Test:** the Claude-configuration test runs a free and a Claude `LLM_PRIMARY` row. The Claude row failed first (`'anthropic:claude-haiku-5-5' == 'gemini:gemini-3.5-flash-lite'`), passed after the fix, and failed again with the bug put back. The official run's untouched-settings check moved to its own test.
+  - **Lesson:** a configuration that must match the official run names the official model itself, rather than reading it from the environment.
 
 - 2026-10-21: CI's answer eval missed its reply cache on x15 and a09 on 10b's PR. Then Google failed both live calls: a 503, and an answer unfinished at 30 s. A read-only investigation found the cause; branch `rerank-deadline` fixes it.
   - **Cause:** the primary call's key hashes its prompt, and the prompt holds the 12 passages search returns.
@@ -735,6 +793,12 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
     - Entries unused for 7 days are evicted, which would make the next run cold.
 
 ## Known Issues and Pitfalls
+
+- 2026-10-21: Pitfall: gitleaks' `generic-api-key` rule matches across CRLF line ends.
+  - In `.env.example`, `GEMINI_API_KEY=` followed by `GROQ_API_KEY=` is flagged in a Windows working copy (`core.autocrlf=true`).
+  - main's own file with CRs added gives the same finding, and with LF it scans clean. CI scans LF blobs.
+  - So scan files with CRs stripped before reading such a finding as a secret.
+- 2026-10-21: Pitfall: a deliberate break of `set_floors` wrote the repo's `evals/thresholds.json`, because the new test had not pointed `THRESHOLDS` at a temp file. The rewrite equalled HEAD's bytes, and the CRLF checkout was restored. Tests that could write floors now monkeypatch `THRESHOLDS`.
 
 - 2026-10-14: RabbitMQ 4.3 refuses transient non-exclusive queues. Celery needs `control_queue_exclusive=True` and `event_queue_exclusive=True`, or the worker's consumer crash-loops while the broker still looks reachable. That is why the ingest `/readyz` pings the worker through RabbitMQ.
 - 2026-10-14: Windows Application Control on this PC blocks some uv console-script launchers (alembic, celery, uvicorn: os error 4551). Run tools as `uv run python -m <tool>`, as the Makefile does.
