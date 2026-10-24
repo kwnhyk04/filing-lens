@@ -140,7 +140,7 @@ Run every command from the repo root with `--env-file .env.prod`; its `COMPOSE_F
 
 Phone on cellular data, Wi-Fi off.
 
-24. Open the production domain. It redirects to `/login`. One wrong password shows "Wrong password."; the right one opens Ask, which proves `crypto.argon2` on Vercel's Node.
+24. Open the production domain: the landing page, with no sign-in. "Try the live demo" goes to `/login`. One wrong password shows "Wrong password."; the right one opens Ask (`/ask`), which proves `crypto.argon2` on Vercel's Node.
 25. Check the live pages:
     - Coverage: 30 companies on 2 pages, with Indexed pills.
     - Ask: a question gets the switched-off message, with no model call.
@@ -148,7 +148,7 @@ Phone on cellular data, Wi-Fi off.
     - In the phone's browser, `https://filinglens.<tailnet>.ts.net/v1/companies` shows the 401 problem.
 26. PC off:
     - On the PC: `docker compose --env-file .env.prod stop tailscale`.
-    - On the phone, reload `/`. Within about 5 s it lands on `/demo?offline=1` with the offline banner, and Ask says "The API is offline right now."
+    - On the phone, reload `/ask`. Within about 5 s it lands on `/demo?offline=1` with the offline banner, and Ask says "The API is offline right now." The landing page at `/` stays as it was: it calls no API.
     - On the PC: `docker compose --env-file .env.prod start tailscale`. Reload: the page is live again.
 27. API down, PC on: `docker compose --env-file .env.prod stop api` gives the same demo fallback (Funnel's 502). Then `docker compose --env-file .env.prod start api`.
 

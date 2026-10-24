@@ -44,5 +44,5 @@ export async function signIn(state: SignInState, form: FormData): Promise<SignIn
   (await cookies()).set(SESSION_COOKIE, token, cookie);
   log("signed_in");
   const next = form.get("next");
-  redirect(safeNext(typeof next === "string" ? next : null) ?? "/");
+  redirect(safeNext(typeof next === "string" ? next : null) ?? "/ask");
 }

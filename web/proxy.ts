@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { SESSION_COOKIE, verifySession } from "./lib/session.ts";
 
-const PUBLIC = /^\/(login|logout|healthz|readyz)$|^\/demo(\/|$)/;
+const PUBLIC = /^\/$|^\/(login|logout|healthz|readyz)$|^\/demo(\/|$)/;
 
 function policy(nonce: string): string {
   const dev = process.env.NODE_ENV === "development"; // React needs eval for dev error overlays

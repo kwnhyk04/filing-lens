@@ -32,7 +32,7 @@ test("the API key never reaches the browser", async ({ page }) => {
       bodies.push(response.text().catch(() => ""));
     }
   });
-  for (const path of ["/coverage", "/demo", "/demo/coverage"]) await page.goto(path);
+  for (const path of ["/", "/coverage", "/demo", "/demo/coverage"]) await page.goto(path);
   await ask(page, question("x04"));
   await expect(page.locator("#source-1 mark")).toBeVisible();
   const texts = await Promise.all(bodies);

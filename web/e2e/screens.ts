@@ -35,7 +35,8 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
     await signIn(page, "not the password");
     await expect(page.getByTestId("sign-in-error")).toHaveText("Wrong password.");
   },
-  ask: (page) => page.goto("/"),
+  landing: (page) => signedOut(page, "/"),
+  ask: (page) => page.goto("/ask"),
   "ask-draft": async (page) => {
     await ask(page, `e2e: slow ${randomUUID()}`);
     await expect(page.getByTestId("draft")).toContainText("Still drafting.");
@@ -64,7 +65,7 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
   demo: (page) => signedOut(page, "/demo"),
   "demo-coverage": (page) => signedOut(page, "/demo/coverage"),
   offline: async (page) => {
-    await page.goto(`${OFFLINE}/`);
+    await page.goto(`${OFFLINE}/ask`);
     await expect(page.getByTestId("demo-banner")).toContainText("The live service is offline");
   },
   "not-found": (page) => page.goto("/no-such-page"),

@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 
 const config: NextConfig = {
   poweredByHeader: false,
-  turbopack: { root },
+  turbopack: { root, rules: { "*.md": { type: "text" } } }, // the landing page reads the eval report's table
   outputFileTracingRoot: root,
   async headers() {
     const headers = [

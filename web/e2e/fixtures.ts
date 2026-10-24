@@ -46,7 +46,7 @@ export async function signIn(page: Page, password = PASSWORD) {
 }
 
 export async function ask(page: Page, question: string) {
-  await page.goto("/");
+  await page.goto("/ask");
   await page.getByLabel("Your question").fill(question);
   await page.getByRole("button", { name: "Ask" }).click();
 }

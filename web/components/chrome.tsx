@@ -1,10 +1,31 @@
-// Page chrome: the signed-in and demo headers, the demo banner, the configuration-error page.
+// Page chrome: the landing, signed-in and demo headers, the demo banner, the configuration-error page.
 import Link from "next/link";
 
 import { demo, demoCoverageLine } from "../lib/demo.ts";
 import { hasSession } from "../lib/server.ts";
 
 const current = (on: boolean) => (on ? ("page" as const) : undefined);
+const REPO = "https://github.com/kwnhyk04/filing-lens";
+
+/** The landing page's: its sections, the repository, then the demo, which needs no sign-in. */
+export function LandingHeader() {
+  return (
+    <header className="site">
+      <Link href="/" className="brand">
+        FilingLens
+      </Link>
+      <nav aria-label="Main">
+        <a href="#how">How it works</a>
+        <a href="#results">Results</a>
+        <a href="#architecture">Architecture</a>
+        <a href={REPO}>GitHub</a>
+      </nav>
+      <Link href="/demo" className="button">
+        Open the demo
+      </Link>
+    </header>
+  );
+}
 
 function SignOut() {
   return (
@@ -21,7 +42,7 @@ export function LiveHeader({ page }: { page: "ask" | "coverage" }) {
         FilingLens
       </Link>
       <nav aria-label="Main">
-        <Link href="/" aria-current={current(page === "ask")} prefetch={false}>
+        <Link href="/ask" aria-current={current(page === "ask")} prefetch={false}>
           Ask
         </Link>
         <Link href="/coverage" aria-current={current(page === "coverage")} prefetch={false}>

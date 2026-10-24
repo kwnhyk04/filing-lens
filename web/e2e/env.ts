@@ -24,7 +24,7 @@ export function passwordHash(): string {
 export interface DemoAnswer {
   id: string;
   question: string;
-  answer: { answer: string; citations: unknown[]; refused: boolean; warnings: string[] };
+  answer: { answer: string; citations: { quote: string }[]; refused: boolean; warnings: string[] };
 }
 
 export const snapshot = JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as {
