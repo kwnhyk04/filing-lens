@@ -28,6 +28,7 @@ from filinglens_api.schemas import Health, Problem
 from filinglens_core.ratelimit import BUCKET_SCRIPT
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_db import make_engine, ping
+from filinglens_llm.budget import ClaudeLedger
 from filinglens_llm.providers import TIMEOUT, provider
 
 CHECK_TIMEOUT_S = 2
@@ -71,12 +72,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     http = httpx.AsyncClient(timeout=TIMEOUT)  # every model provider call
     answerer = None
     if settings.ai_enabled:  # settings checked that each role's key is set
-        extra = settings.llm_answer_fallback  # None keeps the free-only chain
+        extra = settings.llm_answer_fallback  # None keeps a single answer model before the fallback
+        ledger = ClaudeLedger(app.state.redis, settings.claude_daily_token_budget)
         models = Models(
             router=provider(settings.llm_router, settings, http),
-            primary=provider(settings.llm_primary, settings, http),
+            primary=provider(settings.llm_primary, settings, http, ledger),
             fallback=provider(settings.llm_fallback, settings, http),
-            answer_fallback=provider(extra, settings, http) if extra else None,
+            answer_fallback=provider(extra, settings, http, ledger) if extra else None,
         )
         evidence = PostgresEvidence(app.state.engine, settings)
         answerer = Answerer(

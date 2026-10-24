@@ -171,6 +171,31 @@ def test_answers_get_503_once_the_daily_ai_token_budget_is_spent(
 
 
 @pytest.mark.integration
+def test_claudes_switch_off_and_daily_tokens_outlive_a_restart_and_stay_apart(
+    redis_url: str,
+) -> None:
+    """One Redis database holds them for the api and the evals; the free counter never sees them."""
+    Redis.from_url(redis_url).flushdb()
+
+    async def ledger_reads(write: bool) -> tuple[str | None, int]:
+        redis = AsyncRedis.from_url(redis_url)
+        try:
+            ledger = budget.ClaudeLedger(redis, 1_500_000)  # a new one: another process
+            if write:
+                await ledger.record(960)
+                await ledger.turn_off("key_or_model", "401 authentication_error: invalid x-api-key")
+            return await ledger.off(), await ledger.tokens_today()
+        finally:
+            await redis.aclose()
+
+    asyncio.run(ledger_reads(write=True))
+    after_restart = asyncio.run(ledger_reads(write=False))
+    assert after_restart == ("401 authentication_error: invalid x-api-key", 960)
+    assert budget.claude_off_kind(Redis.from_url(redis_url)) == "key_or_model"  # the alert's gauge
+    assert Redis.from_url(redis_url).hgetall(budget.usage_key(datetime.now(UTC).date())) == {}
+
+
+@pytest.mark.integration
 def test_ai_enabled_false_turns_answers_off(
     env: pytest.MonkeyPatch, fake: Any, redis_url: str, api_key: str, metric_changes: Changes
 ) -> None:

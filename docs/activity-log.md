@@ -63,6 +63,102 @@ Chronological record of significant development activity, newest first. Skip tri
     - The nightly's input hash changes too, so its next scheduled run measures instead of skipping. At worst that is 11 Gemini calls (about 60,700 input tokens) and 8 judge calls (about 8,000), $0 billed.
 - Outstanding: the user confirms the `eval-calls-*` cache and ships. Then `claude-first` takes main, where this log's top conflicts: keep both entries.
 
+### 2026-10-21: `--claude-primary` always takes the official free run's routes; the switch-off comment corrected (uncommitted)
+
+- Changes, on `claude-first`, uncommitted with the branch (the user's request, before shipping):
+  - **Routes:** `harness.answer_model` sets `args.router_primary` to the default `LLM_PRIMARY` (`EvalSettings.model_fields["llm_primary"].default`, `gemini:gemini-3.5-flash-lite`), whatever `.env` says.
+    - Before, it took `.env`'s `LLM_PRIMARY`. With Claude there, a run reused Claude's own router replies and sat beside an earlier Claude report.
+    - An explicit `--router-primary` is now overridden under `--claude-primary`; no test pins that.
+  - **Test, first:** `test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes` runs two rows, `free primary` and `Claude primary` (`LLM_PRIMARY=anthropic:claude-haiku-5-5`).
+    - Each row sets `LLM_PRIMARY`, so a shell variable cannot leak in.
+    - The official run's untouched-settings check moved to `test_the_official_eval_keeps_the_free_models`.
+  - **Comment:** the `ponytail:` comment on `Anthropic._gone` (`providers.py:441`) now reads "Why Claude is off here; the switch-off is stored in Redis and survives restarts." It has no test: no behaviour changed, and the stored switch-off already has its tests.
+  - **Docs:** memory (Solved Problems), todo, context (the eval section), README (the `make eval` row), this log.
+- Small events, in order:
+  1. The request came as pasted text alone. It named `providers.py:44`; line 44 is in `BASE_URLS`, so the comment at 441, the one reported, was taken as meant.
+  2. GateGuard held the first edit of `test_calls.py`, `harness.py` and `providers.py` until their facts were given. Each retry passed.
+  3. **Red:** `[Claude primary]` failed: `AssertionError: assert 'anthropic:claude-haiku-5-5' == 'gemini:gemini-3.5-flash-lite'`. `[free primary]` and the moved check passed, as before.
+  4. **Green:** 7 passed (those three, plus the four refusal rows).
+  5. **Deliberate break:** with the old line put back (`args.router_primary or settings.llm_primary`), `[Claude primary]` failed with the same assertion. The fix was restored, and the file's sha256 matched the fixed version (c1be941d...).
+  6. **Containers:** `make test-int` ran with the user's go. The same 13 containers ran before and after (FreightAudit's dev and prod, Triage Copilot's); none of FilingLens's stayed up.
+  7. Nothing live: no model call, no SEC call.
+- Files: `evals/harness.py`, `evals/tests/test_calls.py`, `packages/llm/src/filinglens_llm/providers.py`; `docs/{memory,todo,context,activity-log}.md`, `README.md`.
+- Validation:
+  - `make lint` clean ("All checks passed!", 139 files already formatted); `make typecheck` 0 errors.
+  - `make test` 440 passed (438 before: the new row and the moved check); `make test-int` 32 passed (3 min 06 s).
+  - Eval check: only the `--claude-primary` branch changed, and CI refuses it, so the official run's cache keys stay as they were. CI's eval runs, since eval inputs changed. At worst, as for `rerank-deadline`, dev ci's 9 searching questions call Gemini 11 times (about 59,500 input tokens, $0 billed) if main's cache lacks their reranker-order replies.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships `claude-first`; then 10c.
+
+### 2026-10-21: Claude's two daily budgets stay separate (user decision; docs only, uncommitted)
+
+- Changes: docs only, on `claude-first`, uncommitted beside the branch's code. Nothing was rebuilt.
+  - **The decision** (memory.md, Preferences; the step 10 plan's Context and its `CLAUDE_DAILY_TOKEN_BUDGET` row; todo): prod and the local `--claude-primary` evals keep separate Claude budgets, and prod's Redis gets no host port.
+    - The user's reasons: prod's worst case is $0.75 a day (about $15 to 2026-11-10, FilingLens's share); local `--claude-primary` evals are rare and started by the user; Anthropic's $50 monthly limit is the hard stop.
+  - **Stale lines, fixed against the code:**
+    - context.md said that a 429 without `Retry-After` meant credits gone, and that Claude's switch-off lived in the process. In `providers.Anthropic` a 429 hands on one answer, and the switch-off is stored in Redis.
+    - context.md's step 10 status still had 10a in progress and production on free providers only.
+    - README's budget line read as if prod and the evals shared one budget, and its `make eval` row lacked `--claude-primary`.
+    - todo: 10a marked shipped (#19, 1f15729, git log); In Progress now names `claude-first`.
+- Small events, in order:
+  1. The request came as pasted text alone: the user's answer to the question the previous session left open.
+  2. GateGuard held the first Bash call and each file's first edit until their facts were given. Each retry passed.
+  3. **Found, not fixed** (code; the user asked for no rebuild), listed in todo for the user's call:
+     - `evals/harness.py:237`: `--claude-primary` takes its routes from `LLM_PRIMARY`. With `LLM_PRIMARY=anthropic:claude-haiku-5-5` in `.env` (README step 9's setup), the run reuses Claude's own router replies and sits beside an earlier Claude report, not the official run. The official run's refusal does not fire, since `--claude-primary` is set, and its message points there. The test (`test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes`) covers only a free `LLM_PRIMARY`.
+     - `packages/llm/src/filinglens_llm/providers.py:441`: the `ponytail:` comment says Claude's switch-off lives per process and a restart learns it again from one refused call. The ledger now stores it in Redis, and `unusable()` reads it back.
+  4. Nothing live: no model call, no SEC call, no container.
+- Files: `docs/{memory,todo,context,activity-log}.md`, `README.md`, the plan file (`C:\Users\kwonhyuk\.claude\plans\pasted-content-id-ee81-source-fiscal-validated-dolphin.md`).
+- Validation: `make lint`: "All checks passed!", and 139 files already formatted. No tests run: docs only.
+- Outstanding: the user's call on the two findings; then the user confirms the `eval-calls-*` cache and ships `claude-first`; then 10c.
+
+### 2026-10-21: Claude first in production, with its limits (uncommitted)
+
+- Changes, each test first, on `claude-first` from main at aca22a6 (rerank-deadline merged; 10b still open). Details are in memory.md, Preferences, 2026-10-21.
+  - **Chain:**
+    - Claude first through settings (`LLM_PRIMARY` Claude, `LLM_ANSWER_FALLBACK` Gemini);
+    - `Answerer._chain` is async and leaves Claude out silently while it cannot answer;
+    - `Anthropic` gains `unusable()`, stored switch-offs (`budget.ClaudeLedger`) and the new 429 and 401/403/404 rules.
+  - **Limits:**
+    - `CLAUDE_MAX_TOKENS` 1,052;
+    - the 100,000-byte prompt guard;
+    - `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000, shared by the api and the evals on the API's Redis database;
+    - Claude's tokens left the free counter.
+  - **Alert:** the gauge `filinglens.claude.off{kind}`, the rule `ClaudeKeyOrModelRejected` (the 14th) with promtool firing and quiet cases, and its runbook in `docs/monitoring.md`.
+  - **Evals:** `--claude-primary`, labelled and local. It reuses the official routes, is reported beside the official run, never sets floors, and is refused under `--ci` or `CI`. The official run refuses a Claude primary.
+  - **Plan file:**
+    - the prod override that emptied `LLM_ANSWER_FALLBACK` and `ANTHROPIC_API_KEY` is gone;
+    - the variable table now has `LLM_PRIMARY`, `LLM_ANSWER_FALLBACK`, `ANTHROPIC_API_KEY`, `ANTHROPIC_CREDITS_EXPIRE` and `CLAUDE_DAILY_TOKEN_BUDGET`;
+    - point 6 now plans 2 Groq and 2 Claude calls, about 10,700 tokens and about $0.001; at worst about $0.0037;
+    - its stop rule now treats any fallback as Claude failing.
+  - **Docs:** README, `.env.example`, context, memory, todo, this log.
+- Small events, in order:
+  1. **The request** came as pasted text alone. It reversed the standing no-Anthropic rule, and was taken as the user's decision.
+  2. **Base:** an anonymous `git fetch` (credential helper off) showed `main` at aca22a6, without 10b. The new branch had picked up `origin/main` as its upstream, which was unset.
+  3. **Context:** the user was asked how to proceed at about 75% context and chose to continue.
+  4. **Gates:** GateGuard held first edits and, after its session restarts, Bash again. Each retry passed.
+  5. **Red, by part:**
+     - the answer tests failed on the missing `ledger` (17), the eval tests on the missing configuration (7), and the Redis test on the missing `ClaudeLedger`;
+     - an old provider test pinned "a 429 without Retry-After means off" and was rewritten to the new rule;
+     - an old floors test expected Claude floors and now expects the refusal.
+  6. **Deliberate breaks:** 9 scratch mutants (Claude never sits out; the switch-off not stored; a 429 switching off; a rejected key not switching off; Claude counted in the free budget; no prompt guard; the free models' cap; the official eval taking Claude; Claude floors). Each failed its tests.
+  7. **The floors break wrote the repo's `evals/thresholds.json`:** the new test had not redirected `THRESHOLDS`.
+     - The rewrite equalled HEAD's bytes in LF.
+     - The CRLF checkout was restored with `git checkout --`, after the gate's facts.
+     - The test now redirects `THRESHOLDS`, and the break still fails it.
+  8. **gitleaks** flagged `.env.example` (`generic-api-key` at `GEMINI_API_KEY=`). Main's file with CRs added gives the same finding, and mine with LF scans clean: a CRLF artifact (memory.md, pitfalls).
+  9. **Nothing live:** no model call and no SEC call.
+- Files:
+  - code: `packages/llm/src/filinglens_llm/{budget,providers}.py`, `packages/core/.../settings.py`, `packages/telemetry/.../metrics.py`, `services/api/src/filinglens_api/{answering,main,__main__}.py`, `evals/harness.py`;
+  - tests: `services/api/tests/{test_answering,test_limits}.py`, `packages/llm/tests/test_providers.py`, `evals/tests/test_calls.py`;
+  - infra: `infra/prometheus-alerts{,.test}.yml`;
+  - docs and config: `.env.example`, `README.md`, `docs/{monitoring,context,memory,todo,activity-log}.md`.
+- Validation:
+  - `make lint` clean; `make typecheck` 0 errors.
+  - `make test` 438 passed; `make test-int` 32 passed (3 min 50 s, same containers before and after).
+  - `make monitoring-check`: 14 rules, tests passed. `make contracts-breaking`: "No changes detected".
+  - gitleaks: as above.
+  - Eval check: the official eval's keys are unchanged. The free primary's prompts, options and output cap are as on main; only a Claude primary gets the 1,052 cap in its keys. CI's eval runs, since eval inputs changed, and replays main's cache.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships; then 10c.
+
 ### 2026-10-21: Rerank deadline: the answer eval waits for the reranker, and an unused guess is cancelled (uncommitted)
 
 - Changes, each fix test first, on `rerank-deadline` from main at 1f15729. Details are in memory.md, Solved Problems.

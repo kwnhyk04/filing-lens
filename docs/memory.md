@@ -712,8 +712,43 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
   - Since `rerank-deadline`, the answer suite's searches never degrade. A miss is then a variant CI's cache never answered (Solved Problems, 2026-10-21).
   - Before a PR is reported ready, give the estimate for those misses.
 - 2026-10-21: Anthropic spend (user). The organization's monthly limit is $50, shared by FreightAudit, FilingLens and Triage Copilot. FilingLens's share is $15 until 2026-11-10, when the credits expire. FilingLens's daily Claude budget is sized from the $15, not the $50.
+- 2026-10-21: Claude first in production (user, branch `claude-first`, before 10c). It supersedes the rule above that kept any Anthropic key off the public deployment.
+  - **Chain:**
+    - production sets `LLM_PRIMARY=anthropic:claude-haiku-5-5` and `LLM_ANSWER_FALLBACK=gemini:gemini-3.5-flash-lite`, then NVIDIA;
+    - no setting was renamed.
+  - **Off for good, in every process** (`budget.ClaudeLedger`; Redis `ai:claude:off`, no expiry):
+    - credits gone (a 402, or a 400 naming a spend limit or the credit balance);
+    - a rejected key or model (401, 403, 404), with a log error and the `ClaudeKeyOrModelRejected` alert;
+    - from `ANTHROPIC_CREDITS_EXPIRE`.
+    - Turning Claude back on means deleting that key and restarting the api.
+  - **One answer only:**
+    - a 429, with or without `Retry-After`; this replaced the old reading of a 429 without it as a spend cap;
+    - the daily budget used up (`ai:claude:<date>`, `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000, at most $0.75);
+    - a ledger that cannot be read (fail closed).
+  - **Limits:** `CLAUDE_MAX_TOKENS` 1,052 per call. A prompt over 100,000 UTF-8 bytes never goes to Claude: a token holds at least one byte, so such a prompt stays under `LONG_PROMPT` tokens.
+  - **Budgets:** Claude's tokens leave the free counter (`ai:usage:<date>`), so the free budget keeps counting the router and the free models.
+  - **Evals share Claude's ledger:** it lives on the API's Redis database, not db 15. The prod stack has its own Redis with no host port, so prod and the local evals still count apart.
+  - **Evals:** the official run refuses a Claude `LLM_PRIMARY`. `--claude-primary` is a labelled local run: it reuses the official routes, is reported beside the official run, is never floored and is refused under `--ci` or `CI`.
+- 2026-10-21: Claude's two daily budgets stay separate, and prod's Redis gets no host port (user, answering the question `claude-first` left open before shipping).
+  - **The question:** the evals keep Claude's ledger in the Redis database of `.env`'s `REDIS_URL`, the dev api's (`claude_redis` in `evals/harness.py`). Prod's Redis publishes no host port, so prod counts its own day. One budget for both would need prod's Redis on a host port.
+  - **Decision:** two budgets, each `CLAUDE_DAILY_TOKEN_BUDGET` 1,500,000 tokens (at most $0.75):
+    - prod's, in its own Redis;
+    - dev's, shared by the dev api and the local `--claude-primary` runs.
+    - Prod's Redis keeps no host port, as plan point 2 has it for every data store.
+  - **Why (user):**
+    - prod's worst case is $0.75 a day, about $15 to 2026-11-10, FilingLens's share;
+    - local `--claude-primary` evals are rare, and only the user starts them;
+    - the Anthropic organization's $50 monthly limit is the hard stop.
+  - **Cost of the choice:** on a day with a local Claude run, the two budgets together can spend up to $1.50.
+  - **What we did, in order:** recorded it here, in the step 10 plan (Context, and the `CLAUDE_DAILY_TOKEN_BUDGET` row), todo, context, README and the activity log; then ran `make lint`. No code changed, since the code already counts apart.
 
 ## Solved Problems
+
+- 2026-10-21: `--claude-primary` took its routes from `.env`'s `LLM_PRIMARY` (found in the docs pass on `claude-first`; fixed the same day at the user's request, test first).
+  - **Problem:** with `LLM_PRIMARY=anthropic:claude-haiku-5-5` in `.env`, README step 9's setup and where the official run's refusal points, the run reused Claude's own router replies. Its report then sat beside an earlier Claude report, not the official run. The test pinned only a free `LLM_PRIMARY`.
+  - **Fix (user's rule):** `--claude-primary` always takes the official free run's routes, those of the default `LLM_PRIMARY` (`EvalSettings.model_fields`), whatever `.env` says. An explicit `--router-primary` is overridden too; no test pins that.
+  - **Test:** the Claude-configuration test runs a free and a Claude `LLM_PRIMARY` row. The Claude row failed first (`'anthropic:claude-haiku-5-5' == 'gemini:gemini-3.5-flash-lite'`), passed after the fix, and failed again with the bug put back. The official run's untouched-settings check moved to its own test.
+  - **Lesson:** a configuration that must match the official run names the official model itself, rather than reading it from the environment.
 
 - 2026-10-21: CI's answer eval missed its reply cache on x15 and a09 on 10b's PR. Then Google failed both live calls: a 503, and an answer unfinished at 30 s. A read-only investigation found the cause; branch `rerank-deadline` fixes it.
   - **Cause:** the primary call's key hashes its prompt, and the prompt holds the 12 passages search returns.
@@ -738,6 +773,12 @@ From PR 10a (2026-10-21, branch `step-10-api-hardening`):
     - Entries unused for 7 days are evicted, which would make the next run cold.
 
 ## Known Issues and Pitfalls
+
+- 2026-10-21: Pitfall: gitleaks' `generic-api-key` rule matches across CRLF line ends.
+  - In `.env.example`, `GEMINI_API_KEY=` followed by `GROQ_API_KEY=` is flagged in a Windows working copy (`core.autocrlf=true`).
+  - main's own file with CRs added gives the same finding, and with LF it scans clean. CI scans LF blobs.
+  - So scan files with CRs stripped before reading such a finding as a secret.
+- 2026-10-21: Pitfall: a deliberate break of `set_floors` wrote the repo's `evals/thresholds.json`, because the new test had not pointed `THRESHOLDS` at a temp file. The rewrite equalled HEAD's bytes, and the CRLF checkout was restored. Tests that could write floors now monkeypatch `THRESHOLDS`.
 
 - 2026-10-14: RabbitMQ 4.3 refuses transient non-exclusive queues. Celery needs `control_queue_exclusive=True` and `event_queue_exclusive=True`, or the worker's consumer crash-loops while the broker still looks reachable. That is why the ingest `/readyz` pings the worker through RabbitMQ.
 - 2026-10-14: Windows Application Control on this PC blocks some uv console-script launchers (alembic, celery, uvicorn: os error 4551). Run tools as `uv run python -m <tool>`, as the Makefile does.

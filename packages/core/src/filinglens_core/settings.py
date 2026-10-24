@@ -95,6 +95,9 @@ class ApiSettings(DatabaseSettings, TelemetrySettings):
     # day. Answers past LLM_MAX_INFLIGHT in progress get 503.
     ai_enabled: bool = False
     daily_ai_token_budget: int = Field(default=1_000_000, ge=0)
+    # Claude's own tokens a UTC day, apart from the free models' budget: 1,500,000 costs at most
+    # $0.75 (all at the output price), FilingLens's $15 share over the days to 2026-11-10.
+    claude_daily_token_budget: int = Field(default=1_500_000, ge=0)
     llm_max_inflight: int = Field(default=4, ge=1)
     llm_primary: ModelRole = "gemini:gemini-3.5-flash-lite"
     llm_router: ModelRole = "groq:openai/gpt-oss-20b"
