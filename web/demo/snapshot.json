@@ -3,6 +3,13 @@
     {
       "answer": {
         "answer": "Apple's total revenue in fiscal 2025 was 416,161,000,000 USD [1].",
+        "checks": [
+          {
+            "citation": 1,
+            "source_value": "416,161,000,000",
+            "text": "416,161,000,000"
+          }
+        ],
         "citations": [
           {
             "chunk_id": null,
@@ -12,6 +19,21 @@
           }
         ],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "Apple Inc.",
+              "ticker": "AAPL"
+            }
+          ],
+          "fiscal_period": "FY",
+          "fiscal_years": [
+            2025
+          ],
+          "metric": "revenue",
+          "other_companies": [],
+          "route": "numeric"
+        },
         "refused": false,
         "usage": {
           "cost_usd": 0.0,
@@ -27,6 +49,18 @@
     {
       "answer": {
         "answer": "Alphabet's total revenue in fiscal 2025 was $402,836,000,000 [1]. Meta's total revenue in fiscal 2025 was $200,966,000,000 [2]. Therefore, Alphabet's total revenue was higher in fiscal 2025 [1][2].",
+        "checks": [
+          {
+            "citation": 1,
+            "source_value": "402,836,000,000",
+            "text": "$402,836,000,000"
+          },
+          {
+            "citation": 2,
+            "source_value": "200,966,000,000",
+            "text": "$200,966,000,000"
+          }
+        ],
         "citations": [
           {
             "chunk_id": null,
@@ -42,6 +76,25 @@
           }
         ],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "Alphabet Inc.",
+              "ticker": "GOOGL"
+            },
+            {
+              "name": "Meta Platforms, Inc.",
+              "ticker": "META"
+            }
+          ],
+          "fiscal_period": null,
+          "fiscal_years": [
+            2025
+          ],
+          "metric": "revenue",
+          "other_companies": [],
+          "route": "comparison"
+        },
         "refused": false,
         "usage": {
           "cost_usd": 0.0,
@@ -57,6 +110,38 @@
     {
       "answer": {
         "answer": "In fiscal 2025, Tesla's net income attributable to the parent was 3,794,000,000 USD [1]. This compared to a net income attributable to the parent of 7,091,000,000 USD in fiscal 2024 [2]. Total net income was $3,855 million for fiscal 2025 and $7,153 million for fiscal 2024 [3]. Net income attributable to common stockholders was $3,794 million in fiscal 2025 and $7,091 million in fiscal 2024 [4].",
+        "checks": [
+          {
+            "citation": 1,
+            "source_value": "3,794,000,000",
+            "text": "3,794,000,000"
+          },
+          {
+            "citation": 2,
+            "source_value": "7,091,000,000",
+            "text": "7,091,000,000"
+          },
+          {
+            "citation": 3,
+            "source_value": "3,855",
+            "text": "$3,855 million"
+          },
+          {
+            "citation": 3,
+            "source_value": "7,153",
+            "text": "$7,153 million"
+          },
+          {
+            "citation": 4,
+            "source_value": "3,794",
+            "text": "$3,794 million"
+          },
+          {
+            "citation": 4,
+            "source_value": "7,091",
+            "text": "$7,091 million"
+          }
+        ],
         "citations": [
           {
             "chunk_id": null,
@@ -84,6 +169,22 @@
           }
         ],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "Tesla, Inc.",
+              "ticker": "TSLA"
+            }
+          ],
+          "fiscal_period": null,
+          "fiscal_years": [
+            2025,
+            2024
+          ],
+          "metric": "net_income",
+          "other_companies": [],
+          "route": "comparison"
+        },
         "refused": false,
         "usage": {
           "cost_usd": 0.0,
@@ -99,6 +200,7 @@
     {
       "answer": {
         "answer": "U.S. export controls have effectively foreclosed NVIDIA from competing in China's data center computing/compute market as of the end of fiscal year 2026 [1]. Because of these complex rules, NVIDIA is unable to create and deliver a competitive product for China's data center market that receives approval from both the U.S. government and the Chinese government [1]. Additionally, compliance with U.S. export controls has required NVIDIA to offer degraded products to the Chinese market, prompting China's antitrust regulators to publish a preliminary finding that this discriminated unfairly against customers in China [2].",
+        "checks": [],
         "citations": [
           {
             "chunk_id": "647a3f705893066fa1dee9f45d0eb4518619d44eeb7a2a36b7c57b5034dbb803",
@@ -114,6 +216,19 @@
           }
         ],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "NVIDIA Corporation",
+              "ticker": "NVDA"
+            }
+          ],
+          "fiscal_period": null,
+          "fiscal_years": [],
+          "metric": null,
+          "other_companies": [],
+          "route": "textual"
+        },
         "refused": false,
         "usage": {
           "cost_usd": 0.0,
@@ -132,6 +247,7 @@
     {
       "answer": {
         "answer": "Amazon organizes its operations into three reportable segments: North America, International, and Amazon Web Services (AWS) [1]. These segments reflect the way the company evaluates its business performance and manages its operations [1].",
+        "checks": [],
         "citations": [
           {
             "chunk_id": "505d27e7afa0665cf1f20707b386a1c143aecc25493cbf4a093025233b20f809",
@@ -141,6 +257,19 @@
           }
         ],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "Amazon.com, Inc.",
+              "ticker": "AMZN"
+            }
+          ],
+          "fiscal_period": null,
+          "fiscal_years": [],
+          "metric": null,
+          "other_companies": [],
+          "route": "textual"
+        },
         "refused": false,
         "usage": {
           "cost_usd": 0.0,
@@ -156,6 +285,13 @@
     {
       "answer": {
         "answer": "In 2025, volume increases and lower realized prices in the U.S. were primarily driven by Mounjaro and Zepbound [1]. Outside the U.S., volume increases in 2025 were primarily driven by Mounjaro [1]. Mounjaro and Zepbound together accounted for 56 percent of total revenues in 2025 [2].",
+        "checks": [
+          {
+            "citation": 2,
+            "source_value": "56",
+            "text": "56 percent"
+          }
+        ],
         "citations": [
           {
             "chunk_id": "559dacc203979e432a434697c2e1a798229d19414663d9193949976e98018d70",
@@ -171,6 +307,19 @@
           }
         ],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "ELI LILLY & Co",
+              "ticker": "LLY"
+            }
+          ],
+          "fiscal_period": null,
+          "fiscal_years": [],
+          "metric": null,
+          "other_companies": [],
+          "route": "textual"
+        },
         "refused": false,
         "usage": {
           "cost_usd": 0.0,
@@ -186,8 +335,17 @@
     {
       "answer": {
         "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+        "checks": [],
         "citations": [],
         "degraded": false,
+        "reading": {
+          "companies": [],
+          "fiscal_period": null,
+          "fiscal_years": [],
+          "metric": null,
+          "other_companies": [],
+          "route": "out_of_scope"
+        },
         "refused": true,
         "usage": {
           "cost_usd": 0.0,
@@ -203,8 +361,24 @@
     {
       "answer": {
         "answer": "Tesla, Inc. (TSLA) has filed no 10-K for fiscal 2026; its latest is fiscal 2025.",
+        "checks": [],
         "citations": [],
         "degraded": false,
+        "reading": {
+          "companies": [
+            {
+              "name": "Tesla, Inc.",
+              "ticker": "TSLA"
+            }
+          ],
+          "fiscal_period": "FY",
+          "fiscal_years": [
+            2026
+          ],
+          "metric": "revenue",
+          "other_companies": [],
+          "route": "numeric"
+        },
         "refused": true,
         "usage": {
           "cost_usd": 0.0,
@@ -218,7 +392,7 @@
       "question": "What was Tesla's total revenue in fiscal 2026?"
     }
   ],
-  "commit": "e1059d771dd93026b03975192fca8277d4773753",
+  "commit": "b93a8d2fb5351f7f606e7309626ac443472f0b62",
   "companies": [
     {
       "cik": 18230,
@@ -881,7 +1055,7 @@
       "ticker": "LIN"
     }
   ],
-  "recorded_at": "2026-10-20T14:09:31+00:00",
+  "recorded_at": "2026-10-24T20:25:32+00:00",
   "report": "evals/reports/2026-10-17.json",
   "source": "Answers recorded in the golden set v1 test run of 2026-10-17 (Gemini 3.5 Flash-Lite, free tier), with sources and coverage from the dev database.",
   "sources": {

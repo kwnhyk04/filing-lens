@@ -330,6 +330,7 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
             # The seed dropped and rebuilt it.
             assert set((await connection.execute(hnsw)).scalars()) == {f"ix_chunks_{embedding}"}
         backend = LiveBackend(engine, DiscoverQueue("amqp://unused:unused@127.0.0.1:1//"))
+        assert await backend.totals() == (2, 10)  # companies with an indexed filing, filings
 
         filings = await _all_pages(lambda c: backend.list_filings(3, c))
         assert len(filings) == 10
@@ -386,6 +387,13 @@ async def _page_through_live_backend(url: str, embedding: str) -> None:
                 .values(status=FilingStatus.EMBEDDED)
             )
         assert await backend.get_chunks([chunks[0].id]) == []
+        assert await backend.totals() == (2, 9)
+        other = next(f.cik for f in filings if f.cik != filings[0].cik)
+        async with engine.begin() as connection:  # a company with no indexed filing left
+            await connection.execute(
+                update(Filing).where(Filing.cik == other).values(status=FilingStatus.EMBEDDED)
+            )
+        assert await backend.totals() == (1, 4)
     finally:
         await engine.dispose()
 

@@ -43,7 +43,12 @@ export type AnswerQueryVariables = Exact<{
 }>;
 
 
-export type AnswerQuery = { answer: { answer: string, degraded: boolean, refused: boolean, warnings: Array<string>, citations: Array<{ chunkId: string | null, factId: string | null, quote: string, filingUrl: string }>, usage: { inputTokens: number, outputTokens: number, costUsd: number } } };
+export type AnswerQuery = { answer: { answer: string, degraded: boolean, refused: boolean, warnings: Array<string>, citations: Array<{ chunkId: string | null, factId: string | null, quote: string, filingUrl: string }>, usage: { inputTokens: number, outputTokens: number, costUsd: number }, reading: { route: string, otherCompanies: Array<string>, fiscalYears: Array<number>, fiscalPeriod: string | null, metric: string | null, companies: Array<{ ticker: string, name: string }> } | null, checks: Array<{ text: string, citation: number, sourceValue: string }> } };
+
+export type TotalsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type TotalsQuery = { totals: { companies: number, filings: number } };
 
 export type CoverageQueryVariables = Exact<{
   first?: number;
@@ -51,7 +56,7 @@ export type CoverageQueryVariables = Exact<{
 }>;
 
 
-export type CoverageQuery = { companies: { pageInfo: { hasNextPage: boolean, endCursor: string | null }, edges: Array<{ node: { cik: number, ticker: string, name: string, filings: { pageInfo: { hasNextPage: boolean }, edges: Array<{ node: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string } }> } } }> } };
+export type CoverageQuery = { totals: { companies: number, filings: number }, companies: { pageInfo: { hasNextPage: boolean, endCursor: string | null }, edges: Array<{ node: { cik: number, ticker: string, name: string, filings: { pageInfo: { hasNextPage: boolean }, edges: Array<{ node: { accessionNumber: string, formType: FormType, fiscalYear: number, fiscalPeriod: FiscalPeriod, filedOn: string, url: string } }> } } }> } };
 
 export type SourcesQueryVariables = Exact<{
   chunkIds: Array<string | number> | string | number;
@@ -182,11 +187,39 @@ export const AnswerDocument = new TypedDocumentString(`
     }
     refused
     warnings
+    reading {
+      route
+      companies {
+        ticker
+        name
+      }
+      otherCompanies
+      fiscalYears
+      fiscalPeriod
+      metric
+    }
+    checks {
+      text
+      citation
+      sourceValue
+    }
   }
 }
     `) as unknown as TypedDocumentString<AnswerQuery, AnswerQueryVariables>;
+export const TotalsDocument = new TypedDocumentString(`
+    query Totals {
+  totals {
+    companies
+    filings
+  }
+}
+    `) as unknown as TypedDocumentString<TotalsQuery, TotalsQueryVariables>;
 export const CoverageDocument = new TypedDocumentString(`
     query Coverage($first: Int! = 20, $after: String) {
+  totals {
+    companies
+    filings
+  }
   companies(first: $first, after: $after) {
     pageInfo {
       hasNextPage

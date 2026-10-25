@@ -5,7 +5,7 @@ import base64
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import aclosing
 from datetime import date
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, NamedTuple, Protocol
 from uuid import UUID
 
 from celery import Celery
@@ -174,6 +174,11 @@ class FactSource(BaseModel):
     company: Company
 
 
+class Totals(NamedTuple):
+    companies: int  # with at least one indexed filing: the companies answers can cite
+    filings: int  # indexed
+
+
 class Backend(Protocol):
     async def create_ingest_job(self, request: IngestJobRequest, idempotency_key: str) -> UUID:
         """Same key and body: the existing job. Same key, other body: IdempotencyKeyReusedError."""
@@ -221,6 +226,8 @@ class Backend(Protocol):
     async def get_companies(self, ciks: Sequence[int]) -> list[Company]:
         """Companies among `ciks`, once each in the order given; unknown CIKs left out."""
         ...
+
+    async def totals(self) -> Totals: ...
 
     async def search(
         self,
@@ -305,6 +312,13 @@ class LiveBackend:
         companies = [Company(cik=row.cik, ticker=row.ticker, name=row.name) for row in rows]
         items, next_cursor = _page(companies, limit, lambda c: CompanyKey(cik=c.cik))
         return CompanyPage(items=items, next_cursor=next_cursor)
+
+    async def totals(self) -> Totals:
+        query = select(func.count(FilingRow.cik.distinct()), func.count()).where(
+            FilingRow.status == FilingStatus.INDEXED
+        )
+        companies, filings = (await self._rows(query))[0]
+        return Totals(companies=companies, filings=filings)
 
     async def create_ingest_job(self, request: IngestJobRequest, idempotency_key: str) -> UUID:
         ciks = sorted(set(request.ciks))

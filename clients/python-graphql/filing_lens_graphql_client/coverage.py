@@ -11,7 +11,13 @@ from .enums import FiscalPeriod, FormType
 
 
 class Coverage(BaseModel):
+    totals: "CoverageTotals"
     companies: "CoverageCompanies"
+
+
+class CoverageTotals(BaseModel):
+    companies: int
+    filings: int
 
 
 class CoverageCompanies(BaseModel):

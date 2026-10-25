@@ -15,6 +15,30 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-25: Mockup features 2: how a question was read, each number's source, the live coverage line, sample questions, the 2/3 layout (uncommitted, branch `mockup-features-2`)
+
+- Changes, on `mockup-features-2` from main at b93a8d2 (#30), API and web together at the user's request ("Build PR 1 and PR 2 together on one branch"; the user away, "don't wait for me"):
+  - **API (expand-only):** `Answer.reading` (set in `Answerer.events` from the router's reading, names from `tracked()`), `Answer.checks` (`validate.figures`, a new pure helper beside `check_sentence` that pools its evidence and match rule; `drafting.check` fills `Checked.figures` for kept sentences), GraphQL `Reading`, `FigureCheck`, `Totals` and `Query.totals` (`Backend.totals`: companies with an indexed filing, indexed filings, one query); `clients/operations.graphql` gains `Answer`'s new fields, a `Totals` operation and `Coverage.totals`; `make codegen`.
+  - **Web:** `ReadAs` and the checks table in `components/answer-view.tsx` (shared by Ask and the demo); sample questions in `components/ask.tsx` (from the snapshot, passed by `app/ask/page.tsx`); `LiveHeader`'s line from `totals` (`lib/coverage.ts`, shared with the demo's line); `ping` now asks `Totals`; `sourceLabel` and the row helpers moved to `lib/answer.ts`; the 2/3 split in `globals.css`; the mock API serves `totals`.
+  - **Export:** `scripts/export_demo.py` adds each saved answer's `reading` (from the report's routing) and `checks` (the pipeline's own `drafting.check`); the snapshot re-exported.
+- Small events, in order:
+  1. **Gate:** GateGuard refused each file's first write until facts were stated (routine; memory: the gate hook). Three times a parallel batch had its first edit to a file refused while later edits to the same file went through (`lib/answer.ts`, the coverage page, `lib/demo.ts`, `lib/server.ts`, `mock-api.ts`, `export_demo.py`); each refused edit was retried.
+  2. **Branch:** local main matched GitHub's (read-only `ls-remote`, credential helper off), clean.
+  3. **API red:** the new tests failed to import `figures` and `Totals`, then passed: 355 in `packages/llm` and `services/api`.
+  4. **Codegen:** Windows wrote CRLF into every generated file; git normalizes them (`.gitattributes`), so 12 files changed in content and 6 client models are new. A second run changed nothing.
+  5. **Prompt hashes:** all five equal the official report's (the stop condition), computed with the snapshot's 30 companies as `tracked()` and the report's as-of date.
+  6. **Ruff:** one line too long in a test; split.
+  7. **Web red:** the unit tests failed (no exports), then passed (92). One existing unit test's `Answer` lacked the two new required fields (typecheck); one existing Playwright test pinned c12's timing line, which now ends "every number checked"; both updated.
+  8. **Ruling while testing:** a fact's figure label uses its period end, not its fiscal year (memory.md).
+  9. **Export, with the user's go:** port 5433 free; `filinglens-postgres-1` was stopped, started by name, `make demo-export`, stopped again. The diff: only `reading`, `checks`, `commit` and `recorded_at`.
+  10. **Spec written late:** the Playwright spec came after the components, so a temporary mutation proved it (4 of 6 failed), then was reverted and grep-checked gone (memory.md, the lesson).
+  11. **Phone axe:** the screenshots' axe check failed 3 phone shots on `scrollable-region-focusable` (the checks table scrolls with nothing focusable). Test first at 390 px (red), then the region took the focus (green).
+  12. **Containers (the user's go):** `make test-int` and `make contracts-breaking`; the same 15 running containers before and after, `filinglens-prod-*` and FreightAudit's among them.
+  13. **Nothing live:** no model, SEC or API call; no key read.
+- Files: `packages/llm/src/filinglens_llm/{validate,answer}.py`, `services/api/src/filinglens_api/{schemas,answering,backend,graph}.py`, `scripts/export_demo.py`, `clients/operations.graphql` and the generated `contracts/` and `clients/`, `web/{app/ask/page.tsx,app/coverage/page.tsx,app/demo/page.tsx,app/globals.css,components/{answer-view,ask,chrome}.tsx,lib/{answer,coverage,demo,server}.ts}`, `web/demo/snapshot.json`, tests (`packages/llm/tests/test_{validate,answer}.py`, `services/api/tests/{conftest,test_answering,test_contract,test_app,test_export_demo}.py`, `web/lib/{answer,coverage}.test.ts`, `web/e2e/{mockup-features.spec,ask.spec,env,mock-api}.ts`), 33 screenshots, `README.md`, `docs/{design,context,memory,todo,activity-log}.md`.
+- Validation: `make lint` clean; `make typecheck` 0 errors; `make test` 472; `make test-int` 32 (3 min 33 s); `make contracts-breaking` no breaking changes; codegen fresh; `npm --prefix clients/ts test` 18; web typecheck clean; `npm test` 92; build; `npx playwright test` 88; screens 37 (33 retaken, each after axe).
+- Outstanding: the user confirms the `eval-calls-*` cache and ships; CI's eval and the nightly run once (eval inputs changed; keys unchanged, so they should replay).
+
 ### 2026-10-25: Ask: a session that ends while asking signs in again and returns to Ask (uncommitted, branch `ask-sign-in-return`)
 
 - Changes: `web/components/ask.tsx` sends a 401 from `/api/answers` to `/login?next=%2Fask`; it went to `/login?next=/`, the landing page since #29. `web/e2e/auth.spec.ts` gains the test.

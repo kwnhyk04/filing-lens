@@ -9,6 +9,7 @@ from filinglens_llm.validate import (
     amounts_match,
     check_sentence,
     citation_error,
+    figures,
     find_amounts,
     parse_amount,
     split_sentences,
@@ -218,6 +219,40 @@ def test_a_changed_quote_fails_the_sentence_even_with_a_right_amount() -> None:
     assert check_sentence("Net sales were $416.2 billion [C1].", {}, SOURCES) == (
         "[C1] has no quote under Sources"
     )
+
+
+TABLE = "Net income | $ | 3,855 | $ | 7,153"
+FIGURE_SOURCES = {
+    **SOURCES,
+    "C2": Src(f"Consolidated statements of operations (in millions)\n{TABLE}", chunk_id="c-2"),
+    "F2": Src("0.162 pure", fact_id="f-2", value=Decimal("0.162")),
+    "F3": Src("-1,200,000,000 USD", fact_id="f-3", value=Decimal(-1_200_000_000)),
+}
+FIGURE_QUOTES = {**QUOTES, "C2": [TABLE]}
+
+
+@pytest.mark.parametrize(
+    ("sentence", "found"),
+    [
+        ("Net sales were $416.2 billion [F1].", [("$416.2 billion", "F1", 416_161_000_000)]),
+        (  # both in the quote, the percent at its own scale
+            "Net sales were $416 billion, up 6% [C1].",
+            [("$416 billion", "C1", 416_200_000_000), ("6%", "C1", 6)],
+        ),
+        ("Both say $416.2 billion [F1, C1].", [("$416.2 billion", "F1", 416_161_000_000)]),
+        ("Net sales rose 6% [F1][C1].", [("6%", "C1", 6)]),  # held by the second source only
+        ("Net income was $3,855 million [C2].", [("$3,855 million", "C2", 3855)]),  # in millions
+        ("The margin was 16.2% [F2].", [("16.2%", "F2", Decimal("0.162"))]),
+        ("A net loss of $1.2 billion [F3].", [("$1.2 billion", "F3", -1_200_000_000)]),  # sign
+        ("In fiscal 2025 the 10-K names 3 segments [C1].", []),  # a year and a count: no amount
+    ],
+)
+def test_each_amount_of_a_sentence_that_holds_names_the_source_that_holds_it(
+    sentence: str, found: list[tuple[str, str, Decimal | int]]
+) -> None:
+    assert check_sentence(sentence, FIGURE_QUOTES, FIGURE_SOURCES) is None
+    listed = figures(sentence, FIGURE_QUOTES, FIGURE_SOURCES)
+    assert [(f.text, f.alias, f.number) for f in listed] == found
 
 
 @pytest.mark.parametrize(

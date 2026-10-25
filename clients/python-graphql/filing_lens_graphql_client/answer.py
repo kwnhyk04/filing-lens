@@ -19,6 +19,8 @@ class AnswerAnswer(BaseModel):
     usage: "AnswerAnswerUsage"
     refused: bool
     warnings: list[str]
+    reading: Optional["AnswerAnswerReading"]
+    checks: list["AnswerAnswerChecks"]
 
 
 class AnswerAnswerCitations(BaseModel):
@@ -34,5 +36,26 @@ class AnswerAnswerUsage(BaseModel):
     cost_usd: float = Field(alias="costUsd")
 
 
+class AnswerAnswerReading(BaseModel):
+    route: str
+    companies: list["AnswerAnswerReadingCompanies"]
+    other_companies: list[str] = Field(alias="otherCompanies")
+    fiscal_years: list[int] = Field(alias="fiscalYears")
+    fiscal_period: Optional[str] = Field(alias="fiscalPeriod")
+    metric: Optional[str]
+
+
+class AnswerAnswerReadingCompanies(BaseModel):
+    ticker: str
+    name: str
+
+
+class AnswerAnswerChecks(BaseModel):
+    text: str
+    citation: int
+    source_value: str = Field(alias="sourceValue")
+
+
 Answer.model_rebuild()
 AnswerAnswer.model_rebuild()
+AnswerAnswerReading.model_rebuild()

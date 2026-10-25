@@ -35,7 +35,8 @@ function SignOut() {
   );
 }
 
-export function LiveHeader({ page }: { page: "ask" | "coverage" }) {
+/** `line`: what the API's totals say is covered; left out when the API did not answer. */
+export function LiveHeader({ page, line }: { page: "ask" | "coverage"; line?: string }) {
   return (
     <header className="site">
       <Link href="/" className="brand" prefetch={false}>
@@ -49,7 +50,10 @@ export function LiveHeader({ page }: { page: "ask" | "coverage" }) {
           Coverage
         </Link>
       </nav>
-      <SignOut />
+      <div className="site-end">
+        {line && <p>{line}</p>}
+        <SignOut />
+      </div>
     </header>
   );
 }
@@ -70,7 +74,7 @@ export async function DemoHeader({ page }: { page: "answers" | "coverage" }) {
           Coverage
         </Link>
       </nav>
-      {/* Counted from the snapshot; the live header has no line, since the API gives no count. */}
+      {/* Counted from the snapshot; the live header's line comes from the API's totals. */}
       <div className="site-end">
         <p>{demoCoverageLine}</p>
         {signedIn ? (

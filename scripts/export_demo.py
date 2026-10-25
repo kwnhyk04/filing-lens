@@ -6,17 +6,22 @@ Postgres, with the same operations the web sends. Rebuild the web after an expor
 """
 
 import json
+import re
 import subprocess
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
 
+from filinglens_api.answering import reading_of as pipeline_reading
 from filinglens_api.limits import rate_limit
 from filinglens_api.main import app
 from filinglens_api.schemas import Answer
 from filinglens_core.settings import ApiSettings, load_settings
+from filinglens_llm import answer as drafting
+from filinglens_llm.router import Routing
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = "evals/reports/2026-10-17.json"
@@ -59,6 +64,54 @@ def answer_of(record: dict[str, Any]) -> dict[str, Any]:
     if answer.refused and answer.citations:
         raise SystemExit(f"{record['id']} is refused but cites sources")
     return answer.model_dump(mode="json")
+
+
+NUMBERED = re.compile(r"\[(\d+)\]")
+
+
+def reading_of(routing: dict[str, Any] | None, names: dict[str, str]) -> dict[str, Any] | None:
+    """The run's routing as the API's reading, each ticker with its exported company name."""
+    if routing is None:
+        return None
+    return pipeline_reading(Routing.model_validate(routing), names).model_dump(mode="json")
+
+
+def checks_of(
+    answer: dict[str, Any], chunks: dict[str, Any], facts: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The pipeline's own check over the recorded answer, its quotes and the resolved sources.
+
+    The live answer passed it, so a sentence that fails now stops the export.
+    """
+    citations = answer["citations"]
+    aliases = [f"{'F' if c['fact_id'] else 'C'}{n}" for n, c in enumerate(citations, 1)]
+    sources = {
+        alias: drafting.Source(
+            alias,
+            c["chunk_id"],
+            c["fact_id"],
+            "",
+            chunks[c["chunk_id"]]["text"] if c["chunk_id"] else c["quote"],
+            None if c["chunk_id"] else Decimal(str(facts[c["fact_id"]]["value"])),
+            c["filing_url"],
+        )
+        for alias, c in zip(aliases, citations, strict=True)
+    }
+    quotes = {alias: [c["quote"]] for alias, c in zip(aliases, citations, strict=True)}
+    text = NUMBERED.sub(lambda marker: f"[{aliases[int(marker[1]) - 1]}]", answer["answer"])
+    if not citations:
+        return []
+    checked = drafting.check(drafting.Reply(text, quotes, insufficient=False), sources)
+    if checked.problems:
+        raise SystemExit(f"A saved answer does not hold: {checked.problems}")
+    return [
+        {
+            "text": f.text,
+            "citation": aliases.index(f.alias) + 1,
+            "source_value": f"{f.number.normalize():,f}",
+        }
+        for f in checked.figures
+    ]
 
 
 def check_labels(answers: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> None:
@@ -135,6 +188,12 @@ def main() -> None:
     if missing:
         raise SystemExit(f"Cannot resolve citations {sorted(missing)}")
     check_labels(answers, sources["chunks"])
+    names = {c["ticker"]: c["name"] for c in companies}
+    chunks = {c["id"]: c for c in sources["chunks"]}
+    facts = {f["id"]: f for f in sources["facts"]}
+    for item in answers:  # how the run read each question, and each amount's source
+        item["answer"]["reading"] = reading_of(answers_by_id[item["id"]]["routing"], names)
+        item["answer"]["checks"] = checks_of(item["answer"], chunks, facts)
 
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],  # noqa: S607
@@ -154,8 +213,6 @@ def main() -> None:
     }
     write_snapshot(snapshot, OUT)
 
-    chunks = {c["id"]: c for c in sources["chunks"]}
-    facts = {f["id"]: f for f in sources["facts"]}
     print(f"Wrote {OUT.relative_to(ROOT)}: {len(answers)} answers, {len(companies)} companies.")
     for item in answers:
         for n, citation in enumerate(item["answer"]["citations"], 1):

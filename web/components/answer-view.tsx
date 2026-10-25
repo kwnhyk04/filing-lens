@@ -1,25 +1,73 @@
-// A validated answer with its citation links and source cards; renders on the server or client.
-import { formLabel, locateQuote, periodEnded, splitFigures, splitMarkers, type Answer } from "../lib/answer.ts";
+// A validated answer with its citation links, number checks and source cards; renders on the server or client.
+import {
+  checksTitle,
+  figureRows,
+  findSource as find,
+  locateQuote,
+  periodEnded,
+  readingChips,
+  sourceLabel,
+  splitFigures,
+  splitMarkers,
+  type Answer,
+  type Reading,
+} from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
+
+export { sourceLabel };
 
 type Citation = Answer["citations"][number];
 
-function find(citation: Citation, sources?: Sources) {
-  return {
-    chunk: citation.chunk_id ? sources?.chunks.find((chunk) => chunk.id === citation.chunk_id) : undefined,
-    fact: citation.fact_id ? sources?.facts.find((fact) => fact.id === citation.fact_id) : undefined,
-  };
+/** How the router read the question, as quiet chips; nothing when the answer carries no reading. */
+export function ReadAs({ reading }: { reading?: Reading | null }) {
+  if (!reading) return null;
+  return (
+    <div className="read-as" data-testid="read-as">
+      <span>Read as</span>
+      <ul>
+        {readingChips(reading).map((chip) => (
+          <li key={chip}>{chip}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
-/** "NVDA 10-K FY2026, Item 1A", or undefined until the sources load. */
-export function sourceLabel(citation: Citation, sources?: Sources): string | undefined {
-  const { chunk, fact } = find(citation, sources);
-  if (chunk) {
-    const { company, formType, fiscalYear } = chunk.filing;
-    return `${company.ticker} ${formLabel(formType)} FY${fiscalYear}, Item ${chunk.section.item}`;
-  }
-  // A fact's fiscal year is its reporting filing's, so the period end names the value's own date.
-  if (fact) return `${fact.company.ticker} fact, ${fact.label}, period ending ${fact.periodEnd}`;
+/** Each amount in the answer with its source's number. Validation removes a sentence whose amount no
+    cited source holds, so every row is a match. */
+function FigureChecks({ answer, sources }: { answer: Answer; sources?: Sources }) {
+  if (!answer.checks.length) return null;
+  const title = checksTitle(answer);
+  // On a phone the table scrolls sideways in its own region, so the keyboard must reach it (axe).
+  return (
+    <div className="scroll checks" data-testid="checks" role="region" aria-label={title} tabIndex={0}>
+      <table>
+        <caption>{title}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Figure</th>
+            <th scope="col" className="num">
+              In the answer
+            </th>
+            <th scope="col" className="num">
+              Reported
+            </th>
+            <th scope="col">Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {figureRows(answer, sources).map((row, i) => (
+            <tr key={i}>
+              <th scope="row">{row.figure}</th>
+              <td className="num">{row.written}</td>
+              <td className="num reported">{row.reported}</td>
+              <td className="match">Matches</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /** "Source 1: NVDA 10-K FY2026, Item 1A", or "Source 1" until the sources load. */
@@ -145,6 +193,7 @@ export function AnswerMain(props: Props) {
     <div className="answer-main">
       {answer.refused && <p className="tag">Not answered</p>}
       <AnswerText {...props} />
+      <FigureChecks answer={answer} sources={props.sources} />
       {answer.warnings.length > 0 && (
         <div className="warnings" data-testid="warnings">
           <p>

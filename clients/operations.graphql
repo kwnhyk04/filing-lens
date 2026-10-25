@@ -102,10 +102,37 @@ query Answer($question: String!, $companyIds: [Int!], $fiscalYears: [Int!]) {
     }
     refused
     warnings
+    reading {
+      route
+      companies {
+        ticker
+        name
+      }
+      otherCompanies
+      fiscalYears
+      fiscalPeriod
+      metric
+    }
+    checks {
+      text
+      citation
+      sourceValue
+    }
+  }
+}
+
+query Totals {
+  totals {
+    companies
+    filings
   }
 }
 
 query Coverage($first: Int! = 20, $after: String) {
+  totals {
+    companies
+    filings
+  }
   companies(first: $first, after: $after) {
     pageInfo {
       hasNextPage

@@ -11,6 +11,7 @@ from .coverage import Coverage
 from .enums import FormType
 from .filings import Filings
 from .sources import Sources
+from .totals import Totals
 
 
 def gql(q: str) -> str:
@@ -163,6 +164,22 @@ class Client(BaseClient):
                 }
                 refused
                 warnings
+                reading {
+                  route
+                  companies {
+                    ticker
+                    name
+                  }
+                  otherCompanies
+                  fiscalYears
+                  fiscalPeriod
+                  metric
+                }
+                checks {
+                  text
+                  citation
+                  sourceValue
+                }
               }
             }
             """)
@@ -177,11 +194,31 @@ class Client(BaseClient):
         data = self.get_data(response)
         return Answer.model_validate(data)
 
+    def totals(self, **kwargs: Any) -> Totals:
+        query = gql("""
+            query Totals {
+              totals {
+                companies
+                filings
+              }
+            }
+            """)
+        variables: dict[str, object] = {}
+        response = self.execute(
+            query=query, operation_name="Totals", variables=variables, **kwargs
+        )
+        data = self.get_data(response)
+        return Totals.model_validate(data)
+
     def coverage(
         self, first: int, after: Union[Optional[str], UnsetType] = UNSET, **kwargs: Any
     ) -> Coverage:
         query = gql("""
             query Coverage($first: Int! = 20, $after: String) {
+              totals {
+                companies
+                filings
+              }
               companies(first: $first, after: $after) {
                 pageInfo {
                   hasNextPage

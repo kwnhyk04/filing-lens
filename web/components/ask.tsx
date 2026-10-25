@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { answerWithSources, createSseParser, timingLine, type Answer, type AnswerEvent } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
-import { AnswerMain, SourceList, sourceLabel } from "./answer-view.tsx";
+import { AnswerMain, ReadAs, SourceList, sourceLabel } from "./answer-view.tsx";
 import { QuoteInView } from "./quote-in-view.tsx";
 
 interface Problem {
@@ -56,7 +56,8 @@ async function readEvents(body: ReadableStream<Uint8Array>, onDelta: (text: stri
   return result;
 }
 
-export function Ask() {
+/** `samples`: questions the filings can answer, offered under the empty box; a click only fills it. */
+export function Ask({ samples }: { samples: string[] }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -187,6 +188,27 @@ export function Ask() {
             {busy ? "Answering…" : "Ask"}
           </button>
         </form>
+        {samples.length > 0 && !answer && draft === null && (
+          <section className="samples" aria-labelledby="samples-title" data-testid="samples">
+            <h2 id="samples-title">Try a question the filings can answer</h2>
+            <ul>
+              {samples.map((sample) => (
+                <li key={sample}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!box.current) return;
+                      box.current.value = sample;
+                      box.current.focus();
+                    }}
+                  >
+                    {sample}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <p role="status" className="status" data-testid="ask-status">
           {status}
         </p>
@@ -208,13 +230,14 @@ export function Ask() {
             <p>{draft}</p>
           </section>
         )}
+        {answer && <ReadAs reading={answer.reading} />}
         {answer && (
           <section className="result" aria-labelledby="answer-title" data-testid="answer">
             <div className="result-head">
               <h2 id="answer-title">Answer</h2>
               {timing && (
                 <p className="timings" data-testid="timings">
-                  {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length)}
+                  {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length, answer.checks.length > 0)}
                 </p>
               )}
             </div>

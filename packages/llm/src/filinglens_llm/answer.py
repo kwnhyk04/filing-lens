@@ -12,15 +12,17 @@ and in the validated answer, so both read alike when validation changes nothing.
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from filinglens_llm.validate import (
     MARKER,
+    Figure,
     Quoted,
     check_sentence,
     citation_error,
     cited,
+    figures,
     split_sentences,
 )
 
@@ -126,16 +128,19 @@ class Checked:
     citations: list[tuple[str, str]]  # (source id, quote) for [1], [2]... in order
     problems: list[str]  # one per failed sentence, quoting it
     removed: int  # sentences dropped because they failed
+    figures: list[Figure] = field(default_factory=list[Figure])  # each kept amount and its source
 
 
 def check(reply: Reply, sources: Mapping[str, Source]) -> Checked:
     """Validate each sentence, drop the failures, and number the remaining citations 1, 2, 3."""
     kept: list[str] = []
     problems: list[str] = []
+    found: list[Figure] = []
     for sentence in split_sentences(reply.text):
         problem = check_sentence(sentence, reply.quotes, sources)
         if problem is None:
             kept.append(sentence)
+            found += figures(sentence, reply.quotes, sources)
         else:
             problems.append(f'"{sentence}": {problem}')
     text = reply.text if not problems else " ".join(kept)
@@ -152,4 +157,4 @@ def check(reply: Reply, sources: Mapping[str, Source]) -> Checked:
             if citation_error(Quoted(source.chunk_id, None, quote), chunks, ()) is None
         ]
         citations.append((alias, good[0]))
-    return Checked(numbered(text, {}), citations, problems, removed=len(problems))
+    return Checked(numbered(text, {}), citations, problems, removed=len(problems), figures=found)

@@ -1310,6 +1310,25 @@
             "type": "array",
             "title": "Warnings",
             "description": "Validation notes, such as sentences removed because a citation or an amount did not check out. A streamed answer with warnings replaces the draft its deltas carried."
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Reading"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the router read the question; null if it was not read."
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/FigureCheck"
+            },
+            "type": "array",
+            "title": "Checks",
+            "description": "Each amount in the answer with the cited source that holds it. Validation removes a sentence with an amount no cited source holds, so every listed amount matched."
           }
         },
         "type": "object",
@@ -1319,7 +1338,9 @@
           "degraded",
           "usage",
           "refused",
-          "warnings"
+          "warnings",
+          "reading",
+          "checks"
         ],
         "title": "Answer"
       },
@@ -1578,6 +1599,34 @@
         ],
         "title": "FieldError",
         "type": "object"
+      },
+      "FigureCheck": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "The amount as the answer writes it."
+          },
+          "citation": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Citation",
+            "description": "The citation whose source holds it, from 1."
+          },
+          "source_value": {
+            "type": "string",
+            "title": "Source Value",
+            "description": "The number it matched: the fact's value, or the number as the quote has it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "citation",
+          "source_value"
+        ],
+        "title": "FigureCheck",
+        "description": "An amount in the answer and the cited source that holds it."
       },
       "Filing": {
         "properties": {
@@ -1944,6 +1993,102 @@
         ],
         "title": "Problem",
         "type": "object"
+      },
+      "ReadCompany": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "name"
+        ],
+        "title": "ReadCompany"
+      },
+      "Reading": {
+        "properties": {
+          "route": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "textual",
+              "comparison",
+              "out_of_scope"
+            ],
+            "title": "Route"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/ReadCompany"
+            },
+            "type": "array",
+            "title": "Companies",
+            "description": "Tracked companies the question names."
+          },
+          "other_companies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Other Companies",
+            "description": "Companies the question names that FilingLens does not track."
+          },
+          "fiscal_years": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Fiscal Years"
+          },
+          "fiscal_period": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "FY",
+                  "Q1",
+                  "Q2",
+                  "Q3",
+                  "Q4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Period"
+          },
+          "metric": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric",
+            "description": "The figure asked for, such as revenue; null if none."
+          }
+        },
+        "type": "object",
+        "required": [
+          "route",
+          "companies",
+          "other_companies",
+          "fiscal_years",
+          "fiscal_period",
+          "metric"
+        ],
+        "title": "Reading",
+        "description": "How the router read the question; the answer used this reading."
       },
       "SearchHit": {
         "properties": {

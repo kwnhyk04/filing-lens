@@ -11,7 +11,30 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Mockup features, second set (2026-10-25)
+
+Five more of the mockup's Ask features, each from real data (memory.md, mockup features 2).
+
+- **Layout:** from 64rem Ask's answer column takes about two thirds and the sources panel the rest (`minmax(0, 2fr) minmax(20rem, 1fr)`), as in the mockup. This reverses the half-width panel below; the panel still sticks, fits the window and scrolls on its own. The demo's saved answers take the same split.
+- **Read as:** between the question box and the answer, "Read as" in secondary text and one quiet outlined chip each for the kind ("Number question", "Comparison", "Text question", "Out of scope"), the companies, the years ("Fiscal 2024 and 2025"), a quarter, and the figure ("Net income"). They come with the completed answer, from the API's `reading`; the demo shows each saved answer's.
+- **Number check:** under the answer text, Coverage's table look with its title in the grey strip: "Numbers checked against XBRL data" when every row cites a fact, else "against their sources". Columns: Figure (a fact's label and period end, or a passage's source name), In the answer, Reported (a fact's value and unit, or the number "as quoted", in mono), Result ("Matches" in green). The answer's header adds "every number checked". On a phone the table scrolls in its own region, which takes the keyboard focus (axe's `scrollable-region-focusable`).
+- **Coverage line:** the live header shows "30 companies · 30 filings" before Sign out, from the API's totals, as the demo header does from the snapshot.
+- **Sample questions:** under the empty question box, "Try a question the filings can answer" and one quiet outlined button per saved answer that was answered (6). A click fills the box and focuses it; nothing is asked until you press Ask. They go while a draft or an answer shows and come back with New question.
+
+Where the build differs from the mockup:
+
+1. History, Filings, Ingest jobs, the company and fiscal-year pickers, the source pager and "How it was found" are left out (not in scope).
+2. The page keeps its "Ask" title and "Your question" label; the mockup has neither and labels the box "Ask about a company's annual report".
+3. The chips are the router's one reading: one figure per question (the mockup shows two), the kind as the router names it, and a refusal's chips too.
+4. The table's Figure column names the fact's label and its period end, not "Total net sales, fiscal 2024": a fact's fiscal year is its filing's, so the period end is the honest date. Passage rows show the number as quoted, since a passage has no XBRL fact.
+5. The title adapts ("against their sources" when a row cites a passage); the mockup always says "against XBRL data".
+6. Sources stay as one scrolling panel of cards, not the mockup's compact list in the answer card with a one-source pager.
+7. The header line counts filings ("30 filings"), not "latest 10-Ks": nothing records that a filing is a company's latest.
+8. Sample questions are new; the mockup shows a filled question instead.
+
 ## The change: a bigger sources panel
+
+Superseded on 2026-10-25 by the mockup's two-thirds split (above); the rest of this section still holds.
 
 - From 64rem wide, Ask splits into two equal columns: the question and the answer on the left, the sources panel on the right. The panel takes about half the width; the mockup gives it a third.
 - The panel fits the window from the first screen: it starts level with the question box, below the header and the title, and ends 16 px above the window's bottom edge. It sticks where it starts, so it stays put while the page scrolls. It scrolls on its own, so a long passage reads without moving the page, and scrolling it never scrolls the page (`overscroll-behavior: contain`).

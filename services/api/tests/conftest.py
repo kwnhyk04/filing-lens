@@ -28,6 +28,7 @@ from filinglens_api.backend import (
     FilingKey,
     ItemKey,
     SearchKey,
+    Totals,
     decode_cursor,
     encode_cursor,
     get_backend,
@@ -46,6 +47,7 @@ from filinglens_api.schemas import (
     CompanyPage,
     FactPage,
     FailurePage,
+    FigureCheck,
     Filing,
     FilingCounts,
     FilingFailure,
@@ -55,6 +57,8 @@ from filinglens_api.schemas import (
     FormType,
     IngestJob,
     IngestJobRequest,
+    ReadCompany,
+    Reading,
     SearchHit,
     SearchPage,
     Section,
@@ -167,6 +171,15 @@ ANSWER = Answer(
     ],
     degraded=False,
     usage=Usage(input_tokens=1200, output_tokens=60, cost_usd=0.0),
+    reading=Reading(
+        route="numeric",
+        companies=[ReadCompany(ticker="AAPL", name="Apple Inc.")],
+        other_companies=[],
+        fiscal_years=[2025],
+        fiscal_period="FY",
+        metric="revenue",
+    ),
+    checks=[FigureCheck(text="$100.0 billion", citation=1, source_value="100,000,000,000")],
 )
 FAILURES = [
     FilingFailure(
@@ -324,6 +337,10 @@ class FakeBackend:
         self._admit()
         found = {company.cik: company for company in COMPANIES}
         return [found[cik] for cik in dict.fromkeys(ciks) if cik in found]
+
+    async def totals(self) -> Totals:
+        self._admit()
+        return Totals(companies=len({f.cik for f in FILINGS}), filings=len(FILINGS))
 
     async def search(
         self,
