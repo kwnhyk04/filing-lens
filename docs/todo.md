@@ -205,10 +205,9 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - The comment on `Anthropic._gone` now says the switch-off is stored in Redis and survives restarts.
     - Checks: `make lint` and `make typecheck` (0 errors) clean; `make test` 440, `make test-int` 32.
   - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #22.
-- [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it.
-  - The internet-facing api and tailscale containers would reach the internet only through an allowlist proxy, so they could no longer reach services on the PC's own ports through `host.docker.internal` (context.md, Known Limitations).
-  - It needs FilingLens's own CI-built proxy image and an allowlist of the model providers' and Tailscale's hosts.
+- [ ] (later; user, 2026-10-25) The ingest workers behind the egress proxy too, if ingest ever runs in production beyond a one-off: a third port with SEC's hosts (`www.sec.gov`, `data.sec.gov`). Until then `ingest` keeps a direct route on `default` and can reach `host.docker.internal` while it runs.
 - [ ] (after go-live; user, 2026-10-20) **Alertmanager:** delivery for the 13 alert rules (step 8), once a channel (email, ntfy, Discord...) and its secret are chosen. Prod then runs the `observability` profile, on ports apart from dev's.
+  - Since the egress proxy the api is no longer on `default`, where the collector sits: put the collector on `data` too, or it can neither probe the api nor receive its telemetry.
 - [ ] (candidates from the mockup, 2026-10-19; user decides; five built in mockup features 1, merged as #17, and the source cards' fiscal year end, merged as #18) What the mockup shows and the app does not have. The mockup style round restyled the existing screens only. Sizes are rough: small is a short web-only change, medium a PR that touches the API or its contracts, large several PRs or new storage. API facts were checked in `contracts/schema.graphql`, `clients/ts/openapi.d.ts` and `packages/db` on 2026-10-19.
   - **History** (every question, how it was read, answered or refused, tabs by kind, search, answer time): large; needs API work. No table holds questions or answers today, so it needs one (expand, migrate, contract), a write per answer, a keyset list route, and a privacy decision, since questions are user text and no log keeps them now.
   - **Company and fiscal-year pickers on Ask** (company chips with "+ Add company", a fiscal-year select): medium; needs API work. The answer request takes only `question` and the router finds companies and years itself, so the pickers need request fields that narrow the router. The company list already comes from GraphQL `companies`.
@@ -228,20 +227,29 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
-- [ ] (user, 2026-10-25) **Mockup features 2**: Ask closer to the approved mockup (`1-ask` in light, dark and phone; read only), with the five candidates the user picked: the number check, "Read as" chips, the live coverage line, sample questions and the mockup's wider layout. Plan approved 2026-10-25 (memory.md, mockup features 2). A report after each PR; the user ships it before the next starts.
+- [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it: built on `egress-proxy` from main at c5282a1 (2026-10-25, uncommitted; plan approved the same day). The internet-facing api and tailscale containers reach the internet only through squid, so they can no longer reach services on the PC's own ports through `host.docker.internal` (deploy.md, Egress proxy).
+  - The user's answers: tailscaled's log upload off; ingest stays on `default` (Pending, the ingest workers); the proxy shares the api's `IMAGE_TAG`; 256 MB; the deploy-order rule in deploy.md's step 23.
+  - [x] Tests first (`infra/tests/test_egress.py`): red (no `squid.conf`, no compose wiring, no image: 6 failed, 2 errors), then green: 3 unit, 5 integration.
+  - [x] `infra/squid/Dockerfile` and `squid.conf`; the prod override (`edge`, `outbound`, `egress`, the proxy, each client's proxy settings); CI's `images` and `publish` matrices with `squid`; Dependabot's `/infra/squid`; pytest's `testpaths` with `infra`.
+  - [x] Checks: `make lint`, `make typecheck` (0 errors), `make actionlint`; `make test` 475, `make test-int` 37; `make image-scan` on the squid image 0; gitleaks: no leaks on the changed paths or in the history. Production untouched (the same containers and networks before and after). No eval input changed.
+  - [ ] (user) ship.
+  - [ ] (user) The rollout, deploy.md steps 30 to 35: `filinglens-squid` public, the checks, ten public requests before and after.
+  - [ ] (user) A day later, step 36: the proxy's memory and denials. Then the numbers go to the activity log, and context.md's Known Limitations lose the "until rolled out" line.
+
+## Completed
+
+- [x] (user, 2026-10-25) **Mockup features 2**, merged as #31 (c5282a1, git log): Ask closer to the approved mockup (`1-ask` in light, dark and phone; read only), with the five candidates the user picked: the number check, "Read as" chips, the live coverage line, sample questions and the mockup's wider layout. Plan approved 2026-10-25 (memory.md, mockup features 2). A report after each PR; the user ships it before the next starts.
   - [x] **PR 0, `ask-sign-in-return`** from main at 1093b9e (bug found while planning, fixed first): a session that ends while asking went to `/login?next=/`, the landing page since #29; now `/login?next=%2Fask` (memory.md, Solved Problems). Test first (`auth.spec.ts`), red, then green. Checks: web typecheck clean, `npm test` 88, build, Playwright 81.
     - [x] (user) Shipped as #30.
-  - [ ] **PRs 1 and 2 together on `mockup-features-2`** from main at b93a8d2 (user: "Build PR 1 and PR 2 together on one branch ... report once at the end"), uncommitted:
+  - [x] **PRs 1 and 2 together on `mockup-features-2`** from main at b93a8d2 (user: "Build PR 1 and PR 2 together on one branch ... report once at the end"), merged as #31:
     - [x] API, expand-only, test first: `Answer.reading`, `Answer.checks` (`validate.figures` through `drafting.check`), GraphQL `totals`; `make codegen` (12 files changed, 6 new client models; a second run changed nothing).
     - [x] Eval: prompt hashes equal the official report's (all five); no metric or key input changed. CI's eval runs because eval inputs changed.
     - [x] Web, test first: the chips, the checks table and "every number checked", the live coverage line (no added API call), the 6 sample questions that only fill the box, the 2/3 split; the demo shows the chips and tables.
     - [x] Snapshot re-export (the user's go): port 5433 free, `filinglens-postgres-1` started by name, `make demo-export`, stopped again (as found). Only `reading`, `checks`, `commit` and `recorded_at` changed; 10 checks (n01 1, c02 2, c12 6, x12 1).
     - [x] Phone fix found by the screenshots' axe check: the checks table's scroll region takes the focus (memory.md, the pitfall), test first.
     - [x] Checks and screenshots: activity-log.md (2026-10-25, mockup features 2).
-    - [ ] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship.
-
-## Completed
-
+    - [x] (user) ship: merged as #31.
+    - [x] (user) The API to the PC: `sha-c5282a1` was running by 2026-10-25 (`docker inspect --format`). Until then the web read the API as offline (memory.md, the deploy-order mistake).
 - [x] (user, 2026-10-25) **Landing page** at `/`, merged as #29 (1093b9e, git log), built on branch `landing-page` from main at 41ac308 (10b merged as #20). From the approved mockup (`4-landing` in light, dark and phone; read only, nothing copied) and the "Landing sections" candidate. The user's decisions: "Open the demo" goes to `/demo`; the fact count stays out (no source); the sample answer is n01; every mockup correction stays; the repo is public (memory.md, the landing page).
   - [x] Routes: `/` is the landing page, public, with no API call and no key in the browser; Ask moved to `/ask`, behind sign-in as before; sign-in's default page is `/ask`; `/demo` stays public.
   - [x] Figures at build time: the results table from `evals/reports/2026-10-17.md`; the date, question count, models, judge kappa, recall's n, the passage count and the reranker's 50 from its JSON; companies, saved answers and n01 from `web/demo/snapshot.json`.

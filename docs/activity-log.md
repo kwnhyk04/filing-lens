@@ -15,6 +15,49 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-25: Egress proxy for production (uncommitted, branch `egress-proxy`)
+
+- Changes, on `egress-proxy` from main at c5282a1 (#31), after a read-only plan the user approved with every recommendation ("Answers, all as you recommend"):
+  - **Proxy:** `infra/squid/Dockerfile`, FreightAudit's recipe: `ubuntu:24.04` by digest and the newest squid from noble-security, the build failing below 6.14-0ubuntu0.24.04.4. And `infra/squid/squid.conf`:
+    - CONNECT to 443 only; non-public destinations refused first; names only (`dstdomain -n`); no cache.
+    - Port 3128 for the api at 10.231.232.2: Anthropic, Gemini, Groq, NVIDIA.
+    - Port 3129 for tailscale at 10.231.232.3: the control plane, the relays by one pattern, Let's Encrypt.
+  - **Compose (prod override):**
+    - networks `edge` (internal), `outbound` (internal, 10.231.232.0/28, dynamic .8/29) and `egress`;
+    - the api on `data`, `edge` and `outbound`, with `HTTPS_PROXY` and `NO_PROXY`;
+    - tailscale on `edge` and `outbound`, with `HTTPS_PROXY` and `TS_TAILSCALED_EXTRA_ARGS=--no-logs-no-support`;
+    - both depend on a healthy `egress-proxy`: hardened, tmpfs only, the conf mounted read-only, 256 MB, image `filinglens-squid:${IMAGE_TAG}`.
+  - **CI:** the `images` and `publish` matrices go by `{image, file, args}` and gain `squid`. Dependabot's docker directories are `/infra` and `/infra/squid`, with ubuntu's minor and major updates ignored.
+  - **Tests:** `infra/tests/test_egress.py`, with `infra` added to pytest's `testpaths`: 3 unit, 5 integration.
+  - **Docs:**
+    - deploy.md: the Egress proxy section, steps 30 to 36, the rollback, step 23's deploy-order rule, Never;
+    - context.md, memory.md, todo.md, README.
+- Small events, in order:
+  1. **Plan (read-only):** FreightAudit's squid files and compose were read at the user's request.
+     - FilingLens's prod api ran `sha-41ac308` (`docker inspect --format`), though #31 had merged, so the web's `totals` query would read the API as offline.
+     - The plan said to deploy `sha-c5282a1` first (memory.md, the mistake). When the branch was created, the api ran `sha-c5282a1`, started 43 s before.
+  2. **Tool:** the Grep tool found nothing inside `.venv`.
+     - Why: uv writes `.venv/.gitignore` with `*`, and ripgrep honours it.
+     - What we did: read the installed SDK sources by path, with `grep` and `sed` in Bash.
+  3. **Gate:** GateGuard refused each file's first write until facts were stated (routine). It hit the plan file, `test_egress.py`, `pyproject.toml`, the Dockerfile, `squid.conf`, the compose file, `ci.yml`, `dependabot.yml`, deploy.md, context.md, README.md, memory.md and todo.md. In two parallel batches only the first edit to a file was refused (context.md, memory.md); it was retried.
+  4. **Caught before a retry:** the first draft of `test_egress.py` started the proxy with a `docker run` missing its hardening, mount, hosts and image. It was fixed before the file was written.
+  5. **Red:** 6 failed, 2 errors, and nothing was created in Docker:
+     - the unit tests found no `squid.conf`;
+     - the compose tests found no `egress`, `outbound` or `egress-proxy`;
+     - the image build found no `infra/squid`.
+  6. **Green, first run:** 7 passed, 1 failed. `docker compose config --no-interpolate --format json` printed the api's environment as `KEY=value` strings and tailscale's as a mapping (memory.md, pitfall). A helper now reads both forms; then 8 passed. No test network or container was left (`docker network ls`, `docker ps -a`).
+  7. **Image:** squid `6.14-0ubuntu0.24.04.4` (`dpkg-query` in the test image), 301 MB.
+- Validation:
+  - `make lint` clean; `make typecheck` 0 errors; `make actionlint` clean.
+  - `make test` 475 passed (37 deselected); `make test-int` 37 passed (3 min 29 s).
+  - `make image-scan IMAGE=filinglens-squid:test`: 0.
+  - gitleaks `dir` on `infra`, `.github`, `docs`, `README.md` and `pyproject.toml`: no leaks. `make secrets-scan`: 45 commits, no leaks.
+  - Production untouched: the same 5 containers and the same networks before and after.
+  - No eval input changed, so CI's eval is skipped.
+- Outstanding:
+  - The user ships, then the rollout (deploy.md, steps 30 to 36): `filinglens-squid` made public, the before and after numbers, the day-after check.
+  - Not measured yet: Funnel's speed over the relays (memory.md, Unresolved Questions).
+
 ### 2026-10-25: Mockup features 2: how a question was read, each number's source, the live coverage line, sample questions, the 2/3 layout (uncommitted, branch `mockup-features-2`)
 
 - Changes, on `mockup-features-2` from main at b93a8d2 (#30), API and web together at the user's request ("Build PR 1 and PR 2 together on one branch"; the user away, "don't wait for me"):

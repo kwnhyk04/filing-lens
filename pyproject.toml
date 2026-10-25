@@ -66,7 +66,7 @@ venv = ".venv"
 addopts = ["--import-mode=importlib", "--strict-markers"]
 # The root holds network_guard.py; tests seed with scripts/seed_fake.py.
 pythonpath = [".", "scripts"]
-testpaths = ["packages", "services", "evals"]
+testpaths = ["packages", "services", "evals", "infra"]
 markers = [
     "unit: no Docker and no network; conftest.py adds it to every test without another marker",
     "integration: needs Docker; starts throwaway containers with Testcontainers",

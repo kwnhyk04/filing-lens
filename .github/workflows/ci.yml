@@ -330,7 +330,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [api, ingest]
+        include:
+          - { image: api, file: infra/Dockerfile, args: PACKAGE=filinglens-api }
+          - { image: ingest, file: infra/Dockerfile, args: PACKAGE=filinglens-ingest }
+          # Production's egress proxy; its build fails on a squid older than the minimum it names.
+          - { image: squid, file: infra/squid/Dockerfile }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -342,12 +346,12 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: infra/Dockerfile
-          build-args: PACKAGE=filinglens-${{ matrix.package }}
-          tags: filinglens-${{ matrix.package }}:ci
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.args }}
+          tags: filinglens-${{ matrix.image }}:ci
           load: true
-          cache-from: type=gha,scope=${{ matrix.package }}
-          cache-to: type=gha,scope=${{ matrix.package }},mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
       - id: day
         run: echo "today=$(date -u +%F)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -355,7 +359,7 @@ jobs:
           path: .cache/trivy
           key: trivy-${{ steps.day.outputs.today }}
           restore-keys: trivy-
-      - run: make image-scan IMAGE=filinglens-${{ matrix.package }}:ci
+      - run: make image-scan IMAGE=filinglens-${{ matrix.image }}:ci
 
   # Runs only on main, after migrations and every check; the build reuses the scanned layers.
   publish:
@@ -368,7 +372,10 @@ jobs:
       packages: write
     strategy:
       matrix:
-        package: [api, ingest]
+        include:
+          - { image: api, file: infra/Dockerfile, args: PACKAGE=filinglens-api }
+          - { image: ingest, file: infra/Dockerfile, args: PACKAGE=filinglens-ingest }
+          - { image: squid, file: infra/squid/Dockerfile }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -384,14 +391,14 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: infra/Dockerfile
-          build-args: PACKAGE=filinglens-${{ matrix.package }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.args }}
           push: true
           provenance: mode=max
           tags: |
-            ghcr.io/${{ github.repository_owner }}/filinglens-${{ matrix.package }}:sha-${{ steps.tag.outputs.short }}
-            ghcr.io/${{ github.repository_owner }}/filinglens-${{ matrix.package }}:latest
-          cache-from: type=gha,scope=${{ matrix.package }}
+            ghcr.io/${{ github.repository_owner }}/filinglens-${{ matrix.image }}:sha-${{ steps.tag.outputs.short }}
+            ghcr.io/${{ github.repository_owner }}/filinglens-${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
 
   ci-ok:
     if: always()

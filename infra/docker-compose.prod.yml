@@ -7,12 +7,20 @@
 # Funnel (infra/tailscale/serve.json). Models and keys come from .env.prod (Claude first).
 name: filinglens-prod
 
-# The data stores sit on `data`, which has no route out. The api and the ingest worker join
-# `default` too, for the model providers and SEC; the tailscale container joins `default` only.
-# No egress proxy yet: a container on `default` can reach the PC's own listeners at
-# host.docker.internal (docs/context.md, Known Limitations).
+# The data stores sit on `data`, which has no route out, and `edge` joins the api to the tailscale
+# container alone. Those two reach the internet only through egress-proxy on `outbound`: Docker
+# Desktop lets any container on a routed network reach the PC's own listeners at
+# host.docker.internal, so only the proxy sits on `egress`. The ingest worker keeps `default` for
+# SEC (todo.md).
 networks:
   data: { internal: true }
+  edge: { internal: true }
+  # Fixed addresses for the proxy's two clients (infra/squid/squid.conf ties each port to one);
+  # other containers get .8 to .15.
+  outbound:
+    internal: true
+    ipam: { config: [{ subnet: 10.231.232.0/28, ip_range: 10.231.232.8/29 }] }
+  egress: {}
 
 volumes:
   # The node's login and certificate. External, so no `down -v` can delete it (a new login needs
@@ -27,7 +35,7 @@ x-kept: &kept
     driver: json-file
     options: { max-size: 10m, max-file: "3" }
 
-# The api and the tailscale container write only to /tmp and need no capability.
+# The api, the tailscale container and the egress proxy write only to tmpfs and need no capability.
 x-hardened: &hardened
   read_only: true
   tmpfs: [/tmp]
@@ -65,7 +73,16 @@ services:
       # corpus-v1 sits at revision 0008 with model A in `embedding`; the code's default
       # (embedding_v2) would fail every search.
       RETRIEVAL_EMBEDDING_COLUMN: ${RETRIEVAL_EMBEDDING_COLUMN:?set RETRIEVAL_EMBEDDING_COLUMN in .env.prod; see docs/deploy.md}
-    networks: [data, default]
+      # Model calls go through egress-proxy, which allows only the providers' API hosts; every
+      # internal service stays direct.
+      HTTPS_PROXY: http://egress-proxy:3128
+      NO_PROXY: postgres,redis,rabbitmq,otel-collector,localhost,127.0.0.1,::1
+    networks:
+      data: {}
+      edge: {}
+      outbound: { ipv4_address: 10.231.232.2 }
+    depends_on:
+      egress-proxy: { condition: service_healthy }
     # torch, the query embedder and the reranker run in process.
     deploy: { resources: { limits: { memory: 1536M } } }
 
@@ -124,11 +141,20 @@ services:
       TS_SERVE_CONFIG: /config/serve.json
       TS_ENABLE_HEALTH_CHECK: "true"
       TS_LOCAL_ADDR_PORT: 127.0.0.1:9002
+      # Control, relays and the certificate go through egress-proxy's tailscale port. With no UDP
+      # route out, traffic, Funnel's included, rides Tailscale's relays. No log upload, so the
+      # proxy need not allow Tailscale's log server.
+      HTTPS_PROXY: http://egress-proxy:3129
+      TS_TAILSCALED_EXTRA_ARGS: --no-logs-no-support
     volumes:
       - tailscale-state:/var/lib/tailscale
       - ./tailscale:/config:ro
+    networks:
+      edge: {}
+      outbound: { ipv4_address: 10.231.232.3 }
     depends_on:
       api: { condition: service_healthy }
+      egress-proxy: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9002/healthz"]
       interval: 10s
@@ -136,3 +162,21 @@ services:
       retries: 30
       start_period: 10s
     deploy: { resources: { limits: { memory: 128M } } }
+
+  # The only container with a route out (infra/squid/squid.conf): HTTPS CONNECT on 443, a port and
+  # an allowlist per client, and no destination in a private range. It publishes no port.
+  egress-proxy:
+    <<: [*kept, *hardened]
+    # CI's image of the deployed main commit, like the api's (infra/squid/Dockerfile).
+    image: ghcr.io/kwnhyk04/filinglens-squid:${IMAGE_TAG:?set IMAGE_TAG in .env.prod; see docs/deploy.md}
+    tmpfs: [/tmp, /var/spool/squid, /var/log/squid, /run]
+    volumes: ["./squid/squid.conf:/etc/squid/squid.conf:ro"]
+    networks: [outbound, egress]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/3128 && echo > /dev/tcp/127.0.0.1/3129"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # FreightAudit's proxy used 121 of its 128 MB after four hours (docs/memory.md).
+    deploy: { resources: { limits: { memory: 256M } } }
