@@ -10,6 +10,7 @@ from .company import Company
 from .company_page import CompanyPage
 from .failure_page import FailurePage
 from .field_error import FieldError
+from .figure_check import FigureCheck
 from .filing import Filing
 from .filing_counts import FilingCounts
 from .filing_failure import FilingFailure
@@ -24,6 +25,10 @@ from .ingest_job_accepted import IngestJobAccepted
 from .ingest_job_request import IngestJobRequest
 from .ingest_job_status import IngestJobStatus
 from .problem import Problem
+from .read_company import ReadCompany
+from .reading import Reading
+from .reading_fiscal_period_type_0 import ReadingFiscalPeriodType0
+from .reading_route import ReadingRoute
 from .search_hit import SearchHit
 from .search_page import SearchPage
 from .usage import Usage
@@ -39,6 +44,7 @@ __all__ = (
     "CompanyPage",
     "FailurePage",
     "FieldError",
+    "FigureCheck",
     "Filing",
     "FilingCounts",
     "FilingFailure",
@@ -53,6 +59,10 @@ __all__ = (
     "IngestJobRequest",
     "IngestJobStatus",
     "Problem",
+    "ReadCompany",
+    "Reading",
+    "ReadingFiscalPeriodType0",
+    "ReadingRoute",
     "SearchHit",
     "SearchPage",
     "Usage",

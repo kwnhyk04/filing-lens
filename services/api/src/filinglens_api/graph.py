@@ -135,6 +135,39 @@ class Citation:
 
 
 @strawberry.type
+class ReadCompany:
+    ticker: str
+    name: str
+
+
+@strawberry.type(description="How the router read the question; the answer used this reading.")
+class Reading:
+    route: str = strawberry.field(description="numeric, textual, comparison or out_of_scope.")
+    companies: list[ReadCompany]
+    other_companies: list[str] = strawberry.field(
+        description="Companies the question names that FilingLens does not track."
+    )
+    fiscal_years: list[int]
+    fiscal_period: str | None = strawberry.field(description="FY, or Q1 to Q4.")
+    metric: str | None = strawberry.field(description="The figure asked for, such as revenue.")
+
+
+@strawberry.type(description="An amount in the answer and the cited source that holds it.")
+class FigureCheck:
+    text: str = strawberry.field(description="The amount as the answer writes it.")
+    citation: int = strawberry.field(description="The citation whose source holds it, from 1.")
+    source_value: str = strawberry.field(
+        description="The number it matched: the fact's value, or the number as quoted."
+    )
+
+
+@strawberry.type(description="Companies with an indexed filing, and indexed filings.")
+class Totals:
+    companies: int
+    filings: int
+
+
+@strawberry.type
 class Answer:
     answer: str
     citations: list[Citation]
@@ -148,9 +181,16 @@ class Answer:
     warnings: list[str] = strawberry.field(
         description="Validation notes, such as sentences removed because a check failed."
     )
+    reading: Reading | None = strawberry.field(
+        description="How the router read the question; null if it was not read."
+    )
+    checks: list[FigureCheck] = strawberry.field(
+        description="Each amount in the answer with the cited source that holds it."
+    )
 
     @classmethod
     def of(cls, answer: schemas.Answer) -> "Answer":
+        reading = answer.reading
         return cls(
             answer=answer.answer,
             citations=[Citation(**citation.model_dump()) for citation in answer.citations],
@@ -158,6 +198,13 @@ class Answer:
             usage=Usage(**answer.usage.model_dump()),
             refused=answer.refused,
             warnings=answer.warnings,
+            reading=None
+            if reading is None
+            else Reading(
+                **reading.model_dump(exclude={"companies"}),
+                companies=[ReadCompany(**c.model_dump()) for c in reading.companies],
+            ),
+            checks=[FigureCheck(**check.model_dump()) for check in answer.checks],
         )
 
 
@@ -365,6 +412,11 @@ class Query:
     ) -> list[FinancialFact]:
         found = await _backend(info).get_facts(_ids(ids)) if ids else []
         return [FinancialFact.of(s.fact, s.company.cik, s.company) for s in found]
+
+    @strawberry.field(description="Companies with an indexed filing, and indexed filings.")
+    async def totals(self, info: strawberry.Info) -> Totals:
+        companies, filings = await _backend(info).totals()
+        return Totals(companies=companies, filings=filings)
 
     @strawberry.field(description="Answer a question from the filings, with citations.")
     async def answer(

@@ -247,3 +247,45 @@ def check_sentence(
             shown = f"{amount.normalize():,f}{'%' if percent else ''}"
             return f"the amount {shown} is not in the sources it cites"
     return None
+
+
+@dataclass(frozen=True)
+class Figure:
+    """An amount of a sentence that holds, as written, with the cited source whose number it is."""
+
+    text: str  # as the sentence writes it, such as "$416.2 billion" or "56%"
+    alias: str  # the source id that holds it, such as F1 or C2
+    number: Decimal  # that source's number: a fact's value, or a number in a quote of it
+
+
+def figures(
+    sentence: str, quotes: Mapping[str, Sequence[str]], sources: Mapping[str, Source]
+) -> list[Figure]:
+    """Each amount of a sentence that check_sentence passed, with the first cited source holding it.
+
+    The evidence and the match are check_sentence's (a fact's value, or the numbers of a chunk's
+    passing quotes, matched by supported); an amount that no cited source holds is left out.
+    """
+    chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
+    evidence: list[tuple[str, Decimal]] = []
+    for alias in cited(sentence):
+        source = sources.get(alias)
+        if source is None:
+            continue
+        if source.value is not None:
+            evidence.append((alias, source.value))
+            continue
+        for quote in quotes.get(alias, []):
+            if citation_error(Quoted(source.chunk_id, None, quote), chunks, ()) is None:
+                evidence += [(alias, number) for number in numbers_in(quote)]
+    found: list[Figure] = []
+    for match in AMOUNT_IN_TEXT.finditer(MARKER.sub("", sentence)):
+        percent = match["percent"] is not None
+        try:
+            amount = Decimal(match["percent"]) if percent else parse_amount(match[0])
+        except ValueError:
+            continue
+        holder = next(((a, n) for a, n in evidence if supported(amount, percent, [n])), None)
+        if holder is not None:
+            found.append(Figure(match[0], *holder))
+    return found

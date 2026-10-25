@@ -73,6 +73,12 @@ async function stream(res: ServerResponse, question: string) {
   res.end();
 }
 
+// The API's totals, counted from the snapshot: its companies, and the filings each lists.
+const TOTALS = {
+  companies: snapshot.companies.length,
+  filings: snapshot.companies.reduce((sum, company) => sum + company.filings.edges.length, 0),
+};
+
 function graphql(res: ServerResponse, body: Record<string, unknown>) {
   const operation = /query\s+(\w+)/.exec(String(body.query))?.[1];
   const variables = (body.variables ?? {}) as Record<string, unknown>;
@@ -82,6 +88,7 @@ function graphql(res: ServerResponse, body: Record<string, unknown>) {
     const error = { message: "Too many requests.", extensions: { code: "rate_limited" } };
     return send(res, 200, { data: null, errors: [error] });
   }
+  if (operation === "Totals") return send(res, 200, { data: { totals: TOTALS } });
   if (operation === "Companies" || operation === "Coverage") {
     const start = variables.after ? Number(Buffer.from(String(variables.after), "base64url").toString()) : 0;
     if (!Number.isInteger(start) || start < 0 || start > snapshot.companies.length) {
@@ -92,7 +99,7 @@ function graphql(res: ServerResponse, body: Record<string, unknown>) {
     const end = start + page.length;
     const edges = page.map((node, i) => ({ cursor: cursor(start + i + 1), node }));
     const pageInfo = { hasNextPage: end < snapshot.companies.length, endCursor: page.length ? cursor(end) : null };
-    return send(res, 200, { data: { companies: { edges, pageInfo } } });
+    return send(res, 200, { data: { totals: TOTALS, companies: { edges, pageInfo } } });
   }
   if (operation === "Sources") {
     const pick = <T extends { id: string }>(items: T[], ids: unknown) =>

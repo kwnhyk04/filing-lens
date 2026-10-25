@@ -205,6 +205,14 @@ def test_answer_cites_a_fact_or_a_chunk(user: AuthenticatedClient) -> None:
     assert isinstance(answer, Answer)
     assert [(c.fact_id, c.chunk_id) for c in answer.citations] == [("f-1", None), (None, "c-1")]
     assert (answer.degraded, answer.usage.input_tokens, answer.usage.cost_usd) == (False, 1200, 0)
+    assert answer.reading is not None
+    assert (answer.reading.route, [c.name for c in answer.reading.companies]) == (
+        "numeric",
+        ["Apple Inc."],
+    )
+    assert [(c.text, c.citation, c.source_value) for c in answer.checks] == [
+        ("$100.0 billion", 1, "100,000,000,000")
+    ]
 
 
 def test_streamed_answer_ends_with_the_whole_answer(user: AuthenticatedClient) -> None:
@@ -461,6 +469,21 @@ def test_graphql_operations_through_the_generated_client(graphql: GraphqlClient)
 
     answer = graphql.answer(question="What was revenue in fiscal 2025?").answer
     assert [(c.fact_id, c.chunk_id) for c in answer.citations] == [("f-1", None), (None, "c-1")]
+    assert answer.reading is not None
+    assert (answer.reading.route, answer.reading.fiscal_years, answer.reading.metric) == (
+        "numeric",
+        [2025],
+        "revenue",
+    )
+    assert [(c.text, c.citation, c.source_value) for c in answer.checks] == [
+        ("$100.0 billion", 1, "100,000,000,000")
+    ]
+
+    # Companies with an indexed filing, and indexed filings: NVDA has none, so 2 and 3.
+    totals = graphql.totals().totals
+    assert (totals.companies, totals.filings) == (2, 3)
+    coverage = graphql.coverage(first=1).totals
+    assert (coverage.companies, coverage.filings) == (2, 3)
 
 
 def test_graphql_errors_carry_a_code_and_hide_unexpected_details(

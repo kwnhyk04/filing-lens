@@ -68,3 +68,11 @@ def test_a_sentence_with_an_unsupported_number_is_removed_and_markers_renumbered
     assert checked.citations == [("C1", "Services net sales increased due to higher advertising")]
     assert checked.removed == 1
     assert "461,200,000,000" in checked.problems[0]
+    assert checked.figures == []  # the dropped sentence's amount is not listed
+
+
+def test_each_amount_a_kept_sentence_states_comes_with_the_source_that_holds_it() -> None:
+    checked = check(read_reply(REPLY), SOURCES)
+    assert [(f.text, f.alias, f.number) for f in checked.figures] == [
+        ("$416.2 billion", "F1", Decimal(416_161_000_000))
+    ]

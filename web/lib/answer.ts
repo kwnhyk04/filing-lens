@@ -1,10 +1,91 @@
 // Answer display helpers, safe in the browser: SSE framing, quote highlighting, citation markers, the
-// timing line and the copied text.
+// timing line, the copied text, the router's reading and the number checks.
 import type { components } from "../../clients/ts/index.ts";
+import type { Sources } from "./demo.ts";
 
 type Schemas = components["schemas"];
 export type Answer = Schemas["Answer"];
 export type AnswerEvent = Schemas["AnswerDelta"] | Schemas["AnswerCompleted"] | Schemas["AnswerFailed"];
+export type Reading = Schemas["Reading"];
+type Citation = Answer["citations"][number];
+
+/** The chunk or the fact a citation names, once the sources have loaded. */
+export function findSource(citation: Citation, sources?: Sources) {
+  return {
+    chunk: citation.chunk_id ? sources?.chunks.find((chunk) => chunk.id === citation.chunk_id) : undefined,
+    fact: citation.fact_id ? sources?.facts.find((fact) => fact.id === citation.fact_id) : undefined,
+  };
+}
+
+/** "NVDA 10-K FY2026, Item 1A", or undefined until the sources load. */
+export function sourceLabel(citation: Citation, sources?: Sources): string | undefined {
+  const { chunk, fact } = findSource(citation, sources);
+  if (chunk) {
+    const { company, formType, fiscalYear } = chunk.filing;
+    return `${company.ticker} ${formLabel(formType)} FY${fiscalYear}, Item ${chunk.section.item}`;
+  }
+  // A fact's fiscal year is its reporting filing's, so the period end names the value's own date.
+  if (fact) return `${fact.company.ticker} fact, ${fact.label}, period ending ${fact.periodEnd}`;
+}
+
+const KINDS: Record<Reading["route"], string> = {
+  numeric: "Number question",
+  comparison: "Comparison",
+  textual: "Text question",
+  out_of_scope: "Out of scope",
+};
+// Figures whose key in words reads wrong; any other key reads as its words.
+const FIGURES: Record<string, string> = {
+  eps_diluted: "Diluted EPS",
+  eps_basic: "Basic EPS",
+  stockholders_equity: "Stockholders' equity",
+  long_term_debt: "Long-term debt",
+};
+
+const listed = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
+/** How the router read a question: its kind, the companies, the years, a quarter and the figure. */
+export function readingChips(reading: Reading): string[] {
+  const chips = [KINDS[reading.route], ...reading.companies.map((company) => company.name), ...reading.other_companies];
+  const years = [...reading.fiscal_years].sort((a, b) => a - b).map(String);
+  if (years.length) chips.push(`Fiscal ${listed(years)}`);
+  if (reading.fiscal_period && reading.fiscal_period !== "FY") chips.push(reading.fiscal_period);
+  if (reading.metric) {
+    const words = reading.metric.replaceAll("_", " ");
+    chips.push(FIGURES[reading.metric] ?? words[0].toUpperCase() + words.slice(1));
+  }
+  return chips;
+}
+
+const number = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 10 });
+
+export interface FigureRow {
+  figure: string;
+  written: string;
+  reported: string;
+}
+
+/** Each checked amount: what it is, as the answer writes it, and as its source reports it. */
+export function figureRows(answer: Answer, sources?: Sources): FigureRow[] {
+  return answer.checks.map((check) => {
+    const citation = answer.citations[check.citation - 1];
+    const { chunk, fact } = findSource(citation, sources);
+    if (fact) {
+      const figure = `${fact.label}, period ending ${fact.periodEnd}`;
+      return { figure, written: check.text, reported: `${number(fact.value)} ${fact.unit}` };
+    }
+    if (chunk) {
+      return { figure: sourceLabel(citation, sources) ?? "", written: check.text, reported: `${check.source_value}, as quoted` };
+    }
+    return { figure: `Source ${check.citation}`, written: check.text, reported: check.source_value };
+  });
+}
+
+/** "against XBRL data" when every checked amount cites a fact, else "against their sources". */
+export function checksTitle(answer: Answer): string {
+  const facts = answer.checks.every((check) => answer.citations[check.citation - 1]?.fact_id);
+  return `Numbers checked against ${facts ? "XBRL data" : "their sources"}`;
+}
 
 /** Feeds text as it arrives; calls `onData` with each event's data, skipping `: ping` comments. */
 export function createSseParser(onData: (data: string) => void): (chunk: string) => void {
@@ -74,11 +155,12 @@ export const splitFigures = (text: string): string[] => text.split(FIGURE);
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
-/** "First words in 0.9 s · complete in 2.6 s · 2 sources", as the browser timed the stream. */
-export function timingLine(firstWordsMs: number | undefined, completeMs: number, sources: number): string {
+/** "First words in 0.9 s · complete in 2.6 s · 2 sources · every number checked", as the browser timed the stream. */
+export function timingLine(firstWordsMs: number | undefined, completeMs: number, sources: number, checked = false): string {
   const parts = [`complete in ${seconds(completeMs)}`];
   if (firstWordsMs !== undefined) parts.unshift(`First words in ${seconds(firstWordsMs)}`);
   if (sources) parts.push(`${sources} source${sources === 1 ? "" : "s"}`);
+  if (checked) parts.push("every number checked");
   const line = parts.join(" · ");
   return line[0].toUpperCase() + line.slice(1);
 }

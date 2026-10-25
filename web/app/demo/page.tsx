@@ -1,4 +1,4 @@
-import { AnswerView } from "../../components/answer-view.tsx";
+import { AnswerView, ReadAs } from "../../components/answer-view.tsx";
 import { DemoBanner, DemoHeader } from "../../components/chrome.tsx";
 import { QuoteInView } from "../../components/quote-in-view.tsx";
 import { demo } from "../../lib/demo.ts";
@@ -26,6 +26,7 @@ export default async function DemoPage({ searchParams }: Props) {
         {demo.answers.map((item) => (
           <section key={item.id} id={`q-${item.id}`} aria-labelledby={`q-${item.id}-title`} className="saved">
             <h2 id={`q-${item.id}-title`}>{item.question}</h2>
+            <ReadAs reading={item.answer.reading} />
             <AnswerView answer={item.answer} sources={demo.sources} prefix={`${item.id}-`} />
           </section>
         ))}

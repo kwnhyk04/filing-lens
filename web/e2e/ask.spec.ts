@@ -73,7 +73,9 @@ test("a refusal says it is not answered, with its reason and no sources", async 
 
 test("the answer's header says when its first words came, when it was complete, and how many sources it has", async ({ page }) => {
   await ask(page, question("c12"));
-  await expect(page.getByTestId("timings")).toHaveText(/^First words in \d+\.\d s · complete in \d+\.\d s · 4 sources$/);
+  await expect(page.getByTestId("timings")).toHaveText(
+    /^First words in \d+\.\d s · complete in \d+\.\d s · 4 sources · every number checked$/,
+  );
 });
 
 test("Copy answer with sources puts the answer on the clipboard, then each source's name, quote and link", async ({ page, context }) => {

@@ -24,7 +24,15 @@ from redis.asyncio import Redis
 
 from filinglens_api import limits
 from filinglens_api.answering import Answerer, Evidence, Models
-from filinglens_api.schemas import Answer, AnswerCompleted, AnswerDelta, AnswerRequest
+from filinglens_api.schemas import (
+    Answer,
+    AnswerCompleted,
+    AnswerDelta,
+    AnswerRequest,
+    FigureCheck,
+    ReadCompany,
+    Reading,
+)
 from filinglens_core.errors import AiUnavailableError, OverloadedError, UpstreamError
 from filinglens_llm import budget
 from filinglens_llm.providers import (
@@ -281,6 +289,38 @@ async def test_a_numeric_question_is_answered_from_the_xbrl_fact(mocked: respx.M
     assert "416" in answer.answer and answer.answer == streamed
 
 
+async def test_an_answer_says_how_it_read_the_question_and_which_source_holds_each_amount(
+    mocked: respx.MockRouter,
+) -> None:
+    replay(mocked, fixture("numeric")["exchanges"])
+    answer, _, _ = await run("numeric")  # "... was $416.161 billion [F1]." against 4.1616100E+11
+    assert answer.reading == Reading(
+        route="numeric",
+        companies=[ReadCompany(ticker="AAPL", name="Apple Inc.")],
+        other_companies=[],
+        fiscal_years=[2025],
+        fiscal_period="FY",
+        metric="revenue",
+    )
+    assert answer.checks == [
+        FigureCheck(text="$416.161 billion", citation=1, source_value="416,161,000,000")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "route", "years"),
+    [("out_of_scope", "out_of_scope", []), ("time_trap", "numeric", [2027])],
+)
+async def test_a_refusal_keeps_its_reading_and_checks_no_amount(
+    mocked: respx.MockRouter, name: str, route: str, years: list[int]
+) -> None:
+    replay(mocked, fixture(name)["exchanges"])
+    answer, _, _ = await run(name)
+    assert answer.refused and answer.checks == []
+    assert answer.reading is not None
+    assert (answer.reading.route, answer.reading.fiscal_years) == (route, years)
+
+
 async def test_a_textual_answer_quotes_the_chunks_it_cites(mocked: respx.MockRouter) -> None:
     replay(mocked, textual_exchanges())
     answer, streamed, stats = await run("textual")
@@ -379,6 +419,7 @@ async def test_a_sentence_with_an_unsupported_number_is_removed_after_one_regene
     answer, _, _ = await run("textual")
     assert regenerate.call_count == 1
     assert "999.9" not in answer.answer and answer.citations
+    assert all("999.9" not in check.text for check in answer.checks)
     assert answer.warnings == [
         "The draft failed validation, so the answer was written again.",
         "Removed 1 sentence(s) whose citations or amounts did not check out.",

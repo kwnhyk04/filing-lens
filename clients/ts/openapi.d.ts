@@ -225,6 +225,13 @@ export interface components {
              * @description Validation notes, such as sentences removed because a citation or an amount did not check out. A streamed answer with warnings replaces the draft its deltas carried.
              */
             warnings: string[];
+            /** @description How the router read the question; null if it was not read. */
+            reading: components["schemas"]["Reading"] | null;
+            /**
+             * Checks
+             * @description Each amount in the answer with the cited source that holds it. Validation removes a sentence with an amount no cited source holds, so every listed amount matched.
+             */
+            checks: components["schemas"]["FigureCheck"][];
         };
         /** AnswerCompleted */
         AnswerCompleted: {
@@ -324,6 +331,27 @@ export interface components {
              * @description JSON Pointer to the invalid input, such as /query/limit.
              */
             pointer: string;
+        };
+        /**
+         * FigureCheck
+         * @description An amount in the answer and the cited source that holds it.
+         */
+        FigureCheck: {
+            /**
+             * Text
+             * @description The amount as the answer writes it.
+             */
+            text: string;
+            /**
+             * Citation
+             * @description The citation whose source holds it, from 1.
+             */
+            citation: number;
+            /**
+             * Source Value
+             * @description The number it matched: the fact's value, or the number as the quote has it.
+             */
+            source_value: string;
         };
         /** Filing */
         Filing: {
@@ -509,6 +537,43 @@ export interface components {
              * @default null
              */
             errors: components["schemas"]["FieldError"][] | null;
+        };
+        /** ReadCompany */
+        ReadCompany: {
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * Reading
+         * @description How the router read the question; the answer used this reading.
+         */
+        Reading: {
+            /**
+             * Route
+             * @enum {string}
+             */
+            route: "numeric" | "textual" | "comparison" | "out_of_scope";
+            /**
+             * Companies
+             * @description Tracked companies the question names.
+             */
+            companies: components["schemas"]["ReadCompany"][];
+            /**
+             * Other Companies
+             * @description Companies the question names that FilingLens does not track.
+             */
+            other_companies: string[];
+            /** Fiscal Years */
+            fiscal_years: number[];
+            /** Fiscal Period */
+            fiscal_period: ("FY" | "Q1" | "Q2" | "Q3" | "Q4") | null;
+            /**
+             * Metric
+             * @description The figure asked for, such as revenue; null if none.
+             */
+            metric: string | null;
         };
         /** SearchHit */
         SearchHit: {

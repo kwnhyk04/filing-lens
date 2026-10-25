@@ -37,6 +37,9 @@ from filinglens_api.schemas import (
     AnswerDelta,
     AnswerRequest,
     Citation,
+    FigureCheck,
+    ReadCompany,
+    Reading,
     Usage,
 )
 from filinglens_core.errors import (
@@ -229,6 +232,7 @@ class Answerer:
                         yield event
             if outcome is None:  # _answer always completes; this keeps the type checker sure
                 raise UpstreamError("The answer ended without a result.")
+            outcome = outcome.model_copy(update={"reading": reading_of(routing, companies)})
             if outcome.refused:
                 yield AnswerDelta(text=outcome.answer)
             yield AnswerCompleted(answer=outcome)
@@ -434,6 +438,7 @@ class Answerer:
             )
             for alias, quote in checked.citations
         ]
+        number = {alias: n for n, (alias, _) in enumerate(checked.citations, 1)}
         answer = Answer(
             answer=checked.text,
             citations=citations,
@@ -441,6 +446,12 @@ class Answerer:
             usage=_usage(run),
             refused=False,
             warnings=warnings,
+            checks=[
+                FigureCheck(
+                    text=f.text, citation=number[f.alias], source_value=f"{f.number.normalize():,f}"
+                )
+                for f in checked.figures
+            ],
         )
         yield AnswerCompleted(answer=answer)
 
@@ -595,6 +606,19 @@ def _final(exc: FilingLensError) -> FilingLensError:
 def _usage(run: _Run) -> Usage:
     return Usage(
         input_tokens=run.input_tokens, output_tokens=run.output_tokens, cost_usd=run.cost_usd
+    )
+
+
+def reading_of(routing: router.Routing, companies: Mapping[str, str]) -> Reading:
+    """The router's reading as the answer reports it, each tracked ticker with its name; the demo
+    export reads its saved answers' routing the same way."""
+    return Reading(
+        route=routing.route,
+        companies=[ReadCompany(ticker=t, name=companies.get(t, t)) for t in routing.tickers],
+        other_companies=routing.other_companies,
+        fiscal_years=routing.fiscal_years,
+        fiscal_period=routing.fiscal_period,
+        metric=routing.metric,
     )
 
 

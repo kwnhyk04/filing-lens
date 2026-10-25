@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { ConfigError, LiveHeader } from "../../components/chrome.tsx";
 import { CoverageTable } from "../../components/coverage-table.tsx";
+import { coverageLine } from "../../lib/coverage.ts";
 import { coveragePage, requireSession } from "../../lib/server.ts";
 
 export const metadata = { title: "Coverage" };
@@ -28,9 +29,10 @@ export default async function CoveragePage({ searchParams }: Props) {
     throw new Error(`Coverage failed: ${failure.code}`);
   }
   const { edges, pageInfo } = page.data.companies;
+  const { companies, filings } = page.data.totals;
   return (
     <>
-      <LiveHeader page="coverage" />
+      <LiveHeader page="coverage" line={coverageLine(companies, filings)} />
       <main id="main">
         <h1>Coverage</h1>
         <CoverageTable

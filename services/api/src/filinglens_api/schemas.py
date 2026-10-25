@@ -191,6 +191,34 @@ class Usage(Schema):
     cost_usd: float = Field(ge=0, description="Estimated provider cost; 0 on free tiers.")
 
 
+class ReadCompany(Schema):
+    ticker: str
+    name: str
+
+
+class Reading(Schema):
+    """How the router read the question; the answer used this reading."""
+
+    route: Literal["numeric", "textual", "comparison", "out_of_scope"]
+    companies: list[ReadCompany] = Field(description="Tracked companies the question names.")
+    other_companies: list[str] = Field(
+        description="Companies the question names that FilingLens does not track."
+    )
+    fiscal_years: list[int]
+    fiscal_period: Literal["FY", "Q1", "Q2", "Q3", "Q4"] | None
+    metric: str | None = Field(description="The figure asked for, such as revenue; null if none.")
+
+
+class FigureCheck(Schema):
+    """An amount in the answer and the cited source that holds it."""
+
+    text: str = Field(description="The amount as the answer writes it.")
+    citation: int = Field(ge=1, description="The citation whose source holds it, from 1.")
+    source_value: str = Field(
+        description="The number it matched: the fact's value, or the number as the quote has it."
+    )
+
+
 class Answer(Schema):
     answer: str
     citations: list[Citation]
@@ -208,6 +236,16 @@ class Answer(Schema):
         description=(
             "Validation notes, such as sentences removed because a citation or an amount did not"
             " check out. A streamed answer with warnings replaces the draft its deltas carried."
+        ),
+    )
+    reading: Reading | None = Field(
+        default=None, description="How the router read the question; null if it was not read."
+    )
+    checks: list[FigureCheck] = Field(
+        default_factory=list[FigureCheck],
+        description=(
+            "Each amount in the answer with the cited source that holds it. Validation removes a"
+            " sentence with an amount no cited source holds, so every listed amount matched."
         ),
     )
 

@@ -11,6 +11,12 @@ type Answer {
 
   """Validation notes, such as sentences removed because a check failed."""
   warnings: [String!]!
+
+  """How the router read the question; null if it was not read."""
+  reading: Reading
+
+  """Each amount in the answer with the cited source that holds it."""
+  checks: [FigureCheck!]!
 }
 
 type Chunk {
@@ -89,6 +95,18 @@ type CompanyEdge {
 
 """Date (isoformat)"""
 scalar Date
+
+"""An amount in the answer and the cited source that holds it."""
+type FigureCheck {
+  """The amount as the answer writes it."""
+  text: String!
+
+  """The citation whose source holds it, from 1."""
+  citation: Int!
+
+  """The number it matched: the fact's value, or the number as quoted."""
+  sourceValue: String!
+}
 
 type Filing {
   accessionNumber: String!
@@ -244,6 +262,9 @@ type Query {
     ids: [ID!]!
   ): [FinancialFact!]!
 
+  """Companies with an indexed filing, and indexed filings."""
+  totals: Totals!
+
   """Answer a question from the filings, with citations."""
   answer(
     question: String!
@@ -252,6 +273,28 @@ type Query {
     companyIds: [Int!] = null
     fiscalYears: [Int!] = null
   ): Answer!
+}
+
+type ReadCompany {
+  ticker: String!
+  name: String!
+}
+
+"""How the router read the question; the answer used this reading."""
+type Reading {
+  """numeric, textual, comparison or out_of_scope."""
+  route: String!
+  companies: [ReadCompany!]!
+
+  """Companies the question names that FilingLens does not track."""
+  otherCompanies: [String!]!
+  fiscalYears: [Int!]!
+
+  """FY, or Q1 to Q4."""
+  fiscalPeriod: String
+
+  """The figure asked for, such as revenue."""
+  metric: String
 }
 
 type Section {
@@ -267,6 +310,12 @@ type Section {
     """endCursor from the previous page."""
     after: String = null
   ): ChunkConnection!
+}
+
+"""Companies with an indexed filing, and indexed filings."""
+type Totals {
+  companies: Int!
+  filings: Int!
 }
 
 type Usage {

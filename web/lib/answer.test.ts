@@ -4,15 +4,20 @@ import { test } from "node:test";
 
 import {
   answerWithSources,
+  checksTitle,
   createSseParser,
+  figureRows,
   formLabel,
   locateQuote,
   periodEnded,
+  readingChips,
   splitFigures,
   splitMarkers,
   timingLine,
   type Answer,
+  type Reading,
 } from "./answer.ts";
+import type { Sources } from "./demo.ts";
 
 function parse(chunks: string[]): string[] {
   const data: string[] = [];
@@ -105,6 +110,8 @@ const CITED: Answer = {
   refused: false,
   usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0 },
   warnings: [],
+  reading: null,
+  checks: [],
 };
 
 test("copied text: the answer with its markers, then each source's name, quote and link", () => {
@@ -122,4 +129,68 @@ test("copied text: the answer with its markers, then each source's name, quote a
 
 test("copied text: a source whose card has not loaded keeps its quote and link", () => {
   assert.equal(answerWithSources(CITED, []).split("\n").at(-1), '[2] "5%" https://www.sec.gov/b');
+});
+
+const read = (reading: Partial<Reading>): Reading => ({
+  route: "numeric",
+  companies: [],
+  other_companies: [],
+  fiscal_years: [],
+  fiscal_period: null,
+  metric: null,
+  ...reading,
+});
+
+test("Read as: the kind, each company, the years in order, a quarter and the figure in words", () => {
+  const apple = [{ ticker: "AAPL", name: "Apple Inc." }];
+  assert.deepEqual(readingChips(read({ companies: apple, fiscal_years: [2025], fiscal_period: "FY", metric: "revenue" })), [
+    "Number question",
+    "Apple Inc.",
+    "Fiscal 2025",
+    "Revenue",
+  ]);
+  const tesla = [{ ticker: "TSLA", name: "Tesla, Inc." }];
+  assert.deepEqual(readingChips(read({ route: "comparison", companies: tesla, fiscal_years: [2025, 2024], metric: "net_income" })), [
+    "Comparison",
+    "Tesla, Inc.",
+    "Fiscal 2024 and 2025",
+    "Net income",
+  ]);
+  assert.deepEqual(readingChips(read({ route: "out_of_scope" })), ["Out of scope"]);
+  const quarter = read({ route: "textual", other_companies: ["Acme"], fiscal_years: [2023, 2025, 2024], fiscal_period: "Q2", metric: "eps_diluted" });
+  assert.deepEqual(readingChips(quarter), ["Text question", "Acme", "Fiscal 2023, 2024 and 2025", "Q2", "Diluted EPS"]);
+  assert.deepEqual(readingChips(read({ metric: "free_cash_flow" })), ["Number question", "Free cash flow"]); // not in the map
+});
+
+const CHECKED = {
+  answer: "Net income was $3,794 million [1], and $3,855 million in total [2].",
+  citations: [
+    { chunk_id: null, fact_id: "330860", quote: "3,794,000,000 USD", filing_url: "https://www.sec.gov/a" },
+    { chunk_id: "c-3", fact_id: null, quote: "Net income | $ | 3,855", filing_url: "https://www.sec.gov/b" },
+  ],
+  checks: [
+    { text: "$3,794 million", citation: 1, source_value: "3,794,000,000" },
+    { text: "$3,855 million", citation: 2, source_value: "3,855" },
+  ],
+} as unknown as Answer;
+const FOUND = {
+  facts: [{ id: "330860", label: "Net Income (Loss) Attributable to Parent", value: 3794000000, unit: "USD", fiscalYear: 2025, fiscalPeriod: "FY", periodEnd: "2025-12-31", company: { ticker: "TSLA" } }],
+  chunks: [{ id: "c-3", section: { item: "8" }, filing: { formType: "FORM_10K", fiscalYear: 2025, company: { ticker: "TSLA" } } }],
+} as unknown as Sources;
+
+test("number checks: a fact's label and value, a passage's name and the number as quoted", () => {
+  assert.deepEqual(figureRows(CHECKED, FOUND), [
+    { figure: "Net Income (Loss) Attributable to Parent, period ending 2025-12-31", written: "$3,794 million", reported: "3,794,000,000 USD" },
+    { figure: "TSLA 10-K FY2025, Item 8", written: "$3,855 million", reported: "3,855, as quoted" },
+  ]);
+  assert.deepEqual(figureRows(CHECKED, undefined), [
+    { figure: "Source 1", written: "$3,794 million", reported: "3,794,000,000" },
+    { figure: "Source 2", written: "$3,855 million", reported: "3,855" },
+  ]); // before the sources load
+  assert.equal(checksTitle(CHECKED), "Numbers checked against their sources");
+  assert.equal(checksTitle({ ...CHECKED, checks: CHECKED.checks.slice(0, 1) }), "Numbers checked against XBRL data");
+});
+
+test("the timing line says every number was checked when the answer has checks", () => {
+  assert.equal(timingLine(900, 2600, 2, true), "First words in 0.9 s · complete in 2.6 s · 2 sources · every number checked");
 });
