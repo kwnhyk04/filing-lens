@@ -15,6 +15,67 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-25: Alert delivery for production (uncommitted, branch `alertmanager`)
+
+- Changes, on `alertmanager` from main at 12502f3 (#32). The user approved a read-only plan, gave three answers (all as recommended), then wrote "Approved. Build it and report once at the end".
+  - **Alertmanager** (`infra/alertmanager/`):
+    - v0.34.1 by digest, with one receiver: Discord through squid's port 3130, and email (firing only) through `smtp-relay`;
+    - alerts grouped by rule: 30 s, 10 min, 12 h;
+    - `filinglens.tmpl` says which alert and since when, links only the runbook, and has no HTML part;
+    - `entrypoint.sh` hands over the four `ALERT_*` values from `.env.prod` as tmpfs files and a rendered config.
+  - **Mail relay:** socat added to the squid image. `smtp-relay` (`-T60`, `TCP4-LISTEN:2525`, Alertmanager's address only) sends each connection as a CONNECT to `smtp.gmail.com:587` on squid's port 3131.
+  - **squid:** port 3130 for Alertmanager (`discord.com`) and 3131 for the relay (`smtp.gmail.com`). Port 587 is allowed only on 3131, 443 on every other port.
+  - **Compose (prod override):**
+    - internal networks `monitoring` and `alerting` (10.231.232.16/28);
+    - the collector and Prometheus on `data`;
+    - only Grafana publishes (127.0.0.1:3111);
+    - Prometheus mounts `prometheus-alertmanagers.yml`;
+    - the proxy's healthcheck covers four ports;
+    - volume `alertmanager-data`.
+  - **Rules:**
+    - `keep_firing_for: 10m` on all 14;
+    - WorkerNotConsuming fires only while its queue holds ready messages;
+    - TelemetryMissing counts the workers only while their queues are in use.
+  - **Tests:**
+    - `infra/tests/test_alerting.py` (7 unit, 12 integration) and `fake_receivers.py`;
+    - `infra/tests/conftest.py`: the docker helpers and the compose model, moved from `test_egress.py`;
+    - `test_egress.py`: the new clients, `alerting` and the relay;
+    - 6 promtool cases changed or added.
+  - **Other:** `make monitoring-check` runs `amtool check-config`; `.gitattributes` keeps `infra/alertmanager/**` LF; CI's comment on the squid image.
+  - **Docs:**
+    - deploy.md: Alert delivery, the settings, steps 37 to 44, step 23's deploy commands, the rollback, Never;
+    - monitoring.md, context.md, memory.md, todo.md, README.
+- Small events, in order:
+  1. **Plan (read-only):** Alertmanager v0.34.1's docs and sources, socat's manual, and Prometheus's file discovery and promtool were read on the web. Port 3111 was free (netstat). A design review agent ran while the plan was finished; the user answered the three questions before it returned.
+  2. **Review:** 12 findings.
+     - The high one: Alertmanager's API was reachable from the api on `outbound`. Fixed with the `alerting` network (memory.md, the mistake).
+     - The others were applied as memory.md lists; one is left as a todo.
+  3. **Gate:** GateGuard refused the first write of each file, as before.
+  4. **Red:**
+     - unit: 10 failed;
+     - integration: 4 failed, 13 errors, 2 passed;
+     - promtool: 5 cases failed.
+  5. **Lint:**
+     - ruff flagged `PASSWORD_FILE` (S105) and a `/tmp` path (S108): `noqa`, with the reason;
+     - pyright flagged the union that `get_payload(decode=True)` returns: an `isinstance` check.
+  6. **First green run:** 2 integration failures.
+     - Compose printed Grafana's literal port in long syntax; the test now reads that form.
+     - socat refused the /32 range on `TCP-LISTEN` (memory.md, the pitfall): `TCP4-LISTEN` takes it.
+  7. **Dev Prometheus check** (no network, removed after):
+     - with dev's mounts: no Alertmanager, and no error or warning in its log;
+     - with the target file: `http://alertmanager:9093/api/v2/alerts`.
+- Validation:
+  - `make lint` clean; `make typecheck` 0 errors; `make actionlint` clean.
+  - `make test` 482 passed; `make test-int` 51 passed (3 min 38 s).
+  - `make monitoring-check` clean: promtool, amtool (1 template) and otelcol.
+  - `make image-scan IMAGE=filinglens-squid:test`: 0 (squid 6.14-0ubuntu0.24.04.5, socat 1.8.0.0-4ubuntu0.1, 302 MB).
+  - gitleaks: no leaks on the changed paths or in the history.
+  - Production untouched: the same 5 containers, 2 networks and 2 volumes before and after, and no test container or network left behind.
+- Outstanding:
+  - the user ships;
+  - the rollout, deploy.md steps 37 to 43, right after the egress steps 30 to 35 in the same session, then step 44 a day later;
+  - the delivery-failure alert (todo.md).
+
 ### 2026-10-25: Egress proxy for production (uncommitted, branch `egress-proxy`)
 
 - Changes, on `egress-proxy` from main at c5282a1 (#31), after a read-only plan the user approved with every recommendation ("Answers, all as you recommend"):

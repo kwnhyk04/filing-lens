@@ -1,7 +1,9 @@
-# The 14 alert rules (docs/monitoring.md: what each means and the first steps). No delivery yet:
-# they show in Prometheus and Grafana, and step 10 adds Alertmanager. Each rule has a firing and a
-# quiet case in prometheus-alerts.test.yml (make monitoring-check). Ratio rules also need a minimum
-# count in their window, so a single event at low traffic cannot fire them.
+# The 14 alert rules (docs/monitoring.md: what each means and the first steps). They show in
+# Prometheus and Grafana, and production's Alertmanager sends them to Discord and email
+# (docs/deploy.md, Alert delivery). Each rule has a firing and a quiet case in
+# prometheus-alerts.test.yml (make monitoring-check). Ratio rules also need a minimum count in
+# their window, so a single event at low traffic cannot fire them. Every rule keeps firing for 10
+# minutes after its condition clears, so a flapping condition stays one alert and one message.
 groups:
   - name: filinglens
     rules:
@@ -12,16 +14,21 @@ groups:
           min by (http_url) (httpcheck_status{http_status_class="2xx"}) < 1
           or max by (http_url) (httpcheck_error) > 0
         for: 2m
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
           summary: The API's /readyz has failed for 2 minutes.
           runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#apinotready
 
+      # Only while the queue holds work: production runs the workers for an ingest alone, so there
+      # an idle queue without a consumer is normal.
       - alert: WorkerNotConsuming
         expr: |
           rabbitmq_detailed_queue_consumers{queue=~"discover|fetch|fetch\\.retry|parse|chunk|facts|embed|reembed"} == 0
+          and rabbitmq_detailed_queue_messages_ready > 0
         for: 5m
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
@@ -30,6 +37,7 @@ groups:
 
       - alert: SecRefused
         expr: sum(increase(filinglens_sec_refusals_total[15m])) > 0
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
@@ -40,6 +48,7 @@ groups:
       # rejections (filinglens_answers_rejected_total), not failures.
       - alert: AnswersFailing
         expr: sum(increase(filinglens_answers_total{outcome="failed"}[30m])) >= 2
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
@@ -50,6 +59,7 @@ groups:
         expr: |
           max(filinglens_ai_tokens_today) >= max(filinglens_ai_token_budget)
           and max(filinglens_ai_token_budget) > 0
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
@@ -61,6 +71,7 @@ groups:
           max(filinglens_ai_tokens_today) / max(filinglens_ai_token_budget) >= 0.8
           and max(filinglens_ai_tokens_today) / max(filinglens_ai_token_budget) < 1
         for: 5m
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
@@ -72,6 +83,7 @@ groups:
           sum by (provider) (increase(filinglens_llm_calls_total{outcome="error"}[30m]))
             / sum by (provider) (increase(filinglens_llm_calls_total[30m])) > 0.25
           and sum by (provider) (increase(filinglens_llm_calls_total[30m])) >= 4
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
@@ -83,6 +95,7 @@ groups:
       # Credits running out also switch it off, as planned, without an alert.
       - alert: ClaudeKeyOrModelRejected
         expr: max(filinglens_claude_off{kind="key_or_model"}) == 1
+        keep_firing_for: 10m
         labels:
           severity: critical
         annotations:
@@ -96,6 +109,7 @@ groups:
           sum(increase(filinglens_answer_regenerations_total[6h]))
             / sum(increase(filinglens_answer_stage_duration_seconds_count{stage="generate"}[6h])) > 0.25
           and sum(increase(filinglens_answer_stage_duration_seconds_count{stage="generate"}[6h])) >= 8
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
@@ -107,6 +121,7 @@ groups:
           sum(increase(filinglens_search_rerank_timeouts_total[1h]))
             / sum(increase(filinglens_search_duration_seconds_count{phase="rerank"}[1h])) > 0.1
           and sum(increase(filinglens_search_duration_seconds_count{phase="rerank"}[1h])) >= 10
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
@@ -116,6 +131,7 @@ groups:
       - alert: DeadLetters
         expr: rabbitmq_detailed_queue_messages_ready{queue=~".+\\.dlq"} > 0
         for: 1m
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
@@ -127,6 +143,7 @@ groups:
           sum(rabbitmq_detailed_queue_messages_ready{queue=~"discover|fetch|fetch\\.retry|parse|chunk|facts|embed"}) > 0
           and on () (sum(increase(filinglens_ingest_tasks_total{outcome=~"succeeded|dead_lettered"}[15m])) or vector(0)) == 0
         for: 10m
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
@@ -136,19 +153,35 @@ groups:
       - alert: MonitoringTargetDown
         expr: up == 0
         for: 5m
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
           summary: "Prometheus has not scraped {{ $labels.job }} for 5 minutes."
           runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#monitoringtargetdown
 
-      # Without it, every alert on the services' metrics would quietly resolve when they stop.
+      # Without it, every alert on the services' metrics would quietly resolve when they stop. A
+      # worker counts only while its queues are in use, with a consumer or ready work: production
+      # runs the workers for an ingest alone.
       - alert: TelemetryMissing
         expr: |
           absent(target_info{job="filinglens-api"})
-          or absent(target_info{job="filinglens-ingest"})
-          or absent(target_info{job="filinglens-embed"})
+          or (
+            absent(target_info{job="filinglens-ingest"})
+            and on () (
+              sum(rabbitmq_detailed_queue_consumers{queue=~"discover|fetch|fetch\\.retry|parse|chunk|facts"}) > 0
+              or sum(rabbitmq_detailed_queue_messages_ready{queue=~"discover|fetch|fetch\\.retry|parse|chunk|facts"}) > 0
+            )
+          )
+          or (
+            absent(target_info{job="filinglens-embed"})
+            and on () (
+              sum(rabbitmq_detailed_queue_consumers{queue=~"embed|reembed"}) > 0
+              or sum(rabbitmq_detailed_queue_messages_ready{queue=~"embed|reembed"}) > 0
+            )
+          )
         for: 10m
+        keep_firing_for: 10m
         labels:
           severity: warning
         annotations:
