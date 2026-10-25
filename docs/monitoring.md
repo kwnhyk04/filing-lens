@@ -12,7 +12,7 @@ Traces, metrics, dashboards and alerts for FilingLens (step 8). The services exp
 | prometheus | observability | Scrapes the collector (the services' metrics with `honor_labels`, and its own), RabbitMQ's per-queue endpoint (`:15692/metrics/detailed`, Celery's event and control queues dropped), Jaeger and itself every 15 s. Evaluates `infra/prometheus-alerts.yml`. Keeps 15 days or 1 GB (volume `prometheus-data`), exemplars included. | 9091 |
 | grafana | observability | Datasources `prometheus` and `jaeger` and three dashboards, provisioned read-only in a FilingLens folder. Anonymous viewers in development only; the prod override turns them off. Usage reporting off. | 3101 |
 
-The monitoring UIs stay on 127.0.0.1 and never go through Tailscale Funnel.
+The monitoring UIs stay on 127.0.0.1 and never go through Tailscale Funnel. In production only Grafana publishes (127.0.0.1:3111), and Alertmanager runs there too: it groups the alerts and sends them to Discord and email (`docs/deploy.md`, Alert delivery). Prometheus finds it through `infra/prometheus-alertmanagers.yml`, which only production mounts, so development sends nothing.
 
 ## Turning it on
 
@@ -78,23 +78,24 @@ The JSON lives in `infra/dashboards/`; Grafana reads it read-only, so edit the f
 
 ## Alerts
 
-Thirteen rules in `infra/prometheus-alerts.yml`, each with a firing and a quiet test case (`make monitoring-check`, also in CI's lint job). The tests also hold each `for` before it elapses, and keep the ratio rules quiet above their minimum counts but under their ratios. The label allowlist is checked once the whole test session ends, over every series any test recorded. They show in Prometheus (`/alerts`) and on the service health dashboard; nothing sends them anywhere yet (step 10 adds Alertmanager). Ratio rules need a minimum count, so one event at low traffic cannot fire them.
+Fourteen rules in `infra/prometheus-alerts.yml`, each with a firing and a quiet test case (`make monitoring-check`, also in CI's lint job). The tests also hold each `for` before it elapses, and keep the ratio rules quiet above their minimum counts but under their ratios. The label allowlist is checked once the whole test session ends, over every series any test recorded. They show in Prometheus (`/alerts`) and on the service health dashboard, and production's Alertmanager sends them to Discord and email (`docs/deploy.md`, Alert delivery). Every rule keeps firing for 10 minutes after its condition clears (`keep_firing_for`), so a flapping condition stays one alert and one message. Ratio rules need a minimum count, so one event at low traffic cannot fire them.
 
 | Alert | Severity | Fires when |
 | --- | --- | --- |
 | ApiNotReady | critical | `/readyz` is not 2xx, or the probe fails, for 2 minutes |
-| WorkerNotConsuming | critical | A work queue has no consumer for 5 minutes |
+| WorkerNotConsuming | critical | A work queue holds ready messages and has had no consumer for 5 minutes |
 | SecRefused | critical | Any SEC refusal in 15 minutes |
 | AnswersFailing | critical | 2 or more failed answers in 30 minutes |
 | AiBudgetExhausted | critical | Today's tokens reach a budget above 0 |
 | AiBudgetNearlyUsed | warning | 80% to 100% of the budget for 5 minutes |
 | LlmProviderErrors | warning | Over 25% of a provider's calls fail in 30 minutes, with at least 4 calls |
+| ClaudeKeyOrModelRejected | critical | Anthropic rejected Claude's key or model (401, 403, 404) |
 | CitationValidationDegraded | warning | Over 25% of drafts written again in 6 hours, with at least 8 drafts |
 | SearchDegraded | warning | Over 10% of reranks time out in 1 hour, with at least 10 reranks |
 | DeadLetters | warning | A dead-letter queue holds a message for 1 minute |
 | IngestStalled | warning | Work queues hold ready messages but no task finished in 15 minutes, for 10 minutes |
 | MonitoringTargetDown | warning | A scrape target is down for 5 minutes |
-| TelemetryMissing | warning | api, ingest or embed sent no telemetry for 10 minutes |
+| TelemetryMissing | warning | The api sent no telemetry for 10 minutes; ingest or embed, while their queues have a consumer or ready work |
 
 No alert on time to first token: free-tier latency drifts with the hour, so it would fire on nothing you can act on. The answers dashboard shows it against its targets.
 
@@ -104,7 +105,7 @@ The API is down, or a store it needs is unreachable. `docker compose logs api` s
 
 ### WorkerNotConsuming
 
-`ingest` or `embed` is down or crash-looping, so jobs stall silently. `docker compose ps ingest embed`, then `docker compose logs --tail 100 <service>`: a configuration error names the variable at startup.
+`ingest` or `embed` is down or crash-looping while its queue holds work, so jobs stall silently. Production runs the workers for an ingest alone, so there an idle queue with no consumer does not fire it. `docker compose ps ingest embed`, then `docker compose logs --tail 100 <service>`: a configuration error names the variable at startup.
 
 ### SecRefused
 
@@ -157,7 +158,7 @@ Prometheus cannot scrape a target, so the alerts on its metrics are blind. `dock
 
 ### TelemetryMissing
 
-The service stopped exporting: check that `OTEL_EXPORTER_OTLP_ENDPOINT` is set, that the collector runs, and that the service itself runs. Without this rule every alert on the services' metrics would quietly resolve.
+The service stopped exporting: check that `OTEL_EXPORTER_OTLP_ENDPOINT` is set, that the collector runs, and that the service itself runs. Without this rule every alert on the services' metrics would quietly resolve. A worker counts only while its queues have a consumer or ready work, so production's idle workers stay quiet.
 
 ## Screenshots
 
@@ -169,13 +170,14 @@ Jaeger 2.21 serves only its v3 query API (`/api/v3/traces`, `/api/v3/services`);
 
 - `make test`: setup and redaction, the access log, trace ids in logs, answer spans and metrics for every outcome, provider spans, SEC counters, task outcomes, our Celery propagation (a failed publish included), the label allowlist, and the drift test against the dashboards and alerts.
 - `make test-int`: one trace from `POST /v1/ingest-jobs` through discover, fetch, parse, chunk, embed and facts, exported by a worker to an OTLP sink in the test, with no secret in it; search spans and metrics.
-- `make monitoring-check`: `promtool check config`, `promtool test rules` and `otelcol-contrib validate`, from the compose images pinned by digest.
+- `make monitoring-check`: `promtool check config`, `promtool test rules`, `amtool check-config` (Alertmanager) and `otelcol-contrib validate`, from the compose images pinned by digest.
+- `infra/tests/test_alerting.py` (`make test`, `make test-int`): Alertmanager's config and template, its entrypoint, and one delivery to a fake Discord webhook and a fake SMTP server on a network with no route out.
 
 ## Left out
 
 | What | Add it when |
 | --- | --- |
-| Alert delivery (Alertmanager and a receiver) | Step 10 |
+| An alert when delivery fails (`alertmanager_notifications_failed_total`, so each channel reports the other's failure) | todo.md |
 | Log shipping (Loki); logs carry trace ids already | `docker compose logs` with grep falls short |
 | SQL statement spans (the contrib SQLAlchemy instrumentation supports only SQLAlchemy below 2.1) | A slow query needs hunting: SQLAlchemy engine events, about 20 lines |
 | Postgres and Redis exporters; `/readyz` covers reachability | Database tuning starts |

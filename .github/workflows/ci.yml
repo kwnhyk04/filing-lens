@@ -333,7 +333,8 @@ jobs:
         include:
           - { image: api, file: infra/Dockerfile, args: PACKAGE=filinglens-api }
           - { image: ingest, file: infra/Dockerfile, args: PACKAGE=filinglens-ingest }
-          # Production's egress proxy; its build fails on a squid older than the minimum it names.
+          # Production's egress proxy and mail relay (squid, socat); its build fails on a squid
+          # older than the minimum it names.
           - { image: squid, file: infra/squid/Dockerfile }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

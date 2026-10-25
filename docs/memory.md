@@ -795,6 +795,36 @@ From the egress proxy (2026-10-25, branch `egress-proxy` from main at c5282a1, u
 - 2026-10-25: Pitfall: `docker compose config --no-interpolate --format json` prints some services' `environment` as `KEY=value` strings and others as a mapping. Here the api's (its base merges two YAML anchors) came as a list and tailscale's as a mapping, so the compose test reads both forms.
 - 2026-10-25: Pitfall: a ripgrep-based search (Claude Code's Grep tool) finds nothing in `.venv`, because uv writes `.venv/.gitignore` with `*`. While planning, a search for `trust_env` in the installed `httpx2` came back empty and almost read as "no proxy support". What we did: grep by path in Bash. A search of installed packages needs `--no-ignore` or a direct path.
 
+From the alert delivery (2026-10-25, branch `alertmanager` from main at 12502f3, uncommitted):
+
+- 2026-10-25: Alertmanager for production (user, todo.md since 2026-10-20; plan approved 2026-10-25). The alert rules go to a Discord webhook and to email through Gmail SMTP with an app password. The webhook, the password and both addresses stay out of the repo. Alertmanager reaches only `discord.com:443` and `smtp.gmail.com:587`, inside the egress design. Tests came first, with fakes.
+  - **The user's answers to the plan's questions:**
+    - The worker rules wait for work: TelemetryMissing counts ingest and embed only while their queues have a consumer or ready work, and WorkerNotConsuming fires only while its queue holds ready messages. Production runs no workers, so both would otherwise fire for ever.
+    - `keep_firing_for: 10m` on every rule, since Alertmanager alone spaces a flapping alert's messages only by `group_interval`.
+    - Grafana is production's only published UI (127.0.0.1:3111), so Prometheus and Jaeger have no route out.
+  - **Why a relay:** Alertmanager sends no SMTP through a proxy; its email notifier dials with a plain `net.Dialer` (v0.34.1 source). socat in our squid image takes Alertmanager's connections, from its address alone (`range`), and opens each as a CONNECT to `smtp.gmail.com:587` on squid's own port 3131. squid lets 587 through that port only. STARTTLS runs end to end, with `tls_config.server_name: smtp.gmail.com`.
+  - **Why an entrypoint:** Alertmanager's config has no environment expansion, and `smtp_auth_username` is a plain string, so the Gmail address must be written into the config.
+    - `entrypoint.sh` (busybox sh) writes the webhook and the password to tmpfs files (`webhook_url_file`, `smtp_auth_password_file`), puts the addresses over placeholders in a copy of the config, unsets the four and execs.
+    - Compose passes them as `${VAR:-}`. Compose checks required variables before it applies profiles, so `:?` would stop every production command until all four existed.
+  - **Prometheus's target:** `prometheus.yml` reads Alertmanager's address from `prometheus-alertmanagers.yml`, which only the prod override mounts. Prometheus's file discovery logs nothing for a listed file that does not exist, so development sends nothing and logs nothing. A static target would log a failed send every minute while an alert fires there.
+  - **Rulings (mine):**
+    - Ports 3130 (alertmanager) and 3131 (smtp_relay). `alerting` is 10.231.232.16/28, with Alertmanager at .18 and the relay at .19; the relay listens on 2525.
+    - socat runs with `-T60`, so a stuck SMTP session cannot hold back the group's Discord message: Alertmanager waits for every channel of a receiver.
+    - Alertmanager v0.34.1 is pinned by digest, in compose and in the Makefile.
+    - Grouping is by rule: 30 s, 10 min, 12 h. Email gets firing messages only; Discord gets firing and resolved. Times are in UTC. One variable holds both the sender and the SMTP login.
+    - Grafana's port is fixed at 3111: deploy.md keeps host ports out of `.env.prod`, and `.env.example` sets dev's `GRAFANA_PORT=3101`.
+    - The relay has no healthcheck: a TCP probe from 127.0.0.1 would log a range refusal every time.
+- 2026-10-25: Mistake (mine), caught by the design review before the code was written. The approved plan put Alertmanager on `outbound`, beside the api and tailscale. Alertmanager's API has no login, so a compromised api could have silenced every alert or posted fake ones with a phishing runbook link, which the user's own Gmail would then send. What we did: an internal `alerting` network holds only Alertmanager, the relay and the egress proxy, and `outbound` is unchanged; a compose test pins both networks' members. It went in as a small fix, reported to the user, since it restores the plan's own rule that no client reaches another's way out.
+- 2026-10-25: The design review's other findings, applied:
+  - There are 14 rules, not 13: monitoring.md's table had left out ClaudeKeyOrModelRejected, and todo.md said 13.
+  - The delivery test posts the grouped pair in one request without a start time. Alertmanager flushes a group at once when an alert started more than `group_wait` ago, which would race the second alert.
+  - The delivery test mounts the repo's directory and overlays one test file. On Linux, pytest's temporary directories belong to the runner alone, and Alertmanager runs as nobody.
+  - A unit test refuses a CR in the mounted files, since `.gitattributes` acts only when git writes a file.
+  - Left as a todo: an alert when delivery fails.
+- 2026-10-25: Pitfall: socat 1.8.0.0 refuses `range=10.231.232.18/32` on `TCP-LISTEN` ("syntax error in range ... of unspecified address family: use <addr>:<mask>"); `TCP4-LISTEN` takes it. Seen in the relay test's first green run.
+- 2026-10-25: Pitfall: `docker compose config --no-interpolate` prints a short-syntax port that holds a variable as the string, but a literal one (`127.0.0.1:3111:3000`) in long syntax. The test reads the long form.
+- 2026-10-25: Pitfall: a container on internal networks only cannot publish a port, so Grafana keeps `default` for 127.0.0.1:3111.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

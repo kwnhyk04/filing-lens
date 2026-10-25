@@ -7,3 +7,6 @@ evals/golden/** text eol=lf
 evals/calibration/** text eol=lf
 # The demo snapshot (`make demo-export`) stays LF in every checkout, so its bytes match everywhere.
 web/demo/** text eol=lf
+# Production mounts these into Linux containers from this checkout: a CR breaks the shell script
+# there, and would reach the alert messages.
+infra/alertmanager/** text eol=lf

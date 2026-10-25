@@ -1,6 +1,7 @@
 # promtool tests for prometheus-alerts.yml (make monitoring-check): each alert has a firing case,
 # and the last group is a quiet case for the first 13, at low traffic where a rule has a minimum
-# count; ClaudeKeyOrModelRejected has its own quiet case.
+# count; ClaudeKeyOrModelRejected has its own quiet case, and so do the worker rules for
+# production's idle queues. One case holds ApiNotReady past its recovery (keep_firing_for).
 rule_files:
   - prometheus-alerts.yml
 evaluation_interval: 15s
@@ -38,11 +39,30 @@ tests:
           - exp_labels: { severity: critical, http_url: "http://api:4100/readyz" }
             exp_annotations: *api-not-ready
 
-  # WorkerNotConsuming: embed loses its consumer at 75 s; dead-letter queues never have one.
+  # The flap guard (keep_firing_for, on every rule): /readyz fails from 75 s and recovers at
+  # 315 s. The alert fires from 195 s and holds for 10 minutes after, so a relapse stays one alert.
+  - interval: 15s
+    input_series:
+      - series: 'httpcheck_status{http_url="http://api:4100/readyz",http_status_class="2xx"}'
+        values: "1x4 0x15 1x60"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ApiNotReady
+        exp_alerts:
+          - exp_labels: { severity: critical, http_url: "http://api:4100/readyz" }
+            exp_annotations: *api-not-ready
+      - eval_time: 16m
+        alertname: ApiNotReady
+        exp_alerts: []
+
+  # WorkerNotConsuming: embed holds work and loses its consumer at 75 s; dead-letter queues never
+  # have one.
   - interval: 15s
     input_series:
       - series: 'rabbitmq_detailed_queue_consumers{queue="embed",vhost="/"}'
         values: "1x4 0x30"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="embed",vhost="/"}'
+        values: "3x34"
       - series: 'rabbitmq_detailed_queue_consumers{queue="embed.dlq",vhost="/"}'
         values: "0x34"
     alert_rule_test:
@@ -259,13 +279,15 @@ tests:
               summary: Prometheus has not scraped jaeger for 5 minutes.
               runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#monitoringtargetdown
 
-  # TelemetryMissing: the embed worker never sends telemetry.
+  # TelemetryMissing: the embed worker never sends telemetry while its queue holds work.
   - interval: 15s
     input_series:
       - series: 'target_info{job="filinglens-api",instance="a1"}'
         values: "1x60"
       - series: 'target_info{job="filinglens-ingest",instance="i1"}'
         values: "1x60"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="embed",vhost="/"}'
+        values: "4x60"
     alert_rule_test:
       - eval_time: 11m
         alertname: TelemetryMissing
@@ -274,6 +296,50 @@ tests:
             exp_annotations:
               summary: filinglens-embed has sent no telemetry for 10 minutes.
               runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#telemetrymissing
+
+  # TelemetryMissing: the ingest worker consumes, but sends no telemetry.
+  - interval: 15s
+    input_series:
+      - series: 'target_info{job="filinglens-api",instance="a1"}'
+        values: "1x60"
+      - series: 'rabbitmq_detailed_queue_consumers{queue="fetch",vhost="/"}'
+        values: "1x60"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch",vhost="/"}'
+        values: "0x60"
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: TelemetryMissing
+        exp_alerts:
+          - exp_labels: { severity: warning, job: filinglens-ingest }
+            exp_annotations:
+              summary: filinglens-ingest has sent no telemetry for 10 minutes.
+              runbook_url: https://github.com/kwnhyk04/filing-lens/blob/main/docs/monitoring.md#telemetrymissing
+
+  # Quiet: production with its workers off. The queues an earlier ingest declared hold nothing and
+  # have no consumer, and only the api sends telemetry.
+  - interval: 15s
+    input_series:
+      - series: 'target_info{job="filinglens-api",instance="a1"}'
+        values: "1x60"
+      - series: 'rabbitmq_detailed_queue_consumers{queue="discover",vhost="/"}'
+        values: "0x60"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="discover",vhost="/"}'
+        values: "0x60"
+      - series: 'rabbitmq_detailed_queue_consumers{queue="embed",vhost="/"}'
+        values: "0x60"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="embed",vhost="/"}'
+        values: "0x60"
+    alert_rule_test:
+      - { eval_time: 14m, alertname: WorkerNotConsuming, exp_alerts: [] }
+      - { eval_time: 14m, alertname: TelemetryMissing, exp_alerts: [] }
+
+  # Quiet: production before any ingest, with no work queue at all.
+  - interval: 15s
+    input_series:
+      - series: 'target_info{job="filinglens-api",instance="a1"}'
+        values: "1x60"
+    alert_rule_test:
+      - { eval_time: 14m, alertname: TelemetryMissing, exp_alerts: [] }
 
   # Quiet above the minimum counts, under the ratios: 1 error in 8 calls, 1 of 10 drafts written
   # again, 1 time-out in 20 reranks.
@@ -301,6 +367,8 @@ tests:
     input_series:
       - series: 'rabbitmq_detailed_queue_consumers{queue="embed",vhost="/"}'
         values: "1x4 0x20"
+      - series: 'rabbitmq_detailed_queue_messages_ready{queue="embed",vhost="/"}'
+        values: "3x24"
       - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch.dlq",vhost="/"}'
         values: "0x4 1x20"
       - series: 'rabbitmq_detailed_queue_messages_ready{queue="fetch",vhost="/"}'

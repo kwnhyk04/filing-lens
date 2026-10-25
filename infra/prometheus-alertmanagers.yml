@@ -1,0 +1,3 @@
+# Where production's Prometheus sends its alerts (prometheus.yml, alerting): Alertmanager on
+# `monitoring`. Only the prod override mounts this file.
+- targets: ["alertmanager:9093"]

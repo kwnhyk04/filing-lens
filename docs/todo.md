@@ -206,8 +206,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - Checks: `make lint` and `make typecheck` (0 errors) clean; `make test` 440, `make test-int` 32.
   - [x] (user) confirm that Actions → Caches lists an `eval-calls-*` entry, then ship: merged as #22.
 - [ ] (later; user, 2026-10-25) The ingest workers behind the egress proxy too, if ingest ever runs in production beyond a one-off: a third port with SEC's hosts (`www.sec.gov`, `data.sec.gov`). Until then `ingest` keeps a direct route on `default` and can reach `host.docker.internal` while it runs.
-- [ ] (after go-live; user, 2026-10-20) **Alertmanager:** delivery for the 13 alert rules (step 8), once a channel (email, ntfy, Discord...) and its secret are chosen. Prod then runs the `observability` profile, on ports apart from dev's.
-  - Since the egress proxy the api is no longer on `default`, where the collector sits: put the collector on `data` too, or it can neither probe the api nor receive its telemetry.
+- [ ] (later; design review, 2026-10-25) An alert when delivery fails: scrape Alertmanager through `prometheus-alertmanagers.yml` (development has no such file) and add `AlertDeliveryFailing`, `sum by (integration) (increase(alertmanager_notifications_failed_total[30m])) > 0` with its promtool cases, so each channel reports the other's failure (a deleted webhook, a revoked app password). Alertmanager down itself needs a dead man's switch (monitoring.md, Left out).
 - [ ] (candidates from the mockup, 2026-10-19; user decides; five built in mockup features 1, merged as #17, and the source cards' fiscal year end, merged as #18) What the mockup shows and the app does not have. The mockup style round restyled the existing screens only. Sizes are rough: small is a short web-only change, medium a PR that touches the API or its contracts, large several PRs or new storage. API facts were checked in `contracts/schema.graphql`, `clients/ts/openapi.d.ts` and `packages/db` on 2026-10-19.
   - **History** (every question, how it was read, answered or refused, tabs by kind, search, answer time): large; needs API work. No table holds questions or answers today, so it needs one (expand, migrate, contract), a write per answer, a keyset list route, and a privacy decision, since questions are user text and no log keeps them now.
   - **Company and fiscal-year pickers on Ask** (company chips with "+ Add company", a fiscal-year select): medium; needs API work. The answer request takes only `question` and the router finds companies and years itself, so the pickers need request fields that narrow the router. The company list already comes from GraphQL `companies`.
@@ -232,9 +231,17 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Tests first (`infra/tests/test_egress.py`): red (no `squid.conf`, no compose wiring, no image: 6 failed, 2 errors), then green: 3 unit, 5 integration.
   - [x] `infra/squid/Dockerfile` and `squid.conf`; the prod override (`edge`, `outbound`, `egress`, the proxy, each client's proxy settings); CI's `images` and `publish` matrices with `squid`; Dependabot's `/infra/squid`; pytest's `testpaths` with `infra`.
   - [x] Checks: `make lint`, `make typecheck` (0 errors), `make actionlint`; `make test` 475, `make test-int` 37; `make image-scan` on the squid image 0; gitleaks: no leaks on the changed paths or in the history. Production untouched (the same containers and networks before and after). No eval input changed.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #32 (12502f3, git log).
   - [ ] (user) The rollout, deploy.md steps 30 to 35: `filinglens-squid` public, the checks, ten public requests before and after.
-  - [ ] (user) A day later, step 36: the proxy's memory and denials. Then the numbers go to the activity log, and context.md's Known Limitations lose the "until rolled out" line.
+  - [ ] (user) A day later, step 36: the proxy's memory and denials.
+- [ ] (after go-live; user, 2026-10-20) **Alertmanager:** the alert rules delivered to a Discord webhook and to email through Gmail SMTP with an app password, inside the egress design (user's request and approved plan, 2026-10-25). Built on `alertmanager` from main at 12502f3 (2026-10-25, uncommitted).
+  - The user's answers: the worker rules wait for work; `keep_firing_for: 10m` on every rule; Grafana is production's only published UI (127.0.0.1:3111).
+  - [x] Tests first (`infra/tests/test_alerting.py`, `fake_receivers.py`, `test_egress.py`, the promtool cases): red (10 unit failures; 4 integration failures and 13 errors; 5 promtool cases), then green.
+  - [x] Alertmanager (`infra/alertmanager/`), the mail relay (socat in the squid image), squid's ports 3130 and 3131, the internal networks `monitoring` and `alerting`, the collector and Prometheus on `data`, Grafana on 3111, Prometheus's target file, the two worker rules and `keep_firing_for`, `amtool` in `make monitoring-check`, LF for `infra/alertmanager/**`.
+  - [x] Checks: `make lint`, `make typecheck` (0 errors), `make test` 482, `make test-int` 51, `make monitoring-check`, `make actionlint`, `make image-scan` on the squid image 0, gitleaks. Production untouched.
+  - [ ] (user) ship.
+  - [ ] (user) The rollout, deploy.md steps 37 to 43, right after steps 30 to 35 in the same session, with this PR's `IMAGE_TAG`.
+  - [ ] (user) A day later, step 44. Then the numbers go to the activity log, and context.md's Known Limitations lose the "until rolled out" line.
 
 ## Completed
 

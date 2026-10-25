@@ -18,8 +18,10 @@ ACTIONLINT = docker run --rm $(REPO_RO) rhysd/actionlint:1.7.12@sha256:b1934ee5f
 # 2026 to steal CI secrets: never those, never the actions, and no Docker socket here.
 TRIVY = docker run --rm $(REPO_RO) --mount "type=bind,source=$(CURDIR)/.cache/trivy,target=/cache" aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa --cache-dir /cache
 TRIVY_ARGS = --scanners vuln --ignore-unfixed --skip-version-check --exit-code 1 --no-progress
-# The compose images of Prometheus and the collector, by digest, check the monitoring configs.
+# The compose images of Prometheus, Alertmanager and the collector, by digest, check the monitoring
+# configs. amtool reads the Alertmanager files where production mounts them.
 PROMTOOL = docker run --rm $(REPO_RO) --entrypoint promtool prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+AMTOOL = docker run --rm --mount "type=bind,source=$(CURDIR)/infra/alertmanager,target=/etc/alertmanager,readonly" --entrypoint amtool prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
 OTELCOL = docker run --rm $(REPO_RO) -e API_PORT=4100 otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
 IMAGE ?= filinglens-api
 BASE ?= main
@@ -115,9 +117,10 @@ corpus-restore: ## an empty Postgres (CI): fetch the corpus-v1 release asset if 
 actionlint: ## lint the GitHub Actions workflows (CI runs it too)
 	$(ACTIONLINT) -color
 
-monitoring-check: ## Prometheus config and alert rules with their tests, then the collector's config
+monitoring-check: ## Prometheus config and alert rules with their tests, Alertmanager's and the collector's configs
 	$(PROMTOOL) check config infra/prometheus.yml
 	$(PROMTOOL) test rules infra/prometheus-alerts.test.yml
+	$(AMTOOL) check-config /etc/alertmanager/alertmanager.yml
 	$(OTELCOL) validate --config=infra/otel-collector.yaml
 
 secrets-scan: ## gitleaks over every commit of every ref (CI runs it on each PR; run it before a push)

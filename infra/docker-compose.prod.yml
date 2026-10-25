@@ -2,24 +2,31 @@
 # project, so its containers, volumes and networks never mix with the dev stack's. Run every
 # command from the repo root as
 #   docker compose --env-file .env.prod <command>
-# .env.prod names both files (COMPOSE_FILE); docs/deploy.md lists every setting. No service
-# publishes a host port: the internet reaches only the api, through the tailscale container's
-# Funnel (infra/tailscale/serve.json). Models and keys come from .env.prod (Claude first).
+# .env.prod names both files (COMPOSE_FILE); docs/deploy.md lists every setting. The internet
+# reaches only the api, through the tailscale container's Funnel (infra/tailscale/serve.json), and
+# the one published port is Grafana's, on 127.0.0.1. Models and keys come from .env.prod (Claude
+# first).
 name: filinglens-prod
 
 # The data stores sit on `data`, which has no route out, and `edge` joins the api to the tailscale
-# container alone. Those two reach the internet only through egress-proxy on `outbound`: Docker
+# container alone. Those two reach the internet only through egress-proxy on `outbound`, and
+# Alertmanager and its mail relay only through it on `alerting`, out of the api's reach: Docker
 # Desktop lets any container on a routed network reach the PC's own listeners at
-# host.docker.internal, so only the proxy sits on `egress`. The ingest worker keeps `default` for
-# SEC (todo.md).
+# host.docker.internal, so only the proxy sits on `egress`. Monitoring talks on `monitoring`;
+# Grafana alone also joins `default`, for its port. The ingest worker keeps `default` for SEC
+# (todo.md).
 networks:
   data: { internal: true }
   edge: { internal: true }
-  # Fixed addresses for the proxy's two clients (infra/squid/squid.conf ties each port to one);
-  # other containers get .8 to .15.
+  monitoring: { internal: true }
+  # Fixed addresses for the proxy's clients (infra/squid/squid.conf ties each port to one); other
+  # containers get the upper half of each range.
   outbound:
     internal: true
     ipam: { config: [{ subnet: 10.231.232.0/28, ip_range: 10.231.232.8/29 }] }
+  alerting:
+    internal: true
+    ipam: { config: [{ subnet: 10.231.232.16/28, ip_range: 10.231.232.24/29 }] }
   egress: {}
 
 volumes:
@@ -28,6 +35,8 @@ volumes:
   tailscale-state:
     external: true
     name: filinglens-prod-tailscale-state
+  # Alertmanager's silences and what it has sent, so a restart sends nothing twice.
+  alertmanager-data:
 
 x-kept: &kept
   restart: unless-stopped
@@ -35,7 +44,8 @@ x-kept: &kept
     driver: json-file
     options: { max-size: 10m, max-file: "3" }
 
-# The api, the tailscale container and the egress proxy write only to tmpfs and need no capability.
+# The api, the tailscale container, the egress proxy, Alertmanager and the mail relay write only to
+# tmpfs (Alertmanager also to its volume) and need no capability.
 x-hardened: &hardened
   read_only: true
   tmpfs: [/tmp]
@@ -105,24 +115,89 @@ services:
     networks: [data] # models load offline from the read-only HF_HOME mount
     deploy: { resources: { limits: { memory: 1536M } } }
 
-  # Monitoring stays off in production until alert delivery lands (todo.md, Alertmanager).
+  # Monitoring runs with the `observability` profile (COMPOSE_PROFILES in .env.prod). The api sends
+  # its telemetry to the collector on `data`, where Prometheus also reads RabbitMQ.
   otel-collector:
     <<: *kept
+    ports: !reset []
+    networks: [data, monitoring]
     deploy: { resources: { limits: { memory: 256M } } }
 
   jaeger:
     <<: *kept
+    ports: !reset []
+    networks: [monitoring]
     deploy: { resources: { limits: { memory: 512M } } }
 
   prometheus:
     <<: *kept
+    ports: !reset []
+    # Alertmanager's address: only production mounts the file prometheus.yml reads it from.
+    volumes: ["./prometheus-alertmanagers.yml:/etc/prometheus/prometheus-alertmanagers.yml:ro"]
+    networks: [data, monitoring]
     deploy: { resources: { limits: { memory: 512M } } }
 
+  # The one published port, apart from dev's 3101; Grafana shows Prometheus's and Jaeger's data.
   grafana:
     <<: *kept
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false" # sign in with GRAFANA_ADMIN_PASSWORD
+    ports: !override ["127.0.0.1:3111:3000"]
+    networks: [monitoring, default]
     deploy: { resources: { limits: { memory: 256M } } }
+
+  # Sends the alerts to Discord and email (infra/alertmanager, docs/deploy.md), with no route out of
+  # its own: Discord through egress-proxy, mail through smtp-relay. entrypoint.sh hands it the four
+  # ALERT_* values from .env.prod, and stops while one is missing.
+  alertmanager:
+    <<: [*kept, *hardened]
+    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    profiles: [observability]
+    entrypoint: [/bin/sh, /etc/alertmanager/entrypoint.sh]
+    command:
+      - /bin/alertmanager
+      - --config.file=/tmp/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --cluster.listen-address=
+    environment:
+      # Empty when unset, so production's commands without monitoring need none of them.
+      ALERT_DISCORD_WEBHOOK_URL: ${ALERT_DISCORD_WEBHOOK_URL:-}
+      ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      monitoring: {}
+      alerting: { ipv4_address: 10.231.232.18 }
+    depends_on:
+      egress-proxy: { condition: service_healthy }
+      smtp-relay: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    deploy: { resources: { limits: { memory: 128M } } }
+
+  # Alertmanager sends no SMTP through a proxy, so this socat, from the egress proxy's image, takes
+  # its connections (from its address alone) and opens each as a CONNECT to Gmail on the proxy's
+  # mail port, closing any idle for 60 s. STARTTLS runs from Alertmanager to Gmail through it. No
+  # healthcheck: socat is the container's process, and each probe would log a refusal.
+  smtp-relay:
+    <<: [*kept, *hardened]
+    image: ghcr.io/kwnhyk04/filinglens-squid:${IMAGE_TAG:?set IMAGE_TAG in .env.prod; see docs/deploy.md}
+    profiles: [observability]
+    entrypoint:
+      - socat
+      - "-T60"
+      - TCP4-LISTEN:2525,fork,range=10.231.232.18/32 # socat takes a /32 range on IPv4 only
+      - PROXY:egress-proxy:smtp.gmail.com:587,proxyport=3131
+    networks:
+      alerting: { ipv4_address: 10.231.232.19 }
+    deploy: { resources: { limits: { memory: 32M } } }
 
   # The tailnet node is this container, not the PC (tag:filinglens). Userspace networking needs no
   # capability; Funnel serves the api on 443.
@@ -163,17 +238,18 @@ services:
       start_period: 10s
     deploy: { resources: { limits: { memory: 128M } } }
 
-  # The only container with a route out (infra/squid/squid.conf): HTTPS CONNECT on 443, a port and
-  # an allowlist per client, and no destination in a private range. It publishes no port.
+  # The only container with a route out (infra/squid/squid.conf): CONNECT on 443 (587 for the mail
+  # relay), a port and an allowlist per client, and no destination in a private range. It
+  # publishes no port.
   egress-proxy:
     <<: [*kept, *hardened]
     # CI's image of the deployed main commit, like the api's (infra/squid/Dockerfile).
     image: ghcr.io/kwnhyk04/filinglens-squid:${IMAGE_TAG:?set IMAGE_TAG in .env.prod; see docs/deploy.md}
     tmpfs: [/tmp, /var/spool/squid, /var/log/squid, /run]
     volumes: ["./squid/squid.conf:/etc/squid/squid.conf:ro"]
-    networks: [outbound, egress]
+    networks: [outbound, alerting, egress]
     healthcheck:
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/3128 && echo > /dev/tcp/127.0.0.1/3129"]
+      test: ["CMD", "bash", "-c", "for port in 3128 3129 3130 3131; do echo > /dev/tcp/127.0.0.1/$$port || exit 1; done"]
       interval: 10s
       timeout: 3s
       retries: 10

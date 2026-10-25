@@ -1,12 +1,19 @@
 # Scrapes the collector (the services' metrics and its own), RabbitMQ, Jaeger and itself, and
-# evaluates the alert rules (docs/monitoring.md). Rule paths are relative to this file, so
-# `make monitoring-check` reads the same config from the repo.
+# evaluates the alert rules (docs/monitoring.md). Rule and target paths are relative to this file,
+# so `make monitoring-check` reads the same config from the repo.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 rule_files:
   - prometheus-alerts.yml
+
+# Production's Alertmanager (docs/deploy.md, Alert delivery). Only the prod override mounts this
+# file beside the config, so development, which runs no Alertmanager, sends nothing and logs nothing.
+alerting:
+  alertmanagers:
+    - file_sd_configs:
+        - files: [prometheus-alertmanagers.yml]
 
 scrape_configs:
   # The services' metrics, re-exposed by the collector: job is the service name and instance the
