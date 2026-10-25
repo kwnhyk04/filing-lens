@@ -12,7 +12,8 @@ updates:
       python:
         patterns: ["*"]
   - package-ecosystem: docker
-    directory: /infra
+    # The Python services' image, and the egress proxy's: a new Ubuntu digest rebuilds squid with its newest fixes.
+    directories: ["/infra", "/infra/squid"]
     schedule:
       interval: weekly
     cooldown:
@@ -21,6 +22,9 @@ updates:
       # A move to a new Python changes .python-version, the uv lock, CI and this image together, so only patch releases of the current Python (3.12) come here.
       # The rule follows the image's current tag, so that planned move needs no edit here; lift it only if new Pythons should come as Dependabot PRs again.
       - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # The squid build names its Ubuntu release (noble-security), so a new Ubuntu is a move by hand; digest updates still come.
+      - dependency-name: ubuntu
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directories: ["/", "/.github/actions/setup"]
