@@ -23,6 +23,7 @@ from filinglens_llm.validate import (
     citation_error,
     cited,
     figures,
+    pruned,
     split_sentences,
 )
 
@@ -33,6 +34,7 @@ SOURCE_LINE = re.compile(
     r"^[ \t*-]*\[\s*(?P<alias>[CF]\d+)\s*\][ \t:|\-]*(?P<quote>.*?)[ \t]*$", re.MULTILINE
 )
 QUOTE_MARKS = "\"'“”‘’«»`"  # noqa: RUF001 - the quote marks models write
+OWN_MARKER = re.compile(r"\s*\[\s*[CF]\d+\s*\]$")  # x17 (dev) wrote [C1] "quote" [C1]
 HOLD = 24  # characters a stream holds back: a starting "Sources:" heading or a split marker
 SYSTEM = f"""\
 You answer analysts' questions about companies' SEC filings, using only the sources given.
@@ -43,7 +45,8 @@ Rules:
 3. After the answer write a line "Sources:", then one line per source you cited: [id] "quote".
    For a filing excerpt (C1, C2...) the quote is a short span copied word for word from it that
    supports your sentence. For a financial fact (F1, F2...) quote its value as listed.
-4. Give figures as the sources state them, or rounded, such as $416.2 billion.
+4. Give figures as the sources state them, or rounded, such as $416.2 billion. A sentence that
+   compares figures states each of them.
 5. Answer in at most 6 sentences, without headings or lists.
 6. If the sources do not answer the question, reply with only {INSUFFICIENT}."""
 
@@ -81,7 +84,8 @@ def read_reply(reply: str) -> Reply:
     text = (reply[: heading.start()] if heading else reply).strip()
     quotes: dict[str, list[str]] = {}
     for line in SOURCE_LINE.finditer(reply[heading.end() :] if heading else ""):
-        quotes.setdefault(line["alias"], []).append(line["quote"].strip().strip(QUOTE_MARKS))
+        quote = OWN_MARKER.sub("", line["quote"].strip())
+        quotes.setdefault(line["alias"], []).append(quote.strip().strip(QUOTE_MARKS))
     return Reply(text, quotes, text.startswith(INSUFFICIENT))
 
 
@@ -129,21 +133,27 @@ class Checked:
     problems: list[str]  # one per failed sentence, quoting it
     removed: int  # sentences dropped because they failed
     figures: list[Figure] = field(default_factory=list[Figure])  # each kept amount and its source
+    pruned: int = 0  # citations dropped from sentences their other citations hold
 
 
 def check(reply: Reply, sources: Mapping[str, Source]) -> Checked:
-    """Validate each sentence, drop the failures, and number the remaining citations 1, 2, 3."""
+    """Validate each sentence, drop the failures, and number the remaining citations 1, 2, 3. A
+    sentence that fails only through citations its other citations make up for loses those."""
     kept: list[str] = []
     problems: list[str] = []
     found: list[Figure] = []
+    dropped = 0
     for sentence in split_sentences(reply.text):
         problem = check_sentence(sentence, reply.quotes, sources)
+        if problem is not None and (held := pruned(sentence, reply.quotes, sources)):
+            (sentence, gone), problem = held, None
+            dropped += gone
         if problem is None:
             kept.append(sentence)
             found += figures(sentence, reply.quotes, sources)
         else:
             problems.append(f'"{sentence}": {problem}')
-    text = reply.text if not problems else " ".join(kept)
+    text = reply.text if not problems and not dropped else " ".join(kept)
     chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
     citations: list[tuple[str, str]] = []
     for alias in cited(text):
@@ -157,4 +167,6 @@ def check(reply: Reply, sources: Mapping[str, Source]) -> Checked:
             if citation_error(Quoted(source.chunk_id, None, quote), chunks, ()) is None
         ]
         citations.append((alias, good[0]))
-    return Checked(numbered(text, {}), citations, problems, removed=len(problems), figures=found)
+    return Checked(
+        numbered(text, {}), citations, problems, len(problems), figures=found, pruned=dropped
+    )

@@ -53,6 +53,14 @@ METRICS: dict[str, tuple[str, tuple[str, ...]]] = {
     "dividends_per_share": ("USD/shares", ("us-gaap:CommonStockDividendsPerShareDeclared",)),
 }
 ROUTES = ("numeric", "textual", "comparison", "out_of_scope")
+# Forecast and advice wording (dev's o01 and o02): such a question keeps its out_of_scope route.
+ADVICE = re.compile(
+    r"\b(?:stock|share) price|\bgo(?:es|ing)? (?:up|down)\b|\bshould i\b"
+    r"|\b(?:buy|sell)\b.{0,30}\b(?:shares?|stock)\b",
+    re.IGNORECASE,
+)
+# A fiscal year as a question writes it: "fiscal 2026", "fiscal year 2026", "FY2027", "FY 2027".
+FISCAL_YEAR = re.compile(r"\b(?:fiscal(?:\s+year)?|FY)\s?((?:19|20)\d\d)\b", re.IGNORECASE)
 PERIODS = ("FY", "Q1", "Q2", "Q3", "Q4")
 MAX_TOKENS = 400  # the JSON plus gpt-oss's short reasoning
 NAME_NOISE = {
@@ -195,6 +203,39 @@ def guess(question: str, companies: Mapping[str, str]) -> tuple[list[str], list[
     tickers = sorted(ticker for ticker, name in companies.items() if named(ticker, name))
     years = sorted({int(year) for year in re.findall(r"\b(?:19|20)\d\d\b", question)})
     return tickers, years
+
+
+def second_look(routing: Routing, question: str, companies: Mapping[str, str]) -> list[str]:
+    """The tracked companies an out-of-scope question names, unless it asks for a forecast or
+    advice: the router sent x13, x14 and x18 (test, 2026-10-17) out of scope, and routed all three
+    textual when asked again, so such a question gets a second look."""
+    if routing.route != "out_of_scope" or ADVICE.search(question):
+        return []
+    return guess(question, companies)[0]
+
+
+def second_look_prompt(question: str, names: Sequence[str]) -> str:
+    """The question again, with the scope rule, and no claim that the last reply was wrong."""
+    rule = (
+        f"The question names {', '.join(names)}, which FilingLens tracks. Route it out_of_scope"
+        " only if SEC filings never cover its topic (stock price forecasts, investment advice,"
+        " general knowledge); a question about what a company's filings report is in scope."
+    )
+    return "\n".join([question, "", rule])
+
+
+def fill(routing: Routing, named: Sequence[str]) -> Routing:
+    """The one tracked company the question names (`guess`), when the router named none and no
+    other company (x01, x06, t10, a03 searched every company or missed their time trap)."""
+    if routing.route == "out_of_scope" or routing.tickers or routing.other_companies:
+        return routing
+    return routing.model_copy(update={"tickers": list(named)}) if len(named) == 1 else routing
+
+
+def fiscal_years(question: str) -> list[int]:
+    """The fiscal years a question writes as such, for the time-trap check when the router leaves
+    them out (t07, "fiscal 2026"); a bare year may be a calendar date."""
+    return sorted({int(year) for year in FISCAL_YEAR.findall(question)})
 
 
 def retry_prompt(question: str, broken: Sequence[str]) -> str:

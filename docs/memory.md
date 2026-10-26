@@ -825,6 +825,21 @@ From the alert delivery (2026-10-25, branch `alertmanager` from main at 12502f3,
 - 2026-10-25: Pitfall: `docker compose config --no-interpolate` prints a short-syntax port that holds a variable as the string, but a literal one (`127.0.0.1:3111:3000`) in long syntax. The test reads the long form.
 - 2026-10-25: Pitfall: a container on internal networks only cannot publish a port, so Grafana keeps `default` for 127.0.0.1:3111.
 
+From the answer-quality round (2026-10-26; plan `C:\Users\kwonhyuk\.claude\plans\cozy-pondering-pinwheel.md`):
+
+- 2026-10-26: The round's plan was approved with the user's answers and changes:
+  - **Golden v2:** v1's 100 questions re-keyed, all in dev (this analysis read v1's test answers, so v1's test is no longer held out), plus about 55 new test questions. Labels as v1's: Claude labels every passage, the user spot-checks a blind sample of about 50 in a test block; README and landing page keep "AI-written, spot-checked"; the labeling cost is estimated before it runs.
+  - **Arithmetic:** calculation sources (PR 4). **Production corpus:** corpus-v2 restored later, at a time the user picks. **Ticker fill:** adopted, reversing the 2026-10-16 "no fill", because first-words speculation needs the plan to match code's reading and t10 and a03 were refused by the wrong rule.
+  - **Order:** the sweep, PR 0 and PR 1 on one branch and one PR; then PR 4, PR 5, PR 6, PR 7; PR 2 (first words sooner) only if time remains; PR 3 only if the sweep wins. Development by about 2026-10-31.
+  - **Stop rule:** stop and report only if an estimate grows, a hook refuses, anything needs a key, or a prompt hash changes where the plan says it should not.
+- 2026-10-26: The reranker stays TinyBERT-L-2 over 50 at 512 tokens: none of 10 other settings beat its dev recall@10 of 0.613 (activity-log.md). Recall@10 at 0.90 needs a slower reranker, model B or a GPU, outside this round.
+- 2026-10-26: v2's test questions were written in free phrasing and hashed (sha256 `bf12aaa6...4224c`, activity-log.md) before any PR 1 code, so no fix was tuned on them.
+- 2026-10-26: The router's second look takes its forecast and advice wording from dev's o01 and o02 only ("stock price", "share price", "go up", "should I", buying or selling shares). Why: wording drawn from v2's test questions would tune on test. Cost: an advice question phrased otherwise gets one more router call, and the router decides again.
+- 2026-10-26: The fill never applies when the router names another company or routes out of scope. Why: `guess` reads a name's first word, so "Bank of New York Mellon" reads as BAC and "Johnson Controls" as JNJ; the router lists such a company under `other_companies`, and the untracked-company refusal must still fire.
+- 2026-10-26: A sentence that fails only through citations it does not need keeps its other citations (`validate.pruned`), with a warning. Why: x06 cited C5 and C9, C9's quote held, and the answer was refused twice for C5. A bracket with no source letter (`[12]`) is not pruned; it still sends the draft back.
+- 2026-10-26: Pitfall: validation's 0.5% amount tolerance rejects ordinary rounding. In E2, Haiku wrote "$4.1 billion" for 4,121,000,000 (0.51% off) twice, and n24 was refused. Before the heading fix it had hedged but kept $4.121 billion. A fix that makes a model answer more plainly can expose this. Not changed in PR 1: how much rounding an answer may carry is the user's decision (todo.md).
+- 2026-10-26: Pitfall: a plan estimate from per-question token averages ran low twice. E1's judge used 60K gpt-oss-120b tokens on dev full, not 49K (52 judged answers, longer Haiku answers), and E1b used 72K router tokens, not 65K. A judged dev-full Claude run needs about 60K judge tokens.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

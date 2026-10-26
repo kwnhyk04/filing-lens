@@ -15,6 +15,107 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-26: E2, the refusal fixes measured with Claude on dev (uncommitted, branch `answer-refusals`)
+
+- Changes: no code change. The user gave the go for E2 at the higher estimate (about $0.04 of credits, about 60K judge tokens, a few live re-asks).
+  - **Containers:** ports 5433 and 6380 were free (netstat). `filinglens-postgres-1` and `filinglens-redis-1` (both exited 0) were started by exact name at 04:54 UTC and stopped as found at 05:02 UTC. `filinglens-prod` was not touched.
+  - **E2** (`make eval SUITE=answer SPLIT=dev ARGS=--claude-primary`, this branch's uncommitted code, source sha256 `965efe5bc0ca8dd4`, 04:54 to 04:59 UTC; report `evals/reports/runs/20261026T045936Z-answer-dev-full-claude-primary`), against E1 (main's code):
+
+    | Metric | E1 | E2 |
+    | --- | --- | --- |
+    | Numeric exact match | 1.000 | 0.964 |
+    | Comparison match | 1.000 | 1.000 |
+    | Citation precision (judge) | 0.976 | 0.991 |
+    | Citation coverage | 0.962 | 0.989 |
+    | Faithfulness (judge) | 0.938 | 0.988 |
+    | Correct refusal | 0.944 (t07 answered) | 1.000 |
+    | False refusal | 0.019 (x15) | 0.038 (x15, n24) |
+    | Replies cut | 1 (x09) | 0 |
+    | Regenerated | 10 | 8 |
+
+  - **By question:**
+    - t07 is refused by the time-trap check (its "fiscal 2026"), with no model call.
+    - n13, n17 and n22 are judged "yes"; in E1 they were "partly" or "no" (the fact headings). Their regenerations are gone too.
+    - **n24 is newly refused.** Under the new heading, Haiku answered plainly, both times: "Lockheed Martin held $4.1 billion in cash and cash equivalents at the end of fiscal 2025 [F1]". The fact is 4,121,000,000. $4.1 billion is 0.51% off, outside validation's 0.5% tolerance, so the sentence failed twice. In E1, Haiku had hedged ("only as of 2025-12-31, which is fiscal 2025 Q2") but kept $4.121 billion, an exact match.
+      - Cause: the tolerance and Haiku's rounding; the heading fix exposed it.
+      - Not fixed in this PR: loosening the 0.5% rule is the user's call (reported).
+    - Pruning kept x06, x11 and x20, each with one citation removed. x06's remaining second citation is the run's only pair the judge did not count ("partly").
+    - **Second looks:** 3 live calls, for a02, a06 and a08, whose cached routes were out of scope. All three stayed out of scope and were refused.
+    - x15 is refused as in E1: the retrieved passages have no evidence.
+  - **Spent (live):**
+    - Haiku: 63 calls, 268,790 tokens in and 14,394 out (about $0.034 of credits).
+    - Judge: 43 calls, 49,652 gpt-oss-120b tokens.
+    - Router: 3 calls, 3,479 gpt-oss-20b tokens.
+    - All within the estimate. The judge hit Groq's per-minute limit 13 times (waits of 1 to 16 s); none errored.
+  - **Prompt hashes:** against E1, only `answer_system` changed (`a72e8ef8b102` to `a4ee7c5d3686`), as the plan says.
+  - **CI's eval on this PR** (memory.md, the eval-check rule): the answer prompt changed, so none of CI's cached Gemini answers apply. Estimate:
+    - Gemini: about 20 to 25 requests (25 dev ci questions, 15 of them answerable, plus regenerations).
+    - Router: up to 3 second looks (a02, a04, a09; about 1.1K gpt-oss-20b tokens each), if CI's cached routes for them are out of scope.
+    - No judge.
+- Files: `evals/reports/runs/20261026T045936Z-answer-dev-full-claude-primary.json` and `.md` (new, untracked); docs.
+- Validation: E2 as above. No code has changed since `make test` (503 passed).
+- Outstanding:
+  - The user ships PR 0 and PR 1 as one PR; CI's eval spends as estimated above.
+  - n24's rounding waits for the user's decision.
+  - Then PR 4.
+
+### 2026-10-26: Answer-quality round, part 1: sweep, v2's test questions, refusal fixes (uncommitted, branch `answer-refusals`)
+
+- Changes, on `answer-refusals` from main at 2ea7a1a (#34). The user approved the plan (`C:\Users\kwonhyuk\.claude\plans\cozy-pondering-pinwheel.md`) with changes: the sweep, PR 0 and PR 1 tonight on one branch, reported once and shipped as one PR; the sweep, E1, E1b and E2 without asking, each within its estimate.
+  - **Containers:** ports 5433 and 6380 were free (netstat); `filinglens-postgres-1` (exited 0) and `filinglens-redis-1` (exited 255) started by exact name at about 19:20 UTC. `filinglens-prod` not touched.
+  - **Reranker sweep** (dev, 14 textual questions, no model call, 19:20 to 19:26 UTC; reports `evals/reports/runs/20261025T1921*` to `T1925*`): no setting beat today's TinyBERT-L-2 over 50 at 512 tokens, so no PR 3 and no E4 (the plan's rule: a paired CI against today that excludes 0).
+
+    | Setting | recall@10 | MRR@10 | judged@10 | rerank p95 |
+    | --- | --- | --- | --- | --- |
+    | TinyBERT-L-2, 50, 512 (today) | 0.613 | 0.649 | 1.000 | 166 ms |
+    | TinyBERT-L-2, 30, 512 | 0.606 | 0.661 | 0.950 | 107 ms |
+    | TinyBERT-L-2, 80, 512 | 0.581 | 0.633 | 0.950 | 262 ms |
+    | TinyBERT-L-2, 50, 384 | 0.606 | 0.649 | 0.993 | 184 ms |
+    | TinyBERT-L-2, 50, 256 | 0.581 | 0.677 | 0.914 | 154 ms |
+    | TinyBERT-L-2, 30, 256 | 0.602 | 0.717 | 0.893 | 73 ms |
+    | TinyBERT-L-2, 30, 384 | 0.606 | 0.661 | 0.936 | 136 ms |
+    | TinyBERT-L-2, 80, 384 | 0.585 | 0.633 | 0.936 | 304 ms |
+    | TinyBERT-L-2, 80, 256 | 0.564 | 0.663 | 0.900 | 140 ms |
+    | MiniLM-L-2, 24, 256 | 0.610 | 0.720 | 1.000 | 191 ms |
+    | MiniLM-L-2, 40, 256 | 0.579 | 0.720 | 0.957 | 356 ms |
+
+    - Unpooled passages count as not gold (judged@10 below 1.000), which biases recall against the new settings a little; none comes close enough for that to matter.
+    - TinyBERT over 30 at 256 tokens halves the rerank time (p95 73 ms) at recall −0.011: noted for PR 2 (first words sooner), which puts the search on the critical path.
+    - The plan's latency rule ("p95 at most 200 ms with two reranks queued") was read as "no slower than today", since two queued reranks double any setting alike; it decided nothing here.
+  - **PR 0, v2's test questions** (`evals/golden.py`, `V2_*` constants, written 19:05 to 19:28 UTC, before any PR 1 code): 55 questions in free phrasing, not v1's templates. 25 textual (x21 to x45), 12 numeric (n41 to n52), 8 comparison (c16 to c23), 4 absent (a11 to a14), 3 out of scope naming tracked companies (o04 to o06), 1 untracked (u03), 2 time traps (t11, t12).
+    - **Hash:** sha256 `bf12aaa62a37f65855aec01b43f99c64493de0669f13bc4aff4015ac7943224c` over the canonical JSON of the eight constants (`json.dumps(..., sort_keys=True, ensure_ascii=False, separators=(",", ":"))`), taken at 2026-10-25T19:28:48Z.
+    - **Checked against the dev database** (a scratch script, not committed): every numeric and comparison fact exists, and every textual and absent question's hints match chunks of its company. Two draft questions had no fact and were replaced before the hash: n49 (NextEra's revenue, missing under every revenue concept) became NextEra's net income, and c19 (Lockheed Martin's capital expenditures, missing) became Caterpillar against Union Pacific.
+    - n46 (Linde) and c17 (Bank of America, Goldman Sachs) read year-end balances from fiscal-2026 10-Qs, the fact-heading case.
+    - Whether the four absent questions truly have no answer is settled by labeling (PR 6); the freeze refuses an absent question with gold.
+  - **E1, the Claude baseline** (`make eval SUITE=answer SPLIT=dev ARGS=--claude-primary`, main's answer path, clean tree, 19:26 to 19:32 UTC; report `runs/20261025T193242Z-answer-dev-full-claude-primary`):
+    - Numeric 1.000 (28), comparison 1.000 (10), citation precision 0.976 (52), coverage 0.962, faithfulness 0.938, correct refusal 0.944 (17 of 18), false refusal 0.019 (1 of 52: x15, no evidence), 1 reply cut (x09), 0 errors.
+    - The answered should-refuse question is t07: the router left out "fiscal 2026", and Haiku answered from fiscal 2025.
+    - The judge's misses are all fact-heading cases: n13, n17, n22, n24 ("partly" or "no").
+    - Spent: Haiku 67 calls, 284,347 in and 16,550 out (about $0.037 of credits, within the estimate); router 0 (cached); **judge 52 calls, 60,144 gpt-oss-120b, over the plan's 49K**.
+  - **PR 1, tests first.** Red: the new router, reply-format, validation and Answerer tests failed (no `second_look`, `fill`, `fiscal_years`, `pruned`; one call where two were expected; no time trap; "fiscal 2025 Q2" in the prompt; a regeneration where none was expected). Then green.
+    - **Router** (`router.py`): `second_look` (an out-of-scope route for a question that names a tracked company, unless it has forecast or advice wording: "stock price", "share price", "go up", "should I", buying or selling shares; taken from dev's o01 and o02 only) and `second_look_prompt` (the question and the scope rule, not "you broke the rules"); `fill` (the one company `guess` reads, only when the router named no ticker and no other company and the route is not out of scope); `fiscal_years` ("fiscal 2026", "fiscal year 2026", "FY2027", "FY 2027").
+    - **Answerer** (`answering.py`): the second look inside each provider's route call (its reply stands); the plan uses the filled routing, while stats keep the router's own reply for the evals; the time-trap check also reads the question's written fiscal years; a warning "Removed N citation(s) whose source or quote did not check out."; a full-year balance from a later 10-Q is headed "at 2025-12-31, the end of fiscal 2025".
+    - **Validation** (`validate.py`, `answer.py`): `pruned` keeps a sentence without the citations that cannot back it (no such source, or no quote that holds) when the rest still holds it, the text rebuilt from the kept sentences; a source line ending in its own marker reads the quote before it; a sentence with a comparison or direction word that cites facts states each fact's figure (amounts and plain numbers, table scales, so "14.23 USD/shares" counts). Answer prompt rule 4 gained "A sentence that compares figures states each of them."
+    - **One existing test row changed:** "Net sales rose 6% [F1][C1]" now reads "Net sales rose 6% to $416.2 billion [F1][C1]", since the new rule flags a direction word next to a fact whose figure the sentence leaves out (the row still checks that 6% comes from the second source).
+  - **Offline replay** (a scratch script, no model call): main's validation against this branch's over every cached draft of five runs (`082033Z`, `154912Z`, the official test run, E1, Haiku's test run `084716Z`).
+    - The comparison rule flags exactly the bare conclusions: dev c01, c03, c06 (Gemini), test c02 and c05 (Gemini), Haiku's c12. These now get a regeneration.
+    - Pruning keeps x06 (both drafts, dev and dev ci) and four of x17's five regenerated sentences (the fifth, "$88.82 in cash", is not in its quote), and single sentences in E1's c13, x17, x20, t07 and Haiku's x02.
+    - No other verdict changed: no numeric answer is flagged.
+  - **E1b, the router's second look, live** (a scratch script calling the router with the evals' as_of, three tries each, 19:56 to 20:05 UTC):
+
+    | Questions | First reply out of scope | After the second look |
+    | --- | --- | --- |
+    | Answerable: x11, x13, x14, x15, x18, x19, n29 (21 tries) | 7 (x14 3, x18 2, x15 1, n29 1) | 1 (x14) |
+    | o01, o02 (forecast, advice; 6 tries) | 6 | 6 (no second look) |
+    | Absent and t05 (a02, a04, a06, a08, a10, t05; 18 tries) | 11 | 6: a04 1, a06 1, a08 2, a10 1 moved to numeric or textual |
+
+    - The five that moved must now be refused by the answer model (no evidence); E2 measures that on dev.
+    - Spent: **71,853 gpt-oss-20b tokens, over the ~65K estimate**.
+  - **Checks:** `make lint` clean; `make typecheck` 0 errors; `make test` 503 passed. `make test-int` not run: tonight's go covered the two dev containers, not Testcontainers' throwaway ones; CI runs it.
+  - **Stopped before E2** (the user's rule: stop and report when an estimate grows). E1's judge used 60K, not 49K, so E2's judge would too, plus the second look's live re-asks. The containers were stopped as found at 20:07 UTC.
+- Validation: as above.
+- Outstanding: E2 waits for the user's go at the higher estimate; then the docs' E2 numbers, and the PR (PR 0 and PR 1 together).
+
 ### 2026-10-25: Alert delivery for production (uncommitted, branch `alertmanager`)
 
 - Changes, on `alertmanager` from main at 12502f3 (#32). The user approved a read-only plan, gave three answers (all as recommended), then wrote "Approved. Build it and report once at the end".

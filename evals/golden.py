@@ -261,6 +261,183 @@ TRAPS_TEXTUAL = [  # id, ticker, question with {year}
     ("t09", "NVDA", "How did export controls affect NVIDIA in fiscal {year}, per its 10-K?"),
     ("t10", "WMT", "What did Walmart say about e-commerce growth in its fiscal {year} 10-K?"),
 ]
+# Golden v2's test questions (user's plan, 2026-10-26): written in free phrasing before the fixes of
+# that round, and never used to tune them; their hash is in docs/activity-log.md. v1's 100
+# questions all go to v2's dev split. Facts checked against the dev database when written.
+V2_NUMERIC = [  # id, ticker, metric, fiscal year, question
+    ("n41", "V", "net_income", 2025, "How much did Visa earn in fiscal 2025?"),
+    ("n42", "HD", "revenue", 2025, "What were Home Depot's net sales for fiscal 2025?"),
+    ("n43", "PG", "operating_income", 2026,
+     "What operating income did Procter & Gamble report in its fiscal 2026 results?"),
+    ("n44", "KO", "eps_diluted", 2025, "What were Coca-Cola's diluted earnings per share in 2025?"),
+    ("n45", "UNP", "revenue", 2025, "How much revenue did Union Pacific bring in during 2025?"),
+    ("n46", "LIN", "total_assets", 2025,
+     "What did Linde's balance sheet show for total assets at the end of 2025?"),
+    ("n47", "GOOGL", "net_income", 2024, "How much did Alphabet earn in 2024?"),
+    ("n48", "TSLA", "operating_cash_flow", 2025,
+     "How much cash did Tesla generate from its operating activities in 2025?"),
+    ("n49", "NEE", "net_income", 2025, "What was NextEra Energy's profit for 2025?"),
+    ("n50", "MSFT", "research_and_development", 2026,
+     "How much did Microsoft put into research and development in fiscal 2026?"),
+    ("n51", "GS", "eps_diluted", 2025, "What diluted EPS did Goldman Sachs post for 2025?"),
+    ("n52", "WMT", "capital_expenditures", 2026,
+     "What did Walmart spend on property and equipment in fiscal 2026?"),
+]  # fmt: skip
+V2_PEERS = [  # id, ticker, ticker, metric, fiscal year, question
+    ("c16", "CVX", "COP", "revenue", 2025,
+     "Did Chevron or ConocoPhillips bring in more revenue in 2025?"),
+    ("c17", "BAC", "GS", "total_assets", 2025,
+     "Which bank had the larger balance sheet at the end of 2025, Bank of America or Goldman"
+     " Sachs?"),
+    ("c18", "PFE", "JNJ", "net_income", 2025,
+     "Was Pfizer's or Johnson & Johnson's net income bigger in 2025?"),
+    ("c19", "CAT", "UNP", "capital_expenditures", 2025,
+     "Between Caterpillar and Union Pacific, which spent more on capital expenditures in 2025?"),
+]  # fmt: skip
+V2_YEARS = [  # id, ticker, metric, fiscal year (compared with the year before), question
+    ("c20", "GOOGL", "revenue", 2025, "Did Alphabet's revenue grow in 2025 compared with 2024?"),
+    ("c21", "WMT", "operating_income", 2026,
+     "How did Walmart's operating income change from fiscal 2025 to fiscal 2026?"),
+    ("c22", "DUK", "net_income", 2025, "Was Duke Energy's net income higher in 2025 than in 2024?"),
+    ("c23", "META", "research_and_development", 2025,
+     "By how much did Meta's research and development spending change between 2024 and 2025?"),
+]  # fmt: skip
+V2_TEXTUAL = [  # id, ticker, question, fiscal years it names, expected items, keyword hints
+    (
+        "x21", "AAPL", "How does Apple describe the competition it faces in smartphones?",
+        [], ["1", "1A"], ["competition", "smartphone", "aggressive price competition"],
+    ),
+    (
+        "x22", "MSFT", "What does Microsoft say about its investment in OpenAI?",
+        [], ["1", "7", "8", "1A"], ["OpenAI", "investment", "equity method"],
+    ),
+    (
+        "x23", "NVDA", "Do a few customers account for a large share of NVIDIA's revenue?",
+        [], ["1A", "8", "7"], ["direct customer", "customer concentration", "of total revenue"],
+    ),
+    (
+        "x24", "META", "What does Meta say about the losses in Reality Labs?",
+        [], ["7", "1A", "1"], ["Reality Labs", "operating losses", "metaverse"],
+    ),
+    (
+        "x25", "VZ", "How is Verizon growing its fixed wireless access business?",
+        [], ["1", "7"], ["fixed wireless access", "broadband", "subscribers"],
+    ),
+    (
+        "x26", "AMZN", "What is Amazon spending on infrastructure for artificial intelligence?",
+        [], ["7", "1A", "1"], ["capital expenditures", "artificial intelligence", "data centers"],
+    ),
+    (
+        "x27", "TSLA", "What are Tesla's regulatory credits and who buys them?",
+        [], ["7", "8", "1"], ["regulatory credits", "other automakers", "automotive regulatory"],
+    ),
+    (
+        "x28", "HD", "How does Home Depot describe its SRS Distribution business?",
+        [], ["1", "7", "8"], ["SRS", "specialty trade distribution", "Pro customers"],
+    ),
+    (
+        "x29", "PG", "Which product categories make up Procter & Gamble's segments?",
+        [], ["1", "8"], ["Fabric & Home Care", "Beauty", "Grooming", "Health Care"],
+    ),
+    (
+        "x30", "KO", "How do currency exchange rates affect Coca-Cola's results?",
+        [], ["7", "7A", "1A"], ["foreign currency exchange rate", "U.S. dollar", "unfavorable"],
+    ),
+    (
+        "x31", "COP", "What did ConocoPhillips gain from buying Marathon Oil?",
+        [], ["1", "7", "8"], ["Marathon Oil", "acquisition", "completed"],
+    ),
+    (
+        "x32", "CVX", "What does Chevron say about its business in Venezuela?",
+        [], ["1", "7", "8", "14"], ["Venezuela", "Petropiar", "license"],
+    ),
+    (
+        "x33", "JPM", "How does JPMorgan Chase manage its liquidity risk?",
+        [], ["7", "1A", "15"], ["liquidity risk", "LCR", "HQLA"],
+    ),
+    (
+        "x34", "BAC", "How is Bank of America organized into business segments?",
+        [], ["1", "7", "8"], ["Consumer Banking", "Global Wealth & Investment Management",
+                              "Global Banking", "Global Markets"],
+    ),
+    (
+        "x35", "GS", "What has Goldman Sachs said about winding down its consumer business?",
+        [], ["1", "7", "8"], ["Apple Card", "consumer", "Platform Solutions"],
+    ),
+    (
+        "x36", "V", "How does Visa earn revenue from cross-border payments?",
+        [], ["1", "7"], ["international transaction revenues", "cross-border", "currency"],
+    ),
+    (
+        "x37", "LLY", "What is Eli Lilly doing to expand manufacturing for its incretin medicines?",
+        [], ["1", "7", "1A"], ["manufacturing capacity", "incretin", "facilities"],
+    ),
+    (
+        "x38", "UNH", "What did UnitedHealth Group say about medical cost trends in 2025?",
+        [2025], ["7", "1A"], ["medical cost trend", "medical care ratio", "elevated"],
+    ),
+    (
+        "x39", "JNJ", "Where does Johnson & Johnson's talc litigation stand?",
+        [], ["8", "1A", "3"], ["talc", "Red River Talc", "ovarian cancer"],
+    ),
+    (
+        "x40", "PFE", "What does Pfizer say about the Seagen acquisition?",
+        [], ["1", "7", "8"], ["Seagen", "acquisition", "oncology"],
+    ),
+    (
+        "x41", "CAT", "How does Caterpillar sell through its dealers?",
+        [], ["1", "1A"], ["dealers", "independently owned", "distribution"],
+    ),
+    (
+        "x42", "LMT", "Which programs make up Lockheed Martin's Aeronautics business?",
+        [], ["1", "7"], ["F-35", "Aeronautics", "F-16", "C-130"],
+    ),
+    (
+        "x43", "LIN", "How does Linde deliver industrial gases to its customers?",
+        [], ["1"], ["on-site", "merchant", "packaged gases", "distribution"],
+    ),
+    (
+        "x44", "PLD", "How large is Prologis' portfolio of logistics space?",
+        [], ["1", "2"], ["square feet", "operating portfolio", "owned and managed"],
+    ),
+    (
+        "x45", "NEE", "What are NextEra Energy's main businesses?",
+        [], ["1", "7"], ["FPL", "NEER", "Florida Power & Light", "NextEra Energy Resources"],
+    ),
+]  # fmt: skip
+V2_ABSENT = [  # id, ticker, question, fiscal years, items, hints: in scope, but not in the filing
+    (
+        "a11", "NVDA", "How many GPUs did NVIDIA ship to Microsoft in fiscal 2026?",
+        [2026], ["1", "7"], ["Microsoft", "units shipped", "GPUs"],
+    ),
+    (
+        "a12", "HD", "How many people work at Home Depot's Atlanta headquarters?",
+        [], ["1", "2"], ["Atlanta", "headquarters", "associates"],
+    ),
+    (
+        "a13", "PFE", "What price does Pfizer charge for Paxlovid in Japan?",
+        [], ["1", "7"], ["Paxlovid", "Japan", "price"],
+    ),
+    (
+        "a14", "DUK", "How many electric vehicles are in Duke Energy's own fleet?",
+        [], ["1", "7"], ["electric vehicles", "fleet", "vehicles"],
+    ),
+]  # fmt: skip
+V2_OUT_OF_SCOPE = [  # id, question, tickers
+    ("o04", "Is Microsoft a good long-term investment?", ["MSFT"]),
+    ("o05", "What will Amazon's share price be at the end of 2026?", ["AMZN"]),
+    ("o06", "Which Visa card has the best travel rewards?", ["V"]),
+]
+V2_UNTRACKED = [  # id, question, route, tickers, fiscal years, metric
+    ("u03", "What was Oracle's net income in fiscal 2025?", "numeric", ["ORCL"], [2025],
+     "net_income"),
+]  # fmt: skip
+V2_TRAPS = [  # id, ticker, route, metric, fiscal year (after the latest 10-K), question
+    ("t11", "NEE", "numeric", "revenue", 2026,
+     "What did NextEra Energy report as total revenue for fiscal 2026?"),
+    ("t12", "PG", "textual", None, 2027,
+     "What did Procter & Gamble say about pricing in its fiscal 2027 annual report?"),
+]  # fmt: skip
 # Questions per (category, kind) in dev (the rest are test), and in the ci subset (from dev).
 DEV = {
     ("numeric", "latest"): 21, ("numeric", "prior"): 7, ("textual", "passage"): 14,

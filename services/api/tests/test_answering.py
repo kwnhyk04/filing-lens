@@ -9,6 +9,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -254,15 +255,17 @@ async def run(
     evidence: RecordedEvidence | None = None,
     answer_fallback: Provider | None = None,
     first: Provider | None = None,
+    question: str | None = None,
     **options: Any,
 ) -> tuple[Answer, str, dict[str, Any]]:
-    """Answer the fixture's question; returns the answer, the joined deltas and the stats."""
+    """Answer the fixture's question, or `question`; returns the answer, the joined deltas and
+    the stats."""
     recorded = fixture(name)
     async with httpx.AsyncClient() as http:
         stats: dict[str, Any] = {}
         deltas: list[str] = []
         answer = None
-        request = AnswerRequest(question=recorded["question"])
+        request = AnswerRequest(question=question or recorded["question"])
         pipeline = answerer(recorded, http, 2, evidence, answer_fallback, first, **options)
         async for event in pipeline.events(request, stats):
             if isinstance(event, AnswerDelta):
@@ -730,6 +733,132 @@ async def test_a_textual_question_may_mention_an_untracked_company(
     replay(mocked, textual_exchanges()[1:])
     answer, _, _ = await run("textual")
     assert not answer.refused  # Apple's filing answers; Foxconn is only mentioned
+
+
+def textual_routing(**changes: Any) -> httpx.Response:
+    """The textual fixture's routing (Apple, textual, no fiscal year), changed by `changes`."""
+    body = json.loads(fixture("textual")["exchanges"][0]["body"])
+    return router_reply(**json.loads(body["choices"][0]["message"]["content"]) | changes)
+
+
+OUT_OF_SCOPE = {"route": "out_of_scope", "tickers": [], "fiscal_years": [], "metric": None}
+
+
+async def test_an_out_of_scope_route_for_a_named_company_gets_a_second_look(
+    mocked: respx.MockRouter,
+) -> None:
+    """x13, x14 and x18 (test, 2026-10-17): out of scope with no tickers, answerable."""
+    groq = mocked.post(host=GROQ)
+    groq.mock(side_effect=[textual_routing(**OUT_OF_SCOPE), textual_routing()])
+    replay(mocked, textual_exchanges()[1:])
+    answer, _, stats = await run("textual")  # "What supply chain risks does Apple describe ..."
+    assert groq.call_count == 2 and not answer.refused
+    assert "Apple Inc." in json.loads(groq.calls[1].request.content)["messages"][1]["content"]
+    assert stats["routing"]["route"] == "textual"
+
+
+async def test_a_second_look_that_stays_out_of_scope_refuses(mocked: respx.MockRouter) -> None:
+    groq = mocked.post(host=GROQ).mock(return_value=textual_routing(**OUT_OF_SCOPE))
+    gemini = mocked.post(host=GEMINI)
+    answer, _, _ = await run("textual")
+    assert groq.call_count == 2 and not gemini.called
+    assert answer.refused and "SEC filings cannot answer" in answer.answer
+
+
+async def test_advice_about_a_named_company_gets_no_second_look(mocked: respx.MockRouter) -> None:
+    groq = mocked.post(host=GROQ).mock(return_value=textual_routing(**OUT_OF_SCOPE))
+    answer, _, _ = await run("textual", question="Should I buy Apple shares this month?")
+    assert groq.call_count == 1 and answer.refused
+
+
+async def test_the_plan_takes_the_one_company_the_question_names_when_the_router_names_none(
+    mocked: respx.MockRouter,
+) -> None:
+    mocked.post(host=GROQ).mock(return_value=textual_routing(tickers=[]))
+    replay(mocked, textual_exchanges()[1:])
+    evidence = RecordedEvidence(fixture("textual")["evidence"])
+    answer, _, stats = await run("textual", evidence)
+    assert not answer.refused and stats["early_search"] is True
+    assert evidence.scopes == [Scope([320193], None)]  # the search started with the router
+    assert stats["routing"]["tickers"] == []  # the router's own reply, as the evals score it
+    assert answer.reading is not None
+    assert [company.ticker for company in answer.reading.companies] == ["AAPL"]
+
+
+class BankEvidence(RecordedEvidence):
+    """The textual recording, with Bank of America tracked too."""
+
+    async def tracked(self) -> dict[str, str]:
+        return TRACKED | {"BAC": "BANK OF AMERICA CORP /DE/"}
+
+    async def companies(self, tickers: Sequence[str]) -> dict[str, int]:
+        return {ticker: {"AAPL": 320193, "BAC": 70858}[ticker] for ticker in tickers}
+
+
+async def test_a_company_the_router_names_as_untracked_is_never_filled_from_the_guess(
+    mocked: respx.MockRouter,
+) -> None:
+    """The guess reads BAC from "Bank" (a name's first word); the router named the company."""
+    named = textual_routing(tickers=[], other_companies=["Bank of New York Mellon"])
+    mocked.post(host=GROQ).mock(return_value=named)
+    gemini = mocked.post(host=GEMINI)
+    question = "What does Bank of New York Mellon say about custody fees?"
+    evidence = BankEvidence(fixture("textual")["evidence"])
+    answer, _, _ = await run("textual", evidence, question=question)
+    assert answer.refused
+    assert answer.answer == "FilingLens has no filings for Bank of New York Mellon."
+    assert not gemini.called
+
+
+@pytest.mark.parametrize("asked", ["fiscal 2027", "FY2027"])
+async def test_a_fiscal_year_the_router_left_out_still_makes_a_time_trap(
+    mocked: respx.MockRouter, asked: str
+) -> None:
+    """t07 (dev): the router left out "fiscal 2026", and Gemini answered from fiscal 2025."""
+    mocked.post(host=GROQ).mock(return_value=textual_routing())  # Apple, no fiscal year
+    gemini = mocked.post(host=GEMINI)
+    question = f"What supply chain risks did Apple describe in its {asked} annual report?"
+    answer, _, _ = await run("textual", question=question)
+    assert answer.refused and "has filed no 10-K for fiscal 2027" in answer.answer
+    assert not gemini.called
+
+
+class TenQBalance(RecordedEvidence):
+    """The numeric recording's fact as a year-end balance taken from the next year's 10-Q."""
+
+    async def fact(
+        self, cik: int, concepts: Sequence[str], unit: str, fiscal_year: int | None, period: str
+    ) -> Fact | None:
+        fact = await super().fact(cik, concepts, unit, fiscal_year, period)
+        assert fact is not None
+        balance = {"period_start": None, "period_end": date(2025, 12, 31), "form": "10-Q"}
+        return replace(fact, fiscal_period="Q2", **balance)
+
+
+async def test_a_balance_from_a_later_10q_is_headed_with_the_period_asked_for(
+    mocked: respx.MockRouter,
+) -> None:
+    """n17 and n24 (dev): Haiku refused a fact headed "fiscal 2025 Q2" as not the year-end."""
+    replay(mocked, fixture("numeric")["exchanges"])
+    await run("numeric", TenQBalance(fixture("numeric")["evidence"]))
+    prompt = next(c.request for c in mocked.calls if c.request.url.host == GEMINI).content.decode()
+    assert "at 2025-12-31, the end of fiscal 2025" in prompt and "fiscal 2025 Q2" not in prompt
+
+
+async def test_a_citation_that_names_no_source_is_dropped_and_its_sentence_kept(
+    mocked: respx.MockRouter,
+) -> None:
+    recorded = fixture("textual")
+    replay(mocked, recorded["exchanges"][:1])
+    sources = reply_text(recorded["exchanges"][1]["body"]).split("Sources:", 1)[1]
+    text = "Apple's suppliers face disruption risks from fire and power shortages [C1][C99]."
+    stream = gemini_stream(f"{text}\n\nSources:{sources}")
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=stream)
+    regenerate = mocked.post(host=GEMINI, path=STREAM.replace("streamGenerate", "generate"))
+    answer, _, _ = await run("textual")
+    assert not regenerate.called and not answer.refused
+    assert answer.answer == text.replace("[C1][C99]", "[1]")
+    assert answer.warnings == ["Removed 1 citation(s) whose source or quote did not check out."]
 
 
 async def test_a_comparison_without_its_metric_gets_one_retry(mocked: respx.MockRouter) -> None:
