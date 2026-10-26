@@ -218,21 +218,24 @@ class Answerer:
             early = self._search_early(request, companies)
             routing = await self._route(request.question, companies, run)
             run.lap("route_ms")
-            plan = await self._plan(request, routing)
+            # The plan reads the one company the question names when the router named none;
+            # stats keep the router's own reply, which the evals score.
+            planned = router.fill(routing, router.guess(request.question, companies)[0])
+            plan = await self._plan(request, planned)
             if isinstance(plan, tuple):
                 outcome = self._refusal(*plan, run)
             else:
-                kept = early.task if early.agrees(request, routing, plan) else None
+                kept = early.task if early.agrees(request, planned, plan) else None
                 if kept is None:  # a guess the plan does not use must not hold the reranker
                     early.task.cancel()
-                async for event in self._answer(request.question, routing, plan, run, kept):
+                async for event in self._answer(request.question, planned, plan, run, kept):
                     if isinstance(event, AnswerCompleted):
                         outcome = event.answer
                     else:
                         yield event
             if outcome is None:  # _answer always completes; this keeps the type checker sure
                 raise UpstreamError("The answer ended without a result.")
-            outcome = outcome.model_copy(update={"reading": reading_of(routing, companies)})
+            outcome = outcome.model_copy(update={"reading": reading_of(planned, companies)})
             if outcome.refused:
                 yield AnswerDelta(text=outcome.answer)
             yield AnswerCompleted(answer=outcome)
@@ -307,6 +310,10 @@ class Answerer:
                 log.info("router reply broke the rules, asking again", problems=problems)
                 retry = router.retry_prompt(question, problems)
                 routing = router.resolve(await ask(provider, retry), companies)
+            if named := router.second_look(routing, question, companies):  # its reply stands
+                log.info("router sent a named company out of scope, asking again")
+                again = router.second_look_prompt(question, [companies[t] for t in named])
+                routing = router.resolve(await ask(provider, again), companies)
             return routing
 
         return await self._with_fallback("router", route, run)
@@ -330,13 +337,12 @@ class Answerer:
                 return "untracked_company", f"FilingLens has no filings for {', '.join(missing)}."
             ciks = [found[ticker] for ticker in routing.tickers]
         years = list(request.fiscal_years or routing.fiscal_years) or None
+        asked = sorted({*map(int, years or []), *router.fiscal_years(request.question)})  # t07
         names = await self._evidence.names(ciks) if ciks else {}
         latest: dict[int, int | None] = {}
         for cik in ciks or []:
             latest[cik] = await self._evidence.latest_fiscal_year(cik)
-            late = [
-                year for year in years or [] if latest[cik] is None or year > (latest[cik] or 0)
-            ]
+            late = [year for year in asked if latest[cik] is None or year > (latest[cik] or 0)]
             if late:  # a time trap: that fiscal year has no 10-K yet
                 newest = f"its latest is fiscal {latest[cik]}" if latest[cik] else "it has none yet"
                 text = f"{names.get(cik, cik)} has filed no 10-K for fiscal {late[0]}; {newest}."
@@ -421,6 +427,10 @@ class Answerer:
                     " check out."
                 )
             run.lap("regenerate_ms")
+        if checked.pruned:
+            warnings.append(
+                f"Removed {checked.pruned} citation(s) whose source or quote did not check out."
+            )
         if reply.insufficient or not checked.text:
             code, text = (
                 ("insufficient_evidence", NO_EVIDENCE)
@@ -683,6 +693,11 @@ def _fact_source(n: int, fact: Fact, year: int | None, plan: _Plan) -> drafting.
         else f"at {fact.period_end}"
     )
     fiscal = f"fiscal {year} {fact.fiscal_period}" if year else fact.fiscal_period
+    if year and fact.period_start is None and fact.fiscal_period != plan.period:
+        # A balance from a later filing's comparative (n17, n24): the period asked for, not that
+        # filing's ("fiscal 2025 Q2" for a year-end balance from a 2026 10-Q).
+        fiscal = f"at {fact.period_end}" if plan.period == "FY" else f"fiscal {year} {plan.period}"
+        period = f"the end of fiscal {year}" if plan.period == "FY" else f"at {fact.period_end}"
     return drafting.Source(
         alias=f"F{n}",
         chunk_id=None,

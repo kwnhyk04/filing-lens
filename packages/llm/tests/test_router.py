@@ -66,6 +66,43 @@ def test_the_guess_reads_named_companies_and_years_from_the_question() -> None:
     assert guess("What is a 10-K?", companies) == ([], [])  # a form name is no year
 
 
+def test_an_out_of_scope_route_for_a_named_company_gets_a_second_look() -> None:
+    """x13, x14 and x18 (test, 2026-10-17) went out of scope with no tickers; o01 and o02, about
+    a stock price and buying shares, must stay out of scope without a second call."""
+    companies = COMPANIES | {"UNH": "UNITEDHEALTH GROUP INC", "TSLA": "Tesla, Inc."}
+    out = routing(route="out_of_scope", tickers=[], fiscal_years=[], metric=None)
+    look = router.second_look
+    assert look(out, "Which businesses make up UnitedHealth Group?", companies) == ["UNH"]
+    assert look(out, "Should I buy Tesla shares this month?", companies) == []
+    assert look(out, "Will Apple's stock price go up next year?", companies) == []
+    assert look(out, "Who won the 2026 FIFA World Cup?", companies) == []  # names no company
+    assert look(routing(), "What was Apple's total revenue in fiscal 2025?", companies) == []
+    prompt = router.second_look_prompt("Which businesses make up UnitedHealth Group?", ["UNH"])
+    assert prompt.startswith("Which businesses make up UnitedHealth Group?\n")
+    assert "UNH" in prompt and "broke the rules" not in prompt
+
+
+def test_the_plan_takes_the_one_named_company_only_when_the_router_named_none() -> None:
+    blank = routing(route="textual", tickers=[], metric=None)
+    assert router.fill(blank, ["AAPL"]).tickers == ["AAPL"]
+    assert router.fill(blank, ["AAPL", "GOOGL"]).tickers == []  # two named: no guess to take
+    # "Bank of New York Mellon" reads as BAC by its first word; the router named it untracked.
+    other = blank.model_copy(update={"other_companies": ["Bank of New York Mellon"]})
+    assert router.fill(other, ["BAC"]).tickers == []
+    out = routing(route="out_of_scope", tickers=[], metric=None)
+    assert router.fill(out, ["AAPL"]).tickers == []
+    assert router.fill(routing(tickers=["GOOGL"]), ["AAPL"]).tickers == ["GOOGL"]
+
+
+def test_fiscal_years_are_read_where_the_question_writes_fiscal_or_fy() -> None:
+    read = router.fiscal_years
+    assert read("What risks did Chevron describe in its fiscal 2026 annual report?") == [2026]
+    assert read("What did Walmart say about e-commerce in its FY2027 10-K?") == [2027]
+    assert read("Apple's fiscal year 2025 against FY 2024") == [2024, 2025]
+    assert read("What happened at the Grasberg mine in September 2025?") == []
+    assert read("What are Apple's 2030 goals?") == []
+
+
 def test_a_reply_without_other_companies_still_parses() -> None:
     reply = (
         '{"route":"textual","tickers":["aapl"],"fiscal_years":[],'

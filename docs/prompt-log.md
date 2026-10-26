@@ -2,6 +2,16 @@
 
 Every change to a model prompt or response schema, newest first. Each entry gives what changed, why, the evidence and the result. Prompts are tuned on the golden set's dev split only, and the test split is never read for tuning. The judge prompt (`evals/judge.py`) is frozen with its calibration, so a change to it needs a new calibration.
 
+## 2026-10-26: Answer rule 4 states compared figures; the router's second look (answer-quality round)
+
+- **Answer prompt** (`filinglens_llm.answer.SYSTEM`, rule 4): "A sentence that compares figures states each of them." The answer prompt's hash changes; the router's and the judge's do not.
+  - Why: the only citation-precision misses on the official test run were c02's bare conclusion ("Therefore, Alphabet's total revenue was higher in fiscal 2025 [1][2]"), whose two citations the judge did not count; dev's c01, c03 and c06 have the same shape. With the figures in the sentence, the judge counted both citations (c08, dev).
+  - Validation enforces it: a sentence with a comparison or direction word that cites facts must state each fact's figure, or it is sent back.
+  - Result (E2, Claude Haiku, dev): citation precision 0.991 (E1 0.976), faithfulness 0.988 (0.938), comparison match 1.000. Only `answer_system`'s hash changed (`a72e8ef8b102` to `a4ee7c5d3686`). The free models' result comes from the official v2 run (PR 7).
+- **Router, a second look** (a user prompt, `router.second_look_prompt`; the system prompt and schema are unchanged): an out-of-scope reply for a question that names a tracked company, with no forecast or advice wording, is asked once more with the scope rule, and the second reply stands.
+  - Why: x13, x14 and x18 (test, 2026-10-17) went out of scope and were routed textual when asked again in another run.
+  - Result (E1b, live, three tries each): 7 of 21 first replies for seven answerable questions were out of scope, 1 after the second look; 5 of 11 out-of-scope replies for absent questions moved to an answering route.
+
 ## 2026-10-16: Router v2: tracked companies, ticker enum, a metric for comparisons (user decision)
 
 - **Changes** (`filinglens_llm.router`, `filinglens_api.answering`):

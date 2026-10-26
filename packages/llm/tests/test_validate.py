@@ -211,6 +211,36 @@ def test_a_sentence_holds_only_when_its_citations_and_amounts_check_out(
     )
 
 
+COMPARED = {
+    "F1": Src("402,836,000,000 USD", fact_id="f-1", value=Decimal(402_836_000_000)),
+    "F2": Src("350,018,000,000 USD", fact_id="f-2", value=Decimal(350_018_000_000)),
+    "F3": Src("14.23 USD/shares", fact_id="f-3", value=Decimal("14.23")),
+    "F4": Src("15.11 USD/shares", fact_id="f-4", value=Decimal("15.11")),
+}
+
+
+@pytest.mark.parametrize(
+    ("sentence", "problem"),
+    [
+        # c02's conclusion (test, 2026-10-17): the judge counted neither citation.
+        ("Therefore, Alphabet's revenue was higher in fiscal 2025 [F1][F2].", "[F1], [F2]"),
+        ("Alphabet's revenue rose to $402.8 billion from $350.0 billion [F1][F2].", None),
+        ("It was higher in 2025, at $402.8 billion [F1], than in 2024 [F2].", "[F2]"),
+        # Per-share figures as Gemini copies them (n09), which the amount finder does not read.
+        ("Diluted EPS fell to 14.23 USD/shares from 15.11 USD/shares [F3][F4].", None),
+        ("Home Depot's diluted earnings per share were 14.23 USD/shares [F3].", None),
+    ],
+)
+def test_a_comparison_that_cites_facts_states_their_figures(
+    sentence: str, problem: str | None
+) -> None:
+    found = check_sentence(sentence, {}, COMPARED)
+    if problem is None:
+        assert found is None
+    else:
+        assert found == f"it compares figures without stating those of {problem}"
+
+
 def test_a_changed_quote_fails_the_sentence_even_with_a_right_amount() -> None:
     quotes = {"C1": ["Net sales rose 7% to $416.2 billion."]}
     assert check_sentence("Net sales were $416.2 billion [C1].", quotes, SOURCES) == (
@@ -240,7 +270,10 @@ FIGURE_QUOTES = {**QUOTES, "C2": [TABLE]}
             [("$416 billion", "C1", 416_200_000_000), ("6%", "C1", 6)],
         ),
         ("Both say $416.2 billion [F1, C1].", [("$416.2 billion", "F1", 416_161_000_000)]),
-        ("Net sales rose 6% [F1][C1].", [("6%", "C1", 6)]),  # held by the second source only
+        (  # the percent held by the second source only; the cited fact states its figure
+            "Net sales rose 6% to $416.2 billion [F1][C1].",
+            [("6%", "C1", 6), ("$416.2 billion", "F1", 416_161_000_000)],
+        ),
         ("Net income was $3,855 million [C2].", [("$3,855 million", "C2", 3855)]),  # in millions
         ("The margin was 16.2% [F2].", [("16.2%", "F2", Decimal("0.162"))]),
         ("A net loss of $1.2 billion [F3].", [("$1.2 billion", "F3", -1_200_000_000)]),  # sign

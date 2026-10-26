@@ -226,6 +226,23 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## In Progress
 
+- [ ] (user, 2026-10-26) **Answer-quality round:** the four targets the official eval missed (false refusal 13.0%, recall@10 0.583, citation precision 0.944, TTFT p50 1.55 s). Plan approved 2026-10-26 with the user's changes; plan file `C:\Users\kwonhyuk\.claude\plans\cozy-pondering-pinwheel.md` (memory.md, the answer-quality round). Development by about 2026-10-31; Claude runs before 2026-11-10.
+  - The user's answers: golden v2 with a fresh test split (v1's 100 re-keyed, all in dev; about 55 new test questions), labeled as v1's (Claude labels, the user spot-checks a blind sample of about 50); calculation sources; corpus-v2 restored in production later; the ticker fill.
+  - [ ] **Tonight, one branch `answer-refusals`, one PR:** the reranker sweep; PR 0 (v2's test questions, hashed before any fix); PR 1 (router re-ask, ticker fill, "fiscal YYYY" time trap, a sentence another source holds, `"..." [C1]` lines, comparison figures, fact headings); runs E1, E1b, E2.
+    - [x] The sweep: no setting beat today's TinyBERT-L-2 over 50 (dev recall@10 0.613), so no PR 3 (activity-log.md, 2026-10-26).
+    - [x] PR 0: 55 questions in `evals/golden.py` (`V2_*`), sha256 `bf12aaa6...4224c`, hashed before any PR 1 code.
+    - [x] E1, the Claude baseline on dev: false refusal 0.019, citation precision 0.976, correct refusal 0.944 (t07 answered).
+    - [x] PR 1, tests first (red, then green); the offline replay of old against new validation; E1b, the router's second look, live.
+    - [x] Checks: `make lint`, `make typecheck` (0 errors), `make test` 503. `make test-int` not run (tonight's go named two dev containers, not Testcontainers); CI runs it.
+    - [x] E2 (the user's go at the higher estimate): false refusal 0.038 (x15, n24), citation precision 0.991, correct refusal 1.000, faithfulness 0.988; about $0.034 of credits, 49.7K judge tokens, 3 second looks (activity-log.md, E2).
+    - [ ] (user) n24: Haiku's "$4.1 billion" for 4,121,000,000 is 0.51% off, outside validation's 0.5% tolerance, so it was refused. Keep the rule, or accept a figure rounded at its last stated digit (could go in PR 4, which reworks validation).
+    - [ ] (user) ship as one PR: `Answers: fewer wrong refusals, and comparisons state their figures`.
+  - [x] PR 3 `reranker-budget`: not needed (the sweep found no winner).
+  - [ ] PR 4 `calculations`: calculation sources (contract, web card, judge path); E5.
+  - [ ] PR 5 `item-labels`: Items 7, 7A and 8 for the four separate financial sections; `reparse`.
+  - [ ] PR 6 `golden-v2`: re-parse dev (the user's go), v2's pools and labels (estimate first), the user's spot check, freeze, corpus-v2 (the user uploads), E8 and v2's dev floors.
+  - [ ] PR 7 `v2-results`: E9 (official, free models) and E10 (Claude); floors; README, eval card and landing page; corpus-v2 in production when the user picks.
+  - [ ] PR 2 `first-words-sooner`, after PR 7, only if time remains (E3).
 - [ ] (first after go-live; user, 2026-10-21) **Egress proxy**, as FreightAudit runs it: built on `egress-proxy` from main at c5282a1 (2026-10-25, uncommitted; plan approved the same day). The internet-facing api and tailscale containers reach the internet only through squid, so they can no longer reach services on the PC's own ports through `host.docker.internal` (deploy.md, Egress proxy).
   - The user's answers: tailscaled's log upload off; ingest stays on `default` (Pending, the ingest workers); the proxy shares the api's `IMAGE_TAG`; 256 MB; the deploy-order rule in deploy.md's step 23.
   - [x] Tests first (`infra/tests/test_egress.py`): red (no `squid.conf`, no compose wiring, no image: 6 failed, 2 errors), then green: 3 unit, 5 integration.
@@ -239,7 +256,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Tests first (`infra/tests/test_alerting.py`, `fake_receivers.py`, `test_egress.py`, the promtool cases): red (10 unit failures; 4 integration failures and 13 errors; 5 promtool cases), then green.
   - [x] Alertmanager (`infra/alertmanager/`), the mail relay (socat in the squid image), squid's ports 3130 and 3131, the internal networks `monitoring` and `alerting`, the collector and Prometheus on `data`, Grafana on 3111, Prometheus's target file, the two worker rules and `keep_firing_for`, `amtool` in `make monitoring-check`, LF for `infra/alertmanager/**`.
   - [x] Checks: `make lint`, `make typecheck` (0 errors), `make test` 482, `make test-int` 51, `make monitoring-check`, `make actionlint`, `make image-scan` on the squid image 0, gitleaks. Production untouched.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #34 (2ea7a1a, git log).
   - [ ] (user) The rollout, deploy.md steps 37 to 43, right after steps 30 to 35 in the same session, with this PR's `IMAGE_TAG`.
   - [ ] (user) A day later, step 44. Then the numbers go to the activity log, and context.md's Known Limitations lose the "until rolled out" line.
 

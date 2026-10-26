@@ -71,6 +71,47 @@ def test_a_sentence_with_an_unsupported_number_is_removed_and_markers_renumbered
     assert checked.figures == []  # the dropped sentence's amount is not listed
 
 
+SEGMENTS = (
+    "The Company's operations are conducted in three reportable segments: Walmart U.S., Walmart"
+    " International and Sam's Club U.S. The Company defines its segments as those operations"
+)
+WALMART = {
+    "C5": Source("C5", "c-5", None, "WMT Item 1", "Walmart serves customers worldwide.", None, "u"),
+    "C9": Source("C9", "c-9", None, "WMT Item 7", SEGMENTS, None, "u"),
+}
+
+
+@pytest.mark.parametrize("markers", ["[C5][C9]", "[C5, C9]"])
+def test_a_sentence_keeps_the_cited_sources_that_hold_it(markers: str) -> None:
+    """x06 (dev): C9's quote is in C9 and C5's is not, so the sentence was dropped twice and the
+    answer refused; C5 adds nothing the sentence needs."""
+    reply = read_reply(
+        "Walmart has three reportable segments: Walmart U.S., Walmart International and Sam's"
+        f" Club U.S {markers}.\n\nSources:\n"
+        '[C5] "The operations are conducted in three segments, which are further described."\n'
+        f'[C9] "{SEGMENTS.split(" The Company defines")[0]}"\n'
+    )
+    checked = check(reply, WALMART)
+    assert checked.text.endswith("and Sam's Club U.S [1].")
+    assert [alias for alias, _ in checked.citations] == ["C9"]
+    assert (checked.problems, checked.removed, checked.pruned) == ([], 0, 1)
+
+
+def test_an_amount_only_a_failing_citation_could_hold_still_drops_the_sentence() -> None:
+    reply = read_reply(
+        'Net sales were $416.2 billion [C1][F9].\n\nSources:\n[C1] "Services net sales increased"\n'
+    )
+    checked = check(reply, SOURCES)  # F9 is no source, and C1's quote holds no amount
+    assert (checked.removed, checked.pruned) == (1, 0)
+
+
+def test_a_source_line_may_end_with_its_own_marker() -> None:
+    """x17 (dev): the regeneration wrote [C1] "quote" [C1] on every source line."""
+    quote = "Services net sales increased due to higher advertising"
+    reply = read_reply(f'Services grew [C1].\n\nSources:\n[C1] "{quote}" [C1]\n')
+    assert reply.quotes == {"C1": [quote]}
+
+
 def test_each_amount_a_kept_sentence_states_comes_with_the_source_that_holds_it() -> None:
     checked = check(read_reply(REPLY), SOURCES)
     assert [(f.text, f.alias, f.number) for f in checked.figures] == [

@@ -49,6 +49,12 @@ STARTER = re.compile(
     r"(?:A|An|And|As|At|But|By|For|From|He|However|In|It|Its|On|Our|She|That|The|Their|There"
     r"|These|They|This|Those|To|We)\b"
 )
+# Comparison and direction words: such a sentence states each cited fact's figure (c02, test).
+COMPARES = re.compile(
+    r"\b(?:higher|lower|more|less|greater|larger|smaller|bigger|than|exceed\w*|increas\w*"
+    r"|decreas\w*|ris(?:e|es|en|ing)|rose|fell|fall(?:s|en|ing)?|gr[eo]w\w*|declin\w*)\b",
+    re.IGNORECASE,
+)
 TABLE_SCALES = (1, 10**3, 10**6, 10**9)  # a quoted table row may be in thousands or millions
 PERCENT_SCALES = (1, 100)  # 16.2% against a fact of 0.162
 
@@ -242,11 +248,51 @@ def check_sentence(
                 else f"[{alias}] the quote is not in chunk {source.chunk_id}"
             )
         evidence += [number for quote in good for number in numbers_in(quote)]
-    for amount, percent in find_amounts(MARKER.sub("", sentence)):
+    plain = MARKER.sub("", sentence)
+    for amount, percent in find_amounts(plain):
         if not supported(amount, percent, evidence):
             shown = f"{amount.normalize():,f}{'%' if percent else ''}"
             return f"the amount {shown} is not in the sources it cites"
+    if COMPARES.search(plain):  # the judge counts a cited fact only where its figure is stated
+        stated = [amount for amount, percent in find_amounts(plain) if not percent]
+        stated += numbers_in(plain)  # per-share figures as models copy them: "14.23 USD/shares"
+        missing = [
+            f"[{alias}]"
+            for alias in aliases
+            if (value := sources[alias].value) is not None
+            and not any(supported(amount, False, [value]) for amount in stated)
+        ]
+        if missing:
+            return f"it compares figures without stating those of {', '.join(missing)}"
     return None
+
+
+def pruned(
+    sentence: str, quotes: Mapping[str, Sequence[str]], sources: Mapping[str, Source]
+) -> tuple[str, int] | None:
+    """The sentence without the citations that cannot back it (no such source, or no quote that
+    holds), and how many went, when the rest still holds it: x06 (dev) cited C5 and C9, and only
+    C9's quote was in its chunk."""
+    chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
+
+    def holds(alias: str) -> bool:
+        source = sources.get(alias)
+        if source is None or source.chunk_id is None:
+            return source is not None
+        quoted = [Quoted(source.chunk_id, None, quote) for quote in quotes.get(alias, [])]
+        return any(citation_error(quote, chunks, ()) is None for quote in quoted)
+
+    aliases = cited(sentence)
+    bad = [alias for alias in aliases if not holds(alias)]
+    if not bad or len(bad) == len(aliases):
+        return None
+
+    def keep(marker: re.Match[str]) -> str:
+        left = [alias for alias in re.split(r"\s*,\s*", marker[1]) if alias not in bad]
+        return f"[{', '.join(left)}]" if left else ""
+
+    text = re.sub(r"\s+([.!?,;:])", r"\1", " ".join(MARKER.sub(keep, sentence).split()))
+    return (text, len(bad)) if check_sentence(text, quotes, sources) is None else None
 
 
 @dataclass(frozen=True)
