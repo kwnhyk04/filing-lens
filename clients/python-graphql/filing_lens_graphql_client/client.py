@@ -154,6 +154,9 @@ class Client(BaseClient):
                 citations {
                   chunkId
                   factId
+                  calculation {
+                    inputs
+                  }
                   quote
                   filingUrl
                 }

@@ -26,8 +26,13 @@ class AnswerAnswer(BaseModel):
 class AnswerAnswerCitations(BaseModel):
     chunk_id: Optional[str] = Field(alias="chunkId")
     fact_id: Optional[str] = Field(alias="factId")
+    calculation: Optional["AnswerAnswerCitationsCalculation"]
     quote: str
     filing_url: str = Field(alias="filingUrl")
+
+
+class AnswerAnswerCitationsCalculation(BaseModel):
+    inputs: list[int]
 
 
 class AnswerAnswerUsage(BaseModel):
@@ -58,4 +63,5 @@ class AnswerAnswerChecks(BaseModel):
 
 Answer.model_rebuild()
 AnswerAnswer.model_rebuild()
+AnswerAnswerCitations.model_rebuild()
 AnswerAnswerReading.model_rebuild()

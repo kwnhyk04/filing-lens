@@ -108,7 +108,7 @@ from filinglens_llm.providers import (
     credits_usd,
     provider,
 )
-from filinglens_llm.validate import Quoted, citation_error, cited, split_sentences
+from filinglens_llm.validate import Calculation, Quoted, citation_error, cited, split_sentences
 from filinglens_retrieval import Ranking, Scope, search
 from filinglens_retrieval.facts import latest_fiscal_year
 from filinglens_telemetry import configure_logging
@@ -262,6 +262,7 @@ class Src:
     heading: str
     text: str
     value: Decimal | None
+    calculation: Calculation | None = None  # never rebuilt: K1's lines come with its citation
 
 
 def now() -> str:
@@ -602,7 +603,7 @@ def scores(
             any(
                 alias in sources
                 and (
-                    sources[alias].fact_id is not None
+                    sources[alias].chunk_id is None  # a fact or a calculation needs no quote
                     or any(passes(alias, q) for q in last.quotes.get(alias, []))
                 )
                 for alias in cited(sentence)
@@ -616,7 +617,8 @@ def scores(
 
 
 async def load_sources(engine: AsyncEngine, aliases: Mapping[str, str]) -> dict[str, Src]:
-    """An answer's sources by alias (C1, F1), read back from the database."""
+    """An answer's sources by alias (C1, F1), read back from the database; a calculation (K1)
+    has no row, and its lines come with the answer's citation."""
     chunk_ids = [ref for alias, ref in aliases.items() if alias[0] == "C"]
     fact_ids = [int(ref) for alias, ref in aliases.items() if alias[0] == "F"]
     chunk_query = (
@@ -650,6 +652,8 @@ async def load_sources(engine: AsyncEngine, aliases: Mapping[str, str]) -> dict[
                 f"{fact.concept}) | {period} | {fact.form} filed {fact.filed_on}"
             )
             found[alias] = Src(None, ref, heading, f"{fact.value:,f} {fact.unit}", fact.value)
+        elif alias[0] == "K":
+            found[alias] = Src(None, None, "Calculated by FilingLens", "", None)
     return found
 
 
@@ -807,6 +811,11 @@ class AnswerSuite:
         by_id = {source.chunk_id or source.fact_id: source for source in sources.values()}
         cites: dict[int, judge.Cited] = {}
         for n, citation in enumerate(answer.citations, 1):
+            if (calculation := citation.calculation) is not None:  # its lines are its quote
+                inputs = " and ".join(map(str, calculation.inputs))
+                heading = f"Calculated by FilingLens from sources {inputs}"
+                cites[n] = judge.Cited(heading, citation.quote, citation.quote)
+                continue
             source = by_id.get(citation.chunk_id or citation.fact_id)
             if source is None:
                 return {"error": f"citation {n} is not among the answer's sources"}

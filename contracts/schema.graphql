@@ -19,6 +19,14 @@ type Answer {
   checks: [FigureCheck!]!
 }
 
+"""Arithmetic FilingLens did on two cited facts of one unit."""
+type Calculation {
+  """
+  The citations of the two facts it was calculated from, numbered from 1.
+  """
+  inputs: [Int!]!
+}
+
 type Chunk {
   id: ID!
   sectionId: ID!
@@ -49,10 +57,15 @@ type ChunkEdge {
   node: Chunk!
 }
 
-"""Exactly one of chunkId (filing text) and factId (XBRL fact) is set."""
+"""
+Exactly one of chunkId (filing text), factId (XBRL fact) and calculation is set.
+"""
 type Citation {
   chunkId: ID
   factId: ID
+
+  """Set for arithmetic on two cited facts; its quote holds the result."""
+  calculation: Calculation
   quote: String!
   filingUrl: String!
 }

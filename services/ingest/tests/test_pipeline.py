@@ -8,6 +8,7 @@ and a rerun downloads no document again. The fake SEC serves a trimmed real Appl
 """
 
 import asyncio
+import gzip
 import json
 import os
 import socket
@@ -35,14 +36,14 @@ from kombu import Connection, Producer
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from redis import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 import filinglens_sec_client
 from filinglens_api.main import app
 from filinglens_core import queues
-from filinglens_core.errors import NotFoundError, RateLimitedError, UpstreamError
+from filinglens_core.errors import FilingLensError, NotFoundError, RateLimitedError, UpstreamError
 from filinglens_core.settings import EMBEDDING_MODELS
 from filinglens_db.models import (
     Chunk,
@@ -60,6 +61,7 @@ from filinglens_db.models import (
     Section,
 )
 from filinglens_ingest import topology
+from filinglens_ingest.reparse import queue_embed, reparse
 from filinglens_ingest.replay import replay
 from filinglens_sec_client import (
     COOL_OFF_KEY,
@@ -763,6 +765,52 @@ def test_facts_load_once_and_give_each_filing_its_fiscal_period(
         APPLE_10K: (2025, "FY", FiscalSource.COMPANYFACTS),
         APPLE_10Q: (2026, "Q1", FiscalSource.PERIOD_OF_REPORT),
     }
+
+
+def test_reparse_takes_todays_sections_from_the_sec_cache_and_queues_embed(
+    db: str, broker: Connection, rabbitmq_url: str, tmp_path: Path
+) -> None:
+    """NVDA's trimmed 10-K, stored as the parser left it before Item 8 took its statements, is
+    parsed again from the SEC cache alone; embed is left to its worker."""
+    cache = tmp_path / "sec"
+    folder = cache / "Archives" / "edgar" / "data" / str(CIK) / ACCESSION.replace("-", "")
+    folder.mkdir(parents=True)
+    (folder / "one-10k.htm.gz").write_bytes(
+        gzip.compress((FIXTURES / "nvda-10k-2026.htm").read_bytes())
+    )
+
+    async def work(engine: AsyncEngine) -> tuple[int, list[str], list[str], FilingStatus | None]:
+        filing_id = await add_filing(engine, await add_job(engine, discovered=True))
+        async with engine.begin() as connection:  # an old parse: Item 15 holds the statements
+            section_id = await connection.scalar(
+                insert(Section)
+                .values(filing_id=filing_id, item="15", title="Exhibits", char_start=0, char_end=8)
+                .returning(Section.id)
+            )
+            row = {"id": "old", "section_id": section_id, "char_start": 0, "token_count": 3}
+            await connection.execute(insert(Chunk).values(row | {"text": "Item 15."}))
+            indexed = update(Filing).where(Filing.id == filing_id)
+            await connection.execute(
+                indexed.values(status=FilingStatus.INDEXED, fiscal_year=2026, fiscal_period="FY")
+            )
+        with pytest.raises(FilingLensError, match="not in the SEC cache"):
+            await reparse(engine, ACCESSION, tmp_path / "empty")  # and nothing changed
+        async with engine.connect() as connection:
+            assert await connection.scalar(select(func.count()).select_from(Chunk)) == 1
+        assert await reparse(engine, ACCESSION, cache) == filing_id
+        async with engine.connect() as connection:
+            query = select(Section.item).where(Section.filing_id == filing_id)
+            items = (await connection.execute(query.order_by(Section.char_start))).scalars()
+            chunks = (await connection.execute(select(Chunk.id))).scalars().all()
+            status = await connection.scalar(select(Filing.status).where(Filing.id == filing_id))
+        return filing_id, list(items), list(chunks), status
+
+    filing_id, items, chunks, status = run(db, work)
+    assert items[-3:] == ["15", "8", "16"]
+    assert chunks and "old" not in chunks  # the old chunks went with their sections
+    assert status == FilingStatus.PARSED  # until embed indexes it again
+    queue_embed(rabbitmq_url, [filing_id])
+    assert queue_state(broker, queues.EMBED) == (1, 0)
 
 
 def test_an_unparseable_filing_fails_alone_and_a_rerun_downloads_no_document(

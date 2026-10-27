@@ -126,12 +126,32 @@ class Usage:
     cost_usd: float
 
 
-@strawberry.type(description="Exactly one of chunkId (filing text) and factId (XBRL fact) is set.")
+@strawberry.type(description="Arithmetic FilingLens did on two cited facts of one unit.")
+class Calculation:
+    inputs: list[int] = strawberry.field(
+        description="The citations of the two facts it was calculated from, numbered from 1."
+    )
+
+
+@strawberry.type(
+    description="Exactly one of chunkId (filing text), factId (XBRL fact) and calculation is set."
+)
 class Citation:
     chunk_id: strawberry.ID | None
     fact_id: strawberry.ID | None
+    calculation: Calculation | None = strawberry.field(
+        description="Set for arithmetic on two cited facts; its quote holds the result."
+    )
     quote: str
     filing_url: str
+
+    @classmethod
+    def of(cls, citation: schemas.Citation) -> "Citation":
+        calculation = citation.calculation
+        return cls(
+            **citation.model_dump(exclude={"calculation"}),
+            calculation=Calculation(inputs=calculation.inputs) if calculation else None,
+        )
 
 
 @strawberry.type
@@ -193,7 +213,7 @@ class Answer:
         reading = answer.reading
         return cls(
             answer=answer.answer,
-            citations=[Citation(**citation.model_dump()) for citation in answer.citations],
+            citations=[Citation.of(citation) for citation in answer.citations],
             degraded=answer.degraded,
             usage=Usage(**answer.usage.model_dump()),
             refused=answer.refused,

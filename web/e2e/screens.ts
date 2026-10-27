@@ -44,6 +44,11 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
   "ask-numeric": (page) => answered(page, question("n01"), 1, "AAPL"),
   "ask-textual": (page) => answered(page, question("x04"), 1, "AMZN"),
   "ask-comparison": (page) => answered(page, question("c12"), 4, "TSLA"),
+  "ask-calculation": async (page) => {
+    await answered(page, "e2e: calculated", 1, "GOOGL");
+    await page.getByRole("link", { name: /^Source 3: Calculated/ }).click(); // the [3] marker opens its card
+    await expect(page.locator("#source-3")).toBeInViewport();
+  },
   "ask-warnings": (page) => answered(page, "e2e: rewritten", 2, "NVDA"),
   "ask-refusal": async (page) => {
     await ask(page, question("o02"));

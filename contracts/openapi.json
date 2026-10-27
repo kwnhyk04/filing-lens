@@ -1453,6 +1453,26 @@
         ],
         "title": "AnswerRequest"
       },
+      "Calculation": {
+        "properties": {
+          "inputs": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Inputs",
+            "description": "The citations of the two facts it was calculated from, numbered from 1."
+          }
+        },
+        "type": "object",
+        "required": [
+          "inputs"
+        ],
+        "title": "Calculation",
+        "description": "Arithmetic FilingLens did on two cited facts of one unit; the answer model computed none."
+      },
       "Citation": {
         "properties": {
           "chunk_id": {
@@ -1477,6 +1497,16 @@
             ],
             "title": "Fact Id"
           },
+          "calculation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Calculation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "quote": {
             "type": "string",
             "title": "Quote"
@@ -1491,11 +1521,12 @@
         "required": [
           "chunk_id",
           "fact_id",
+          "calculation",
           "quote",
           "filing_url"
         ],
         "title": "Citation",
-        "description": "Exactly one source: chunk_id for filing text, fact_id for an XBRL fact."
+        "description": "Exactly one source: chunk_id for filing text, fact_id for an XBRL fact, calculation for\narithmetic on two cited facts (its quote holds the values, difference and change)."
       },
       "Company": {
         "properties": {

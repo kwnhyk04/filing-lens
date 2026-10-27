@@ -6,6 +6,7 @@ import json
 from collections import Counter
 from collections.abc import AsyncIterator, Mapping
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -18,7 +19,7 @@ from evals.calls import Cache, Call, Recorded, Stop, patiently
 from evals.harness import EvalSettings, answer_path, code_version, refusal_sweep, routed
 from filinglens_api import answering
 from filinglens_api.answering import PostgresEvidence
-from filinglens_api.schemas import Answer
+from filinglens_api.schemas import Answer, Calculation, Citation, Usage
 from filinglens_core.errors import AiUnavailableError, RateLimitedError
 from filinglens_core.settings import ApiSettings, load_settings
 from filinglens_llm.providers import Completion
@@ -42,6 +43,7 @@ class Scripted:
     def __init__(self, *script: Completion | Exception) -> None:
         self.script = list(script)
         self.calls = 0
+        self.prompts: list[str] = []  # each user prompt it was sent
 
     def _next(self) -> Completion:
         self.calls += 1
@@ -53,6 +55,7 @@ class Scripted:
     async def complete(
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
     ) -> Completion:
+        self.prompts.append(user)
         return self._next()
 
     async def stream(
@@ -195,6 +198,53 @@ async def test_a_number_without_a_source_errors_before_any_judge_call(tmp_path: 
     )
     assert found == {"error": "sentence 2: given sources [2, 3], cited [2, 3, 12]", "calls": []}
     assert suite.judge.calls == 0  # no judge call spent
+
+
+K1_TEXT = (
+    "Fiscal 2024: 391,035,000,000 USD. Fiscal 2025: 416,161,000,000 USD. Fiscal 2025 is higher by"
+    " 25,126,000,000 USD, 6.43% more than fiscal 2024."
+)
+C09_SOURCES = {  # load_sources: two facts, and the calculation, whose lines come with its citation
+    "F1": harness.Src(None, "37437", "2025", "416,161,000,000 USD", Decimal(416_161_000_000)),
+    "F2": harness.Src(None, "37409", "2024", "391,035,000,000 USD", Decimal(391_035_000_000)),
+    "K1": harness.Src(None, None, "Calculated by FilingLens", "", None),
+}
+
+
+async def test_the_judge_reads_a_calculation_under_the_numbers_of_its_facts(
+    tmp_path: Path,
+) -> None:
+    url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+    answer = Answer(
+        answer="Revenue rose from $391.0 billion to $416.2 billion, up $25.1 billion [1][2][3].",
+        citations=[
+            Citation(fact_id="37409", quote="391,035,000,000 USD", filing_url=url),
+            Citation(fact_id="37437", quote="416,161,000,000 USD", filing_url=url),
+            Citation(calculation=Calculation(inputs=[1, 2]), quote=K1_TEXT, filing_url=url),
+        ],
+        degraded=False,
+        usage=Usage(input_tokens=1, output_tokens=1, cost_usd=0),
+    )
+    verdicts = [{"source": n, "supports": True} for n in (1, 2, 3)]
+    rows = [{"sentence": 1, "supported": "yes", "citations": verdicts}]
+    suite = SimpleNamespace(
+        judge=Scripted(reply(json.dumps({"sentences": rows}))), cache=Cache(tmp_path / "c.jsonl")
+    )
+    question = {"id": "c09", "question": "How did Apple's revenue change in fiscal 2025?"}
+    found = await harness.AnswerSuite.judged(
+        cast(harness.AnswerSuite, suite), question, answer, C09_SOURCES
+    )
+    assert found["precise"] == [3, 3]
+    prompt = suite.judge.prompts[0]
+    assert f'[3] Calculated by FilingLens from sources 1 and 2\nQuote given: "{K1_TEXT}"' in prompt
+
+
+def test_coverage_counts_a_sentence_a_calculation_holds() -> None:
+    text = 'Net sales rose $25.1 billion [K1].\n\nSources:\n[K1] "25,126,000,000 USD"'
+    calls = [Call("primary", "fake:model", "k", False, 10, 5, 0.5, 0.1, False, text)]
+    question = {"category": "comparison", "facts": [], "routing": {"route": None}}
+    found = harness.scores(question, None, None, calls, C09_SOURCES, {"AAPL"})
+    assert (found["coverage"], found["draft_quotes"]) == ([1, 1], [0, 0])
 
 
 def test_router_scoring_skips_what_the_gold_leaves_open() -> None:

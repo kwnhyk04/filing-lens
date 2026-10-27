@@ -11,6 +11,7 @@ import {
   locateQuote,
   periodEnded,
   readingChips,
+  sourceLabel,
   splitFigures,
   splitMarkers,
   timingLine,
@@ -103,8 +104,8 @@ test("timings: no draft text means no first words, and a refusal counts no sourc
 const CITED: Answer = {
   answer: "Revenue was $1.2 billion [1], up 5% [2].",
   citations: [
-    { chunk_id: "c-1", fact_id: null, quote: "$1.2 billion", filing_url: "https://www.sec.gov/a" },
-    { chunk_id: null, fact_id: "f-1", quote: "5%", filing_url: "https://www.sec.gov/b" },
+    { chunk_id: "c-1", fact_id: null, calculation: null, quote: "$1.2 billion", filing_url: "https://www.sec.gov/a" },
+    { chunk_id: null, fact_id: "f-1", calculation: null, quote: "5%", filing_url: "https://www.sec.gov/b" },
   ],
   degraded: false,
   refused: false,
@@ -189,6 +190,31 @@ test("number checks: a fact's label and value, a passage's name and the number a
   ]); // before the sources load
   assert.equal(checksTitle(CHECKED), "Numbers checked against their sources");
   assert.equal(checksTitle({ ...CHECKED, checks: CHECKED.checks.slice(0, 1) }), "Numbers checked against XBRL data");
+});
+
+// c02 with a calculation (K1): FilingLens's arithmetic on its two cited facts.
+const CALCULATED = {
+  answer: "Alphabet's $402.8 billion was $201.9 billion higher than Meta's $201.0 billion [1][2][3].",
+  citations: [
+    { chunk_id: null, fact_id: "380121", calculation: null, quote: "402,836,000,000 USD", filing_url: "https://www.sec.gov/a" },
+    { chunk_id: null, fact_id: "206185", calculation: null, quote: "200,966,000,000 USD", filing_url: "https://www.sec.gov/b" },
+    {
+      chunk_id: null,
+      fact_id: null,
+      calculation: { inputs: [1, 2] },
+      quote: "Alphabet Inc. (GOOGL) is higher by 201,870,000,000 USD, 100.45% more than Meta Platforms, Inc. (META).",
+      filing_url: "https://www.sec.gov/b",
+    },
+  ],
+  checks: [{ text: "$201.9 billion", citation: 3, source_value: "201,870,000,000" }],
+} as unknown as Answer;
+
+test("a calculation reads as FilingLens's arithmetic on the sources it names, with no lookup", () => {
+  assert.equal(sourceLabel(CALCULATED.citations[2]), "Calculated by FilingLens from sources 1 and 2");
+  assert.deepEqual(figureRows(CALCULATED, undefined), [
+    { figure: "Calculated by FilingLens from sources 1 and 2", written: "$201.9 billion", reported: "201,870,000,000, calculated" },
+  ]);
+  assert.equal(checksTitle(CALCULATED), "Numbers checked against XBRL data"); // arithmetic on XBRL facts
 });
 
 test("the timing line says every number was checked when the answer has checks", () => {

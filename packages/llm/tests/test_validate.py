@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from filinglens_llm.validate import (
+    Calculation,
     amounts_match,
     check_sentence,
     citation_error,
@@ -176,6 +177,7 @@ class Src:
     chunk_id: str | None = None
     fact_id: str | None = None
     value: Decimal | None = None
+    calculation: Calculation | None = None
 
 
 SOURCES = {
@@ -239,6 +241,124 @@ def test_a_comparison_that_cites_facts_states_their_figures(
         assert found is None
     else:
         assert found == f"it compares figures without stating those of {problem}"
+
+
+CASH = {  # n24 (dev, E2): Haiku's "$4.1 billion" is 0.51% off, outside the 0.5% tolerance
+    "F1": Src("4,121,000,000 USD", fact_id="f-1", value=Decimal(4_121_000_000)),
+    "C1": Src("(in millions)\nCash and cash equivalents | $ | 4,121 | $ | 2,483", chunk_id="c-1"),
+}
+
+
+@pytest.mark.parametrize(
+    ("sentence", "problem"),
+    [
+        ("Lockheed Martin held $4.1 billion in cash at the end of fiscal 2025 [F1].", None),
+        ("It held about $4 billion in cash [F1].", None),
+        ("It held $4.1 billion in cash [C1].", None),  # a table row in millions
+        ("It held $4.2 billion in cash [F1].", "the amount 4,200,000,000 is not in the sources"),
+        ("It held $5 billion in cash [F1].", "the amount 5,000,000,000 is not in the sources"),
+        ("It held $4.2 billion in cash [C1].", "the amount 4,200,000,000 is not in the sources"),
+    ],
+)
+def test_an_amount_passes_as_its_source_rounded_at_the_amounts_last_digit(
+    sentence: str, problem: str | None
+) -> None:
+    found = check_sentence(sentence, {"C1": ["Cash and cash equivalents | $ | 4,121"]}, CASH)
+    assert found == problem or (
+        problem is not None and found is not None and found.startswith(problem)
+    )
+
+
+# c09 and c13 (dev): one company's two fiscal years, F1 the later, K1 from the earlier year.
+APPLE = {
+    "F1": Src("416,161,000,000 USD", fact_id="f-1", value=Decimal(416_161_000_000)),
+    "F2": Src("391,035,000,000 USD", fact_id="f-2", value=Decimal(391_035_000_000)),
+    "K1": Src(
+        "From fiscal 2024 to fiscal 2025: an increase of 25,126,000,000 USD, or 6.43%.",
+        calculation=Calculation(("F2", "F1"), Decimal(25_126_000_000), Decimal("6.43"), True),
+    ),
+}
+UNITEDHEALTH = {
+    "F1": Src("12,056,000,000 USD", fact_id="f-1", value=Decimal(12_056_000_000)),
+    "F2": Src("14,405,000,000 USD", fact_id="f-2", value=Decimal(14_405_000_000)),
+    "K1": Src(
+        "From fiscal 2024 to fiscal 2025: a decrease of 2,349,000,000 USD, or 16.31%.",
+        calculation=Calculation(("F2", "F1"), Decimal(-2_349_000_000), Decimal("-16.31"), True),
+    ),
+}
+# c08 (dev): two companies, one year; K1 names the lower first, so the higher is the second.
+PEERS = {
+    "F1": Src("716,924,000,000 USD", fact_id="f-1", value=Decimal(716_924_000_000)),
+    "F2": Src("680,985,000,000 USD", fact_id="f-2", value=Decimal(680_985_000_000)),
+    "K1": Src(
+        "Amazon is higher by 35,939,000,000 USD, 5.28% more than Walmart.",
+        calculation=Calculation(("F2", "F1"), Decimal(35_939_000_000), Decimal("5.28"), False),
+    ),
+}
+EPS = {  # review finding: K1's difference 0.52 must not back "52%"
+    "F1": Src("6.11 USD/shares", fact_id="f-1", value=Decimal("6.11")),
+    "F2": Src("6.63 USD/shares", fact_id="f-2", value=Decimal("6.63")),
+    "K1": Src("", calculation=Calculation(("F1", "F2"), Decimal("0.52"), Decimal("8.51"), True)),
+}
+LOSS = {  # a net loss from -1.0 to -2.2 billion: "the loss grew" is right, though the value fell
+    "F1": Src("-2,200,000,000 USD", fact_id="f-1", value=Decimal(-2_200_000_000)),
+    "F2": Src("-1,000,000,000 USD", fact_id="f-2", value=Decimal(-1_000_000_000)),
+    "K1": Src("", calculation=Calculation(("F2", "F1"), Decimal(-1_200_000_000), None, True)),
+}
+C09 = "Apple's net sales were $416.2 billion in fiscal 2025 and $391.0 billion in fiscal 2024, "
+C13 = (
+    "UnitedHealth's net income {} $2.3 billion, from $14.4 billion in fiscal 2024 to $12.1 billion"
+)
+
+
+@pytest.mark.parametrize(
+    ("sources", "sentence", "problem"),
+    [
+        (APPLE, C09 + "an increase of about $25.1 billion [F1][F2][K1].", None),
+        (APPLE, C09 + "up $25.1 billion, or 6.4% [F1][F2][K1].", None),
+        (UNITEDHEALTH, C13.format("fell by") + " in fiscal 2025 [F1][F2][K1].", None),
+        (PEERS, "Amazon's $716.9 billion was $35.9 billion, or 5.3%, higher than Walmart's"
+         " $681.0 billion [F1][F2][K1].", None),
+        (PEERS, "Walmart's $681.0 billion was $35.9 billion lower than Amazon's $716.9 billion"
+         " [F1][F2][K1].", None),  # two companies: no direction word is checked
+        # c09's draft (dev, E2): without K1 the difference is in no source.
+        (APPLE, C09 + "an increase of about $25.1 billion [F1][F2].",
+         "the amount 25,100,000,000 is not in the sources it cites"),
+        (APPLE, C09 + "an increase of about $26.1 billion [F1][F2][K1].",
+         "the amount 26,100,000,000 is not in the sources it cites"),
+        (APPLE, C09 + "a decrease of $25.1 billion [F1][F2][K1].",
+         "it says the figure fell, but [K1] shows a rise"),
+        (UNITEDHEALTH, C13.format("rose by") + " in fiscal 2025 [F1][F2][K1].",
+         "it says the figure rose, but [K1] shows a fall"),
+        (APPLE, "Net sales increased by about $25.1 billion [K1].",
+         "[K1] is cited without [F2] and [F1], the facts it was calculated from"),
+        (APPLE, "Net sales of $416.2 billion were up $25.1 billion [F1][K1].",
+         "[K1] is cited without [F2], the facts it was calculated from"),
+        (APPLE, C09 + "up $25.1 billion [F1][F2][K2].", "[K2] is not one of the sources"),
+        # Review findings: a figure matches only amounts of its own kind, as stated, and a loss
+        # has no rise or fall word to check.
+        (APPLE, C09 + "up $6.4 billion [F1][F2][K1].",
+         "the amount 6,400,000,000 is not in the sources it cites"),
+        (EPS, "Diluted EPS rose 52%, from 6.11 to 6.63 USD/shares [F1][F2][K1].",
+         "the amount 52% is not in the sources it cites"),
+        (LOSS, "The net loss grew by $1.2 billion, from $1.0 billion in fiscal 2024 to $2.2 billion"
+         " [F1][F2][K1].", None),
+    ],
+)  # fmt: skip
+def test_a_calculation_holds_the_difference_when_cited_with_both_its_facts(
+    sources: dict[str, Src], sentence: str, problem: str | None
+) -> None:
+    assert check_sentence(sentence, {}, sources) == problem
+
+
+def test_an_amount_k1_holds_names_k1() -> None:
+    sentence = C09 + "up $25.1 billion, or 6.4% [F1][F2][K1]."
+    assert [(f.text, f.alias, f.number) for f in figures(sentence, {}, APPLE)] == [
+        ("$416.2 billion", "F1", 416_161_000_000),
+        ("$391.0 billion", "F2", 391_035_000_000),
+        ("$25.1 billion", "K1", 25_126_000_000),
+        ("6.4%", "K1", Decimal("6.43")),
+    ]
 
 
 def test_a_changed_quote_fails_the_sentence_even_with_a_right_amount() -> None:

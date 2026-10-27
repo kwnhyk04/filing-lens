@@ -215,6 +215,47 @@ def test_answer_cites_a_fact_or_a_chunk(user: AuthenticatedClient) -> None:
     ]
 
 
+CALCULATED = schemas.Answer(
+    answer="Revenue rose from $90.0 billion to $100.0 billion, up $10.0 billion [1][2][3].",
+    citations=[
+        schemas.Citation(fact_id="f-1", quote="90,000,000,000 USD", filing_url="https://a.test/"),
+        schemas.Citation(fact_id="f-2", quote="100,000,000,000 USD", filing_url="https://a.test/"),
+        schemas.Citation(
+            calculation=schemas.Calculation(inputs=[1, 2]),
+            quote="Fiscal 2025 is higher by 10,000,000,000 USD, 11.11% more than fiscal 2024.",
+            filing_url="https://a.test/",
+        ),
+    ],
+    degraded=False,
+    usage=schemas.Usage(input_tokens=1, output_tokens=1, cost_usd=0),
+    checks=[schemas.FigureCheck(text="$10.0 billion", citation=3, source_value="10,000,000,000")],
+)
+
+
+def test_a_calculation_citation_names_its_two_facts_in_rest_and_graphql(
+    user: AuthenticatedClient, graphql: GraphqlClient, fake: Any
+) -> None:
+    fake.given = CALCULATED
+    rest = create_answer.sync(client=user, body=QUESTION)
+    assert isinstance(rest, Answer)
+    calculated = rest.citations[2]
+    assert (calculated.chunk_id, calculated.fact_id) == (None, None)
+    assert calculated.calculation and calculated.calculation.inputs == [1, 2]
+    assert rest.citations[0].calculation is None
+    graph = graphql.answer(question="How did revenue change?").answer.citations[2]
+    assert graph.calculation and graph.calculation.inputs == [1, 2]
+    assert graph.quote.startswith("Fiscal 2025 is higher")
+
+
+@pytest.mark.parametrize(
+    "sources",
+    [{}, {"fact_id": "f-1", "calculation": schemas.Calculation(inputs=[1, 2])}],
+)
+def test_a_citation_names_exactly_one_source(sources: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="exactly one of chunk_id, fact_id and calculation"):
+        schemas.Citation(quote="q", filing_url="https://a.test/", **sources)
+
+
 def test_streamed_answer_ends_with_the_whole_answer(user: AuthenticatedClient) -> None:
     plain = create_answer.sync(client=user, body=QUESTION)
     assert isinstance(plain, Answer)

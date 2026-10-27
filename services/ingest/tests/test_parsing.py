@@ -4,13 +4,16 @@ The fixtures are the companies' 10-Ks from EDGAR, cut to item headings and the f
 each (aapl-10k-2025.htm: 1,520,318 to 58,128 bytes; fcx-10k-2025.htm: 6,347,588 to 184,158).
 """
 
+import gzip
+import json
 from pathlib import Path
 
 import pytest
 
-from filinglens_ingest.parsing import Parsed, ParseError, Section, parse_filing
+from filinglens_ingest.parsing import Parsed, ParseError, Section, decode, parse_filing
 
 FIXTURES = Path(__file__).with_name("fixtures")
+SEC_CACHE = Path(__file__).parents[3] / ".cache" / "sec" / "Archives" / "edgar" / "data"
 TEN_K_ITEMS = [
     *("1", "1A", "1B", "1C", "2", "3", "4", "5", "6", "7", "7A", "8"),
     *("9", "9A", "9B", "9C", "10", "11", "12", "13", "14", "15", "16"),
@@ -92,6 +95,87 @@ def test_a_filing_without_any_required_item_fails_with_the_reason() -> None:
         parse_filing(document, "10-K")
     with pytest.raises(ParseError, match="only 10-K and 10-Q"):
         parse_filing(document, "8-K")
+
+
+# Trimmed 10-Ks whose Items 7 or 8 only point to a separate financial section inside a later item
+# (memory.md, 2026-10-18): that section's own headings take the items, in one range each.
+SEPARATE = [
+    (
+        "jpm-10k-2025.htm",
+        "15",
+        {
+            "7": "Management\N{RIGHT SINGLE QUOTATION MARK}s discussion and analysis\n",
+            "8": "Report of Independent Registered Public Accounting Firm\n",
+        },
+    ),
+    (
+        "cvx-10k-2025.htm",
+        "14",
+        {
+            "7": "Management\N{RIGHT SINGLE QUOTATION MARK}s Discussion and Analysis of Financial"
+            " Condition and Results of Operations\n",
+            "8": "Management\N{RIGHT SINGLE QUOTATION MARK}s Responsibility for Financial"
+            " Statements\n",
+        },
+    ),
+    ("nvda-10k-2026.htm", "15", {"8": "Report of Independent Registered Public Accounting Firm\n"}),
+    ("pld-10k-2025.htm", "16", {"8": "REPORT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM\n"}),
+]
+
+
+@pytest.mark.parametrize(("name", "holder", "moved"), SEPARATE)
+def test_a_separate_financial_section_takes_the_items_that_point_to_it(
+    name: str, holder: str, moved: dict[str, str]
+) -> None:
+    parsed = parse_filing((FIXTURES / name).read_text(encoding="utf-8"), "10-K")
+    items = [s.item for s in parsed.sections]
+    assert parsed.missing == [] and len(items) == len(set(items))  # one range per item
+    after = items.index(holder) + 1
+    assert items[after : after + len(moved)] == list(moved)  # cut from the item that held them
+    for item, opening in moved.items():
+        assert text(parsed, item).startswith(opening)
+    heads = [parsed.text[s.start : s.start + 8].upper() for s in parsed.sections]
+    assert not any(head.startswith(f"ITEM {item}.") for item in moved for head in heads)
+
+
+@pytest.mark.parametrize(
+    ("name", "risk"),
+    [
+        ("jpm-10k-2025.htm", "MARKET RISK MANAGEMENT"),
+        ("cvx-10k-2025.htm", "Financial and Derivative"),
+    ],
+)
+def test_market_risk_inside_the_discussion_stays_in_item_7_and_7a_stays_the_pointer(
+    name: str, risk: str
+) -> None:
+    parsed = parse_filing((FIXTURES / name).read_text(encoding="utf-8"), "10-K")
+    assert f"\n{risk}" in text(parsed, "7")
+    assert text(parsed, "7A").startswith(
+        "Item 7A. Quantitative and Qualitative Disclosures About Market Risk"
+    )
+
+
+def test_a_short_item_8_with_no_financial_section_after_it_stays_as_it_is() -> None:
+    document = page(
+        "<p>Item 1. Business</p><p>Widgets.</p>",
+        "<p>Item 1A. Risk Factors</p><p>Risks.</p>",
+        "<p>Item 7. MD&amp;A</p><p>Sales grew.</p>",
+        "<p>Item 8. Financial Statements</p><p>See the annual report to shareholders.</p>",
+        "<p>Item 15. Exhibits</p><p>Exhibit 13. Annual report.</p>",
+    )
+    parsed = parse_filing(document, "10-K")
+    assert [s.item for s in parsed.sections] == ["1", "1A", "7", "8", "15"]
+
+
+@pytest.mark.skipif(not SEC_CACHE.is_dir(), reason="needs the local SEC cache; CI has none")
+def test_the_other_cached_10ks_keep_their_section_ranges() -> None:
+    """The 26 cached golden-set 10-Ks without a separate financial section, as main's parser cut
+    them on 2026-10-27 (section-ranges.json): the item labels fix changes none of them."""
+    pinned = json.loads((FIXTURES / "section-ranges.json").read_text(encoding="utf-8"))
+    for folder, ranges in pinned.items():
+        document = next(SEC_CACHE.glob(f"*/{folder}/*.htm.gz")).read_bytes()
+        parsed = parse_filing(decode(gzip.decompress(document)), "10-K")
+        assert [[s.item, s.start, s.end] for s in parsed.sections] == ranges, folder
 
 
 def test_10q_items_carry_their_part() -> None:

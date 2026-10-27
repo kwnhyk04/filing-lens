@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
 
-# Scale words, and the abbreviations models write: $4.2B, $4.2bn, 4,213M, 350K, 1.2T.
+# Scale words, and the abbreviations models write: $4.2B, $4.2bn, 4,213M, 350K, 1.2T. Decimal
+# powers keep an amount's last stated digit in its exponent: $4.1 billion is 4.1E+9, read to 1E+8.
 SCALES = {
-    **dict.fromkeys(("thousand", "k"), 10**3),
-    **dict.fromkeys(("million", "m"), 10**6),
-    **dict.fromkeys(("billion", "b", "bn"), 10**9),
-    **dict.fromkeys(("trillion", "t"), 10**12),
+    **dict.fromkeys(("thousand", "k"), Decimal("1E3")),
+    **dict.fromkeys(("million", "m"), Decimal("1E6")),
+    **dict.fromkeys(("billion", "b", "bn"), Decimal("1E9")),
+    **dict.fromkeys(("trillion", "t"), Decimal("1E12")),
 }
 TOLERANCE = Decimal("0.005")  # numeric exact match counts within 0.5% (docs/context.md)
 # Curly, low-9 and reversed quotes: U+2018 to U+201B single, U+201C to U+201F double.
@@ -36,8 +37,8 @@ AMOUNT_IN_TEXT = re.compile(
     re.IGNORECASE,
 )
 NUMBER = re.compile(rf"\d[\d,]*(?:\.\d+)?(?:\s?(?:{SCALE_WORD})\b)?", re.IGNORECASE)
-# The model cites its source ids: [C2], [F1][C3] or [C2, C4].
-MARKER = re.compile(r"\[\s*([CF]\d+(?:\s*,\s*[CF]\d+)*)\s*\]")
+# The model cites its source ids: [C2], [F1][C3], [C2, C4], or a calculation's [K1].
+MARKER = re.compile(r"\[\s*([CFK]\d+(?:\s*,\s*[CFK]\d+)*)\s*\]")
 # Any other bracket holding a digit, such as [12] for C12 or [D1], names no source (x18).
 STRAY = re.compile(r"\[[^\[\]]*\d[^\[\]]*\]")
 # A sentence ends at . ! or ? (markers before it) when whitespace and a capital, digit or $ follow.
@@ -54,6 +55,11 @@ COMPARES = re.compile(
     r"\b(?:higher|lower|more|less|greater|larger|smaller|bigger|than|exceed\w*|increas\w*"
     r"|decreas\w*|ris(?:e|es|en|ing)|rose|fell|fall(?:s|en|ing)?|gr[eo]w\w*|declin\w*)\b",
     re.IGNORECASE,
+)
+# Words of change over time, which a sentence citing one company's two years must use rightly.
+RISES = re.compile(r"\b(?:increas\w*|ris(?:e|es|en|ing)|rose|gr[eo]w\w*|up)\b", re.IGNORECASE)
+FALLS = re.compile(
+    r"\b(?:decreas\w*|declin\w*|fell|fall(?:s|en|ing)?|drop\w*|down)\b", re.IGNORECASE
 )
 TABLE_SCALES = (1, 10**3, 10**6, 10**9)  # a quoted table row may be in thousands or millions
 PERCENT_SCALES = (1, 100)  # 16.2% against a fact of 0.162
@@ -104,7 +110,7 @@ def parse_amount(text: str, scale: str | None = None) -> Decimal:
 
     `scale` is the unit of a table's figures, such as 'millions' from '(in millions)'. A scale in
     both the text and `scale` raises ValueError, and so does anything that is not one amount,
-    such as prose around it ('about $4.2B').
+    such as prose around it ('about $4.2B'). The exponent is the last digit stated: 4.2E+9.
     """
     compact = "".join(text.split()).replace("$", "").replace("\N{MINUS SIGN}", "-").lower()
     match = AMOUNT.fullmatch(compact)
@@ -150,18 +156,24 @@ def numbers_in(text: str) -> list[Decimal]:
     return numbers
 
 
-def supported(amount: Decimal, percent: bool, evidence: Collection[Decimal]) -> bool:
-    """Whether an amount matches a number of its evidence within 0.5%, at some scale.
+def rounded(amount: Decimal, number: Decimal) -> bool:
+    """Whether `number` rounded at the last digit `amount` states is `amount`: $4.1 billion for
+    4,121,000,000 (n24, user rule 2026-10-27), not $4.2 billion. A half rounds either way."""
+    step = Decimal(1).scaleb(int(amount.as_tuple().exponent))
+    return abs(number - amount) * 2 <= step
 
-    Signs are ignored: "a net loss of $1.2 billion" reports a NetIncomeLoss of -1.2e9.
+
+def matches(amount: Decimal, number: Decimal) -> bool:
+    """Whether an amount states `number`: within 0.5%, or `number` rounded at the amount's last
+    stated digit. Signs are ignored: "a net loss of $1.2 billion" reports a NetIncomeLoss of -1.2e9.
     """
+    return amounts_match(abs(amount), abs(number)) or rounded(abs(amount), abs(number))
+
+
+def supported(amount: Decimal, percent: bool, evidence: Collection[Decimal]) -> bool:
+    """Whether an amount matches a number of its evidence at some scale (matches)."""
     scales = PERCENT_SCALES if percent else TABLE_SCALES
-    return any(
-        amounts_match(abs(amount), abs(number) * scale)
-        for number in evidence
-        if number
-        for scale in scales
-    )
+    return any(matches(amount, number * scale) for number in evidence if number for scale in scales)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -176,8 +188,30 @@ def split_sentences(text: str) -> list[str]:
     return sentences
 
 
+@dataclass(frozen=True)
+class Calculation:
+    """What code computed from two facts of one unit (K1), so the answer model computes nothing."""
+
+    inputs: tuple[str, str]  # the facts' ids: the earlier year first, or the lower of two companies
+    difference: Decimal  # the second minus the first
+    change: Decimal | None  # the difference in percent of the first; None unless both are above 0
+    over_time: bool  # one company's two years: rise and fall words must match the difference
+
+    @property
+    def figures(self) -> list[tuple[Decimal, bool]]:
+        """Its own figures, each with whether it is a percent: the difference, and the change. Its
+        two values are its facts', which a sentence citing it cites too."""
+        return [(self.difference, False)] + ([] if self.change is None else [(self.change, True)])
+
+    def holds(self, amount: Decimal, percent: bool) -> bool:
+        """Whether one of its figures is `amount`: of the same kind, as stated, with no table
+        scale, so a change of 6.43 never backs "$6.4 billion" (review, 2026-10-27)."""
+        return any(kind == percent and matches(amount, number) for number, kind in self.figures)
+
+
 class Source(Protocol):
-    """What the check reads from an answer's source: a chunk (text) or a fact (value)."""
+    """What the check reads from an answer's source: a chunk (text), a fact (value) or a
+    calculation."""
 
     @property
     def chunk_id(self) -> str | None: ...
@@ -190,6 +224,9 @@ class Source(Protocol):
 
     @property
     def value(self) -> Decimal | None: ...
+
+    @property
+    def calculation(self) -> Calculation | None: ...
 
 
 @dataclass
@@ -215,10 +252,11 @@ def check_sentence(
     """Why a sentence of an answer fails, or None when it holds.
 
     It must cite at least one source id, such as [C2], and hold no other bracketed marker such as
-    [12]; a cited chunk needs a quote under Sources that passes citation_error; and each amount
-    in the sentence must match a cited fact's value or a number in a passing quote. `quotes` maps
-    source ids to the quotes given for them; `sources` maps the ids the model was given (F1, C2)
-    to the sources.
+    [12]; a cited chunk needs a quote under Sources that passes citation_error; a cited
+    calculation (K1) needs both its facts cited beside it; and each amount in the sentence must
+    match a cited fact's value, a calculation's figure or a number in a passing quote. `quotes`
+    maps source ids to the quotes given for them; `sources` maps the ids the model was given
+    (F1, C2, K1) to the sources.
     """
     if stray := STRAY.search(MARKER.sub("", sentence)):  # shown, it would cite nothing
         return f"{stray[0]} is not one of the sources"
@@ -228,12 +266,19 @@ def check_sentence(
     chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
     fact_ids = {s.fact_id for s in sources.values() if s.fact_id is not None}
     evidence: list[Decimal] = []
+    calculations: list[Calculation] = []
     for alias in aliases:
         source = sources.get(alias)
         if source is None:
             return f"[{alias}] is not one of the sources"
         if source.value is not None:  # a fact: its value is the evidence
             evidence.append(source.value)
+            continue
+        if (calculation := source.calculation) is not None:  # every number still cites a fact
+            if left := [f"[{fact}]" for fact in calculation.inputs if fact not in aliases]:
+                facts = " and ".join(left)
+                return f"[{alias}] is cited without {facts}, the facts it was calculated from"
+            calculations.append(calculation)
             continue
         given = quotes.get(alias, [])
         good = [
@@ -250,9 +295,20 @@ def check_sentence(
         evidence += [number for quote in good for number in numbers_in(quote)]
     plain = MARKER.sub("", sentence)
     for amount, percent in find_amounts(plain):
-        if not supported(amount, percent, evidence):
+        held = any(calculation.holds(amount, percent) for calculation in calculations)
+        if not held and not supported(amount, percent, evidence):
             shown = f"{amount.normalize():,f}{'%' if percent else ''}"
             return f"the amount {shown} is not in the sources it cites"
+    said = bool(RISES.search(plain)) - bool(FALLS.search(plain))  # 0: neither, or both
+    for alias in aliases:
+        calculation = sources[alias].calculation
+        # Only between values above 0 (a change was computed): a loss that "grew" fell.
+        if said and calculation and calculation.over_time and calculation.change is not None:
+            shows = (calculation.difference > 0) - (calculation.difference < 0)
+            if said != shows:
+                change = {1: "a rise", -1: "a fall", 0: "no change"}[shows]
+                word = "rose" if said > 0 else "fell"
+                return f"it says the figure {word}, but [{alias}] shows {change}"
     if COMPARES.search(plain):  # the judge counts a cited fact only where its figure is stated
         stated = [amount for amount, percent in find_amounts(plain) if not percent]
         stated += numbers_in(plain)  # per-share figures as models copy them: "14.23 USD/shares"
@@ -295,6 +351,14 @@ def pruned(
     return (text, len(bad)) if check_sentence(text, quotes, sources) is None else None
 
 
+def held(number: Decimal, kind: bool | None, amount: Decimal, percent: bool) -> bool:
+    """Whether evidence holds an amount: a fact's value or a quote's number at any table scale,
+    a calculation's figure (its kind: whether it is a percent) only of that kind, as stated."""
+    if kind is None:
+        return supported(amount, percent, [number])
+    return kind == percent and matches(amount, number)
+
+
 @dataclass(frozen=True)
 class Figure:
     """An amount of a sentence that holds, as written, with the cited source whose number it is."""
@@ -313,17 +377,20 @@ def figures(
     passing quotes, matched by supported); an amount that no cited source holds is left out.
     """
     chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
-    evidence: list[tuple[str, Decimal]] = []
+    evidence: list[tuple[str, Decimal, bool | None]] = []  # a calculation's figures carry a kind
     for alias in cited(sentence):
         source = sources.get(alias)
         if source is None:
             continue
         if source.value is not None:
-            evidence.append((alias, source.value))
+            evidence.append((alias, source.value, None))
+            continue
+        if source.calculation is not None:
+            evidence += [(alias, number, kind) for number, kind in source.calculation.figures]
             continue
         for quote in quotes.get(alias, []):
             if citation_error(Quoted(source.chunk_id, None, quote), chunks, ()) is None:
-                evidence += [(alias, number) for number in numbers_in(quote)]
+                evidence += [(alias, number, None) for number in numbers_in(quote)]
     found: list[Figure] = []
     for match in AMOUNT_IN_TEXT.finditer(MARKER.sub("", sentence)):
         percent = match["percent"] is not None
@@ -331,7 +398,7 @@ def figures(
             amount = Decimal(match["percent"]) if percent else parse_amount(match[0])
         except ValueError:
             continue
-        holder = next(((a, n) for a, n in evidence if supported(amount, percent, [n])), None)
+        holder = next(((a, n) for a, n, kind in evidence if held(n, kind, amount, percent)), None)
         if holder is not None:
             found.append(Figure(match[0], *holder))
     return found

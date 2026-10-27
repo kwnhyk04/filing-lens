@@ -164,6 +164,7 @@ Known weaknesses, with v2 ideas (nothing here is tuned on test results):
 
 - **Section labels in four 10-Ks:** JPM, CVX, NVDA and PLD keep MD&A or the financial statements in a separate financial section, which their Items 7, 7A or 8 only point to.
   - The parser labels that content with the item heading before it: JPM under Item 15, CVX under Item 14, and NVDA and PLD under Items 15 and 16 for their Item 8 content. That is 1,373 of the 11,263 chunks.
+  - Fixed in the parser on 2026-10-27; the stored corpus keeps the old labels until the next corpus (golden v2).
   - The UI shows the item as stored, and the demo export refuses a citation inside these sections.
   - The fix waits for the next corpus: relabeling changes chunk ids that golden v1 freezes (`docs/memory.md`, 2026-10-18).
 

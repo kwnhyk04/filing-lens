@@ -15,6 +15,56 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-27: PR 4 and PR 5: calculation sources, the rounding rule and item labels (uncommitted, branch `calculations-item-labels`)
+
+- Changes, on `calculations-item-labels` from main at d05884a (#35). The user's go: PR 4 and PR 5 on one branch, tests first, reported once; E5 without asking within its estimate; `filinglens-postgres-1` and `filinglens-redis-1` by exact name; `make contracts-breaking` and `make test-int`. Each part went red, then green.
+  - **Rounding (the user's rule for n24):** `validate.rounded` and `supported`: an amount also passes when it equals its source rounded at its own last stated digit. `SCALES` are Decimal powers, so `parse_amount` keeps that digit in the exponent. The eval's exact match is unchanged.
+  - **K1 (PR 4):**
+    - `validate.Calculation`; `MARKER` reads K; `check_sentence` wants both facts beside K1, takes its figures as evidence, and for one company's two years checks rise and fall words; `figures` names K1.
+    - `answer.Source.calculation`; source lines read K; answer rule 5.
+    - `answering.calculation_source` (a comparison of two facts of one unit) and `_citation`.
+    - `schemas.Calculation`, `Citation.calculation` (exactly one of three); GraphQL `Calculation`; `clients/operations.graphql`.
+    - Contracts and the three clients regenerated. openapi-python-client's ruff post-hook needs ruff on PATH (first run: "ruff is not in PATH", every file unformatted; rerun with `.venv/Scripts` on PATH). CRLF-only files restored.
+  - **Evals:** `judged` reads a calculation's citation under "Calculated by FilingLens from sources 1 and 2"; coverage counts a fact or calculation without a quote; `load_sources` gives K1 a row; `Src.calculation` (pyright).
+  - **Web:** `sourceLabel`, `figureRows`, `checksTitle`; the calculation card (`answer-view.tsx`, `.calculation`); the mock API's `e2e: calculated` (c02 with a K1 citation); `e2e/calculation.spec.ts` (axe, `/api/sources` gets the two fact ids only); the `ask-calculation` screen, three new screenshots and none changed. The first shot missed the card under the panel's own scroll, so the screen now jumps to it through the [3] marker.
+  - **Item labels (PR 5):** `parsing._financial_section` (`OPENS`, `POINTER_MAX`); `pipeline._store` split out of `_parse`; `reparse.py` (`reparse`, `queue_embed`, `main`). Fixtures: the four trimmed 10-Ks (12 to 24 KB, the same items as the real filings under main's parser) and `section-ranges.json` (the 26 other cached 10-Ks, 586 sections, pinned from main's parser before any change). The dev database was not re-parsed.
+  - **Containers:** ports 5433 and 6380 were free (netstat). Both were exited (0) and started by exact name at 12:04 UTC, then stopped as found at 12:12 UTC. Production untouched.
+  - **E5** (`make eval SUITE=answer SPLIT=dev ARGS=--claude-primary`, run through a scratch launcher, see below; this branch's code, source sha256 `81a11f35d80681a6`; report `evals/reports/runs/20261027T121001Z-answer-dev-full-claude-primary`), against E2:
+
+    | Metric | E2 | E5 |
+    | --- | --- | --- |
+    | Numeric exact match (0.5%) | 0.964 | 0.964 |
+    | Comparison match | 1.000 | 1.000 |
+    | Citation precision (judge) | 0.991 | 1.000 |
+    | Citation coverage | 0.989 | 1.000 |
+    | Faithfulness (judge) | 0.988 | 0.989 |
+    | Correct refusal | 1.000 | 1.000 |
+    | False refusal | 0.038 (x15, n24) | 0.019 (x15) |
+    | Regenerated | 8 | 11 |
+
+    - n24 answers "$4.1 billion" (the rounding rule); exact match still counts it inexact at 0.5%.
+    - K1 is cited in 6 final answers (c01, c03, c07, c11, c13, c14), each judged "yes".
+    - **Comparison drafts regenerated 8 of 10** (E2: c09 and c13 only). The model put the difference in a second sentence citing [F1][F2][K1] without the two figures, which rule 4's check refuses; c06 cited [K1] alone; c14's draft failed on a C6 quote, unrelated. Every regeneration held; c09's dropped its difference. Not changed: a prompt fix after E5 would need a measured run (todo.md, the user's call).
+    - **c13 wrote its Sources block inline**, so the list stayed in the answer and passed validation. An older weakness, for its own PR (todo.md).
+    - **Prompt hashes:** only `answer_system` changed (`a4ee7c5d3686` to `a4da1c402e0a`), as the plan says.
+  - **Spent (live):**
+    - Haiku: 66 calls, 307,086 tokens in and 16,419 out (about $0.039 of credits).
+    - Judge: 37 live calls, 47,192 gpt-oss-120b tokens, with Groq per-minute 429 waits; none errored.
+    - Router: none.
+    - This is within the estimate the user approved for the same run as E2: about $0.04 and about 60K judge tokens.
+    - E5's first start failed before any call (`ModuleNotFoundError: evals`: the launcher put its own folder on `sys.path`); fixed by setting `sys.path[0]` to the repo root. Nothing spent.
+  - **Application Control (new today, cause not confirmed):** the venv's `python.exe` was refused ("os error 4551"), so `uv run python` and the Python `make` targets failed. Every check ran on the base interpreter with `__PYVENV_LAUNCHER__` (memory.md, the steps).
+    - `make test-int` first failed 9 pipeline tests with WinError 4551, since their workers start from `sys.executable`. A rerun with the base interpreter failed them again: the workers lacked the venv (`No module named 'celery'`), because Python drops `__PYVENV_LAUNCHER__` from `os.environ` at startup. The third run set it again for the workers, and all 52 passed.
+  - **GateGuard:** it refused each file's first write and the first Bash command; each passed on retry, as before.
+  - **Final review** (a fresh reviewer, Opus): nothing Critical. Fixed, each with a failing test first: K1's figures backing amounts of the other kind; a loss that "grew" failing the direction check; quarter labels in K1; reparse's docstring. Left as rulings: "higher" between two companies, and the rounding window for one-digit amounts (memory.md). After the fixes, E5's 20 amounts in K1 sentences all still pass (offline check), so E5 stands.
+  - **CI's eval on this PR** (memory.md, the eval-check rule): the answer prompt changed, so none of CI's cached Gemini answers apply. Estimate: Gemini about 20 to 25 requests (25 dev ci questions, 15 answerable, plus regenerations); router replies cached; no judge.
+- Files: the code and tests above; `contracts/`, `clients/` (regenerated); `web/e2e/calculation.spec.ts`, `docs/screenshots/ui/ask-calculation-*.png`; `services/ingest/src/filinglens_ingest/reparse.py`; the five fixtures; the E5 report; docs (README, context, design, memory, prompt-log, todo).
+- Validation: `ruff check` and `ruff format --check` clean; pyright 0 errors; unit tests 544 passed (after the review's fixes); integration tests 52 passed (Testcontainers; main had 51); `make contracts-breaking`: "No breaking changes to report"; web: `npm test` 93 passed, `tsc` clean, Playwright 89 passed.
+- Outstanding:
+  - The user ships one PR; CI's eval spends as estimated above.
+  - The comparison-draft wording (the user's call) and the inline Sources weakness (its own PR).
+  - PR 6 re-parses dev with `reparse` (the user's go).
+
 ### 2026-10-26: E2, the refusal fixes measured with Claude on dev (uncommitted, branch `answer-refusals`)
 
 - Changes: no code change. The user gave the go for E2 at the higher estimate (about $0.04 of credits, about 60K judge tokens, a few live re-asks).

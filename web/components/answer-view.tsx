@@ -142,6 +142,17 @@ function SourceCard({ n, citation, sources, prefix }: { n: number; citation: Cit
             </dd>
           </div>
         </dl>
+      ) : citation.calculation ? (
+        <>
+          <p className="meta">
+            From <a href={`#${prefix}source-${citation.calculation.inputs[0]}`}>source {citation.calculation.inputs[0]}</a> and{" "}
+            <a href={`#${prefix}source-${citation.calculation.inputs[1]}`}>source {citation.calculation.inputs[1]}</a>; the answer
+            model did none of this arithmetic.
+          </p>
+          <p className="calculation">
+            <Figures text={citation.quote} />
+          </p>
+        </>
       ) : (
         <p className="meta">Quote: &ldquo;{citation.quote}&rdquo;</p>
       )}

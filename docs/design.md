@@ -149,6 +149,7 @@ A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius and controls 6 px;
   - for a passage, its filing's period just under the heading, as in the mockup: "Fiscal year ended December 31, 2025", or "Quarter ended …" for a 10-Q, a long date in UTC, in secondary text at 14 px (8.96:1 on the card, 7.71:1 on the tinted card, light; 10.12:1 and 8.28:1, dark). It comes from the filing's `periodEnd`, SEC's period of report (2026-10-20). A fact card keeps its Period row, the value's own period, since a fact has no link to its filing;
   - a passage in serif behind a thin rule, the cited words under the highlighter with an underline, so colour is not the only cue;
   - a fact as label and value rows, the value in mono under the highlighter;
+  - a calculation (2026-10-27) as "Source 3: Calculated by FilingLens from sources 1 and 2", a grey box linking its two sources ("the answer model did none of this arithmetic"), then its lines in sans at 15 px, figures under the highlighter, not set like a filing's quoted words;
   - "Filing on sec.gov ↗" (the arrow has empty alt text, so no name changed) and "Back to the answer".
 - **The card a citation jumped to:** a green tint and outline, as the mockup marks the open source.
 - **States:** the draft is dashed with an amber "citations not checked yet" pill; a refusal shows an amber "Not answered" pill; errors sit in a red box; the status line keeps its green dot.
@@ -167,7 +168,7 @@ Styles still live only in `web/app/globals.css`, with no inline style, so the CS
 
 `npm run build`, then `npm run screens` in `web/`, writes `docs/screenshots/ui/<screen>-<light|dark|phone>.png` against the mock API: light and dark at 1280 by 800, phone at 390 by 844 in light. Every screen passes axe before its screenshot. Each shot is a full page, except `offline`, which shows the top of the page: below its banner it is the demo page, shot in full as `demo`. The panel sticks, so a full-page shot shows it where it stands at the top of the page, its own scroll at the start. The screenshots come from Windows, so they show its fonts.
 
-Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric`, `ask-textual`, `ask-comparison`, `ask-warnings`, `ask-refusal`, `ask-error`, `ask-sources-failed`, `coverage`, `demo`, `demo-coverage`, `offline`, `not-found`, `error`, `config-error`.
+Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric`, `ask-textual`, `ask-comparison`, `ask-calculation` (after the [3] marker's jump, so the panel shows the calculation card), `ask-warnings`, `ask-refusal`, `ask-error`, `ask-sources-failed`, `coverage`, `demo`, `demo-coverage`, `offline`, `not-found`, `error`, `config-error`.
 
 ## Known limits
 
