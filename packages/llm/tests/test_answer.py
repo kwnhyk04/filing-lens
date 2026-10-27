@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 
 from filinglens_llm.answer import INSUFFICIENT, Source, Visible, check, read_reply
+from filinglens_llm.validate import Calculation
 
 CHUNK = "Services net sales increased due to higher advertising, App Store and cloud revenue."
 SOURCES = {
@@ -110,6 +111,31 @@ def test_a_source_line_may_end_with_its_own_marker() -> None:
     quote = "Services net sales increased due to higher advertising"
     reply = read_reply(f'Services grew [C1].\n\nSources:\n[C1] "{quote}" [C1]\n')
     assert reply.quotes == {"C1": [quote]}
+
+
+INCREASE = "From fiscal 2024 to fiscal 2025: an increase of 25,126,000,000 USD, or 6.43%."
+APPLE = {
+    "F1": Source("F1", None, "7", "2025", "416,161,000,000 USD", Decimal(416_161_000_000), "u1"),
+    "F2": Source("F2", None, "8", "2024", "391,035,000,000 USD", Decimal(391_035_000_000), "u2"),
+    "K1": Source(
+        "K1", None, None, "Calculated by FilingLens from F2 and F1", INCREASE, None, "u2",
+        Calculation(("F2", "F1"), Decimal(25_126_000_000), Decimal("6.43"), over_time=True),
+    ),
+}  # fmt: skip
+
+
+def test_a_calculation_is_cited_like_a_fact_and_holds_the_difference() -> None:
+    """c09 (dev): Haiku's "an increase of about $25.1 billion" was in no source it was given."""
+    reply = read_reply(
+        "Net sales rose from $391.0 billion in fiscal 2024 to $416.2 billion in fiscal 2025, up"
+        " $25.1 billion [F2][F1][K1].\n\nSources:\n"
+        '[F2] "391,035,000,000 USD"\n[F1] "416,161,000,000 USD"\n[K1] "25,126,000,000 USD" [K1]\n'
+    )
+    assert reply.quotes["K1"] == ["25,126,000,000 USD"]
+    checked = check(reply, APPLE)
+    assert checked.text.endswith("up $25.1 billion [1][2][3].")
+    assert checked.citations[2] == ("K1", INCREASE)  # its text, as a fact's value line
+    assert ("$25.1 billion", "K1") in [(f.text, f.alias) for f in checked.figures]
 
 
 def test_each_amount_a_kept_sentence_states_comes_with_the_source_that_holds_it() -> None:

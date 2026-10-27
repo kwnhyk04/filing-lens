@@ -24,18 +24,20 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from redis.asyncio import Redis
 
 from filinglens_api import limits
-from filinglens_api.answering import Answerer, Evidence, Models
+from filinglens_api.answering import Answerer, Evidence, Models, calculation_source
 from filinglens_api.schemas import (
     Answer,
     AnswerCompleted,
     AnswerDelta,
     AnswerRequest,
+    Calculation,
     FigureCheck,
     ReadCompany,
     Reading,
 )
 from filinglens_core.errors import AiUnavailableError, OverloadedError, UpstreamError
 from filinglens_llm import budget
+from filinglens_llm.answer import Source
 from filinglens_llm.providers import (
     BASE_URLS,
     Anthropic,
@@ -869,6 +871,127 @@ async def test_a_comparison_without_its_metric_gets_one_retry(mocked: respx.Mock
     assert groq.call_count == 2 and not answer.refused
     assert "a comparison needs its metric" in groq.calls[1].request.content.decode()
     assert stats["routing"]["metric"] == "revenue"
+
+
+def comparison_evidence() -> list[dict[str, Any]]:
+    """c09's evidence: Apple's revenue for fiscal 2025, then 2024, and the textual search."""
+    numeric = fixture("numeric")["evidence"]
+    later = next(call for call in numeric if call["method"] == "fact")
+    earlier = later["result"] | {
+        "id": 37409,
+        "value": "3.91035E+11",
+        "period_start": "2023-10-01",
+        "period_end": "2024-09-28",
+        "fiscal_year": 2024,
+        "accession_number": "0000320193-24-000123",
+    }
+    search = next(call for call in fixture("textual")["evidence"] if call["method"] == "search")
+    calls = [call for call in numeric if call["method"] != "fact"]
+    return [*calls, later, {"method": "fact", "result": earlier}, search]
+
+
+async def test_a_comparison_of_two_facts_gets_a_calculation_the_answer_cites(
+    mocked: respx.MockRouter,
+) -> None:
+    """c09 (dev): Haiku wrote "an increase of about $25.1 billion", which no source held."""
+    reply = router_reply(route="comparison", fiscal_years=[2025, 2024])
+    mocked.post(host=GROQ).mock(return_value=reply)
+    text = (
+        "Apple's revenue rose from $391.0 billion in fiscal 2024 to $416.2 billion in fiscal 2025,"
+        " up $25.1 billion, or 6.4% [F2][F1][K1].\n\nSources:\n"
+        '[F2] "391,035,000,000 USD"\n[F1] "416,161,000,000 USD"\n[K1] "25,126,000,000 USD"\n'
+    )
+    gemini = mocked.post(host=GEMINI, path=STREAM).mock(return_value=gemini_stream(text))
+    question = "How did Apple's revenue change from fiscal 2024 to fiscal 2025?"
+    answer, _, _ = await run("numeric", RecordedEvidence(comparison_evidence()), question=question)
+    prompt = json.loads(gemini.calls[0].request.content)["contents"][0]["parts"][0]["text"]
+    assert "[K1] Calculated by FilingLens from F2 and F1\nFiscal 2024: 391,035,000,000" in prompt
+    assert not answer.refused and answer.warnings == []
+    assert answer.answer.endswith("up $25.1 billion, or 6.4% [1][2][3].")
+    earlier, later, calculated = answer.citations
+    assert (earlier.fact_id, later.fact_id) == ("37409", "37437")
+    assert calculated.calculation == Calculation(inputs=[1, 2])
+    assert (calculated.chunk_id, calculated.fact_id) == (None, None)
+    assert calculated.quote == (
+        "Fiscal 2024: 391,035,000,000 USD. Fiscal 2025: 416,161,000,000 USD. Fiscal 2025 is"
+        " higher by 25,126,000,000 USD, 6.43% more than fiscal 2024."
+    )
+    assert calculated.filing_url == earlier.filing_url  # its first input's filing
+    assert FigureCheck(text="$25.1 billion", citation=3, source_value="25,126,000,000") in (
+        answer.checks
+    )
+
+
+async def test_a_calculation_lists_its_facts_in_citation_order(mocked: respx.MockRouter) -> None:
+    reply = router_reply(route="comparison", fiscal_years=[2025, 2024])
+    mocked.post(host=GROQ).mock(return_value=reply)
+    text = (
+        "Apple's revenue was $416.2 billion in fiscal 2025, up $25.1 billion from $391.0 billion"
+        " in fiscal 2024 [F1][F2][K1].\n\nSources:\n"
+        '[F1] "416,161,000,000 USD"\n[F2] "391,035,000,000 USD"\n[K1] "25,126,000,000 USD"\n'
+    )
+    mocked.post(host=GEMINI, path=STREAM).mock(return_value=gemini_stream(text))
+    question = "How did Apple's revenue change from fiscal 2024 to fiscal 2025?"
+    answer, _, _ = await run("numeric", RecordedEvidence(comparison_evidence()), question=question)
+    _, earlier, calculated = answer.citations  # K1 runs from the earlier year, cited second
+    assert calculated.calculation == Calculation(inputs=[1, 2])
+    assert calculated.filing_url == earlier.filing_url
+
+
+def _fact(fact_id: int, cik: int, value: str, unit: str = "USD") -> Fact:
+    return Fact(
+        fact_id, cik, "us-gaap:Revenues", "Revenues", Decimal(value), unit, None,
+        date(2025, 12, 31), 2025, "FY", "10-K", "0000000001-26-000001", None,
+    )  # fmt: skip
+
+
+def _calculated(*given: tuple[Fact, int], period: str = "FY") -> Source | None:
+    """calculation_source over facts F1, F2 in order, each with the year asked for."""
+    facts = [
+        (Source(f"F{n}", None, str(fact.id), "", "", fact.value, f"F{n}"), fact, year)
+        for n, (fact, year) in enumerate(given, 1)
+    ]
+    names = {1: "Amazon.com, Inc. (AMZN)", 2: "Walmart Inc. (WMT)"}
+    return calculation_source(facts, names, period)
+
+
+def test_a_calculation_over_two_quarters_names_the_quarter() -> None:
+    """Review finding: Q2 against Q2 read "Fiscal 2025 is higher", a year's label."""
+    quarters = _calculated((_fact(1, 1, "120"), 2025), (_fact(2, 1, "100"), 2024), period="Q2")
+    assert quarters is not None
+    assert quarters.text == (
+        "Fiscal 2024 Q2: 100 USD. Fiscal 2025 Q2: 120 USD. Fiscal 2025 Q2 is higher by 20 USD,"
+        " 20.00% more than fiscal 2024 Q2."
+    )
+
+
+def test_a_calculation_names_the_higher_of_two_companies_and_the_lower_of_two_years() -> None:
+    peers = _calculated((_fact(1, 1, "716924000000"), 2025), (_fact(2, 2, "680985000000"), 2025))
+    assert peers is not None and peers.calculation is not None
+    assert (peers.alias, peers.url) == ("K1", "F2")  # its first input's filing
+    assert peers.heading == "Calculated by FilingLens from F2 and F1"
+    assert peers.text == (
+        "Walmart Inc. (WMT): 680,985,000,000 USD. Amazon.com, Inc. (AMZN): 716,924,000,000 USD."
+        " Amazon.com, Inc. (AMZN) is higher by 35,939,000,000 USD, 5.28% more than Walmart Inc."
+        " (WMT)."
+    )
+    assert not peers.calculation.over_time
+    years = _calculated((_fact(3, 3, "12056000000"), 2025), (_fact(4, 3, "14405000000"), 2024))
+    assert years is not None and years.calculation is not None  # c13, UnitedHealth
+    assert years.text.endswith(
+        "Fiscal 2025 is lower by 2,349,000,000 USD, 16.31% less than fiscal 2024."
+    )
+    found = years.calculation
+    assert (found.inputs, found.over_time) == (("F2", "F1"), True)
+    assert (found.difference, found.change) == (Decimal(-2_349_000_000), Decimal("-16.31"))
+
+
+def test_a_calculation_needs_one_unit_and_gives_a_percent_only_between_positive_values() -> None:
+    assert _calculated((_fact(1, 1, "100"), 2025), (_fact(2, 2, "100", "shares"), 2025)) is None
+    swing = _calculated((_fact(3, 3, "-1000000000"), 2024), (_fact(4, 3, "2000000000"), 2025))
+    assert swing is not None and swing.calculation is not None
+    assert swing.calculation.change is None
+    assert swing.text.endswith("Fiscal 2025 is higher by 3,000,000,000 USD.")
 
 
 async def test_gemini_sends_its_key_only_in_the_header(

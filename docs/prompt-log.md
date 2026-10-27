@@ -2,6 +2,13 @@
 
 Every change to a model prompt or response schema, newest first. Each entry gives what changed, why, the evidence and the result. Prompts are tuned on the golden set's dev split only, and the test split is never read for tuning. The judge prompt (`evals/judge.py`) is frozen with its calibration, so a change to it needs a new calibration.
 
+## 2026-10-27: Answer rule 5, a calculation (K1) holds a comparison's arithmetic (answer-quality round, PR 4)
+
+- **Answer prompt** (`filinglens_llm.answer.SYSTEM`, new rule 5; old 5 and 6 are now 6 and 7): "A calculation (K1), when given, states two facts' difference, change in percent and which is higher. Cite it for any of these, together with both of its facts, such as [F1][F2][K1], and quote the figure you used; compute nothing yourself." Only the answer prompt's hash changes (`a4ee7c5d3686` to `a4da1c402e0a`); the router's and the judge's do not (E5's report).
+  - Why: Haiku computed correct differences ("an increase of about $25.1 billion", c09) that no source held, so validation sent them back. Code now computes them as K1 for a comparison of two facts of one unit, and validation checks K1's figures and, for one company's two years, the direction word.
+  - Result (E5, Claude Haiku, dev): citation precision 1.000 (E2 0.991), coverage 1.000 (0.989), faithfulness 0.989 (0.988), false refusal 0.019 (0.038); 6 of 10 comparison answers cite K1, all judged "yes".
+  - Open: 8 of 10 comparison drafts were sent back (E2: 2). The model wrote the difference in a second sentence citing [F1][F2][K1] without the two figures, which rule 4's check refuses (c06 cited [K1] alone). Each regeneration held. A wording such as "state the difference in the same sentence as both figures" would likely cut these; it changes this hash again and needs a measured run (the user's decision, todo.md).
+
 ## 2026-10-26: Answer rule 4 states compared figures; the router's second look (answer-quality round)
 
 - **Answer prompt** (`filinglens_llm.answer.SYSTEM`, rule 4): "A sentence that compares figures states each of them." The answer prompt's hash changes; the router's and the judge's do not.

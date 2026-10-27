@@ -227,6 +227,7 @@ class FakeBackend:
         self.fail_with: Exception | None = None
         self.fail_mid_stream: Exception | None = None
         self.delay_s = 0.0  # answers wait this long before each part
+        self.given = ANSWER  # what answers return
         self.answered = 0  # answers that passed the limits and reached the backend
         self.jobs: dict[UUID, IngestJobRequest] = {}
         self.job_ids: dict[str, UUID] = {}  # by Idempotency-Key
@@ -365,21 +366,21 @@ class FakeBackend:
         self._admit()
         self.answered += 1
         await asyncio.sleep(self.delay_s)
-        return ANSWER
+        return self.given
 
     async def stream_answer(self, request: AnswerRequest) -> AnswerEvents:
         self._admit()  # before the stream, so the route can still answer with a status code
         self.answered += 1
-        failure, delay_s = self.fail_mid_stream, self.delay_s
+        failure, delay_s, given = self.fail_mid_stream, self.delay_s, self.given
 
         async def events() -> AsyncGenerator[AnswerDelta | AnswerCompleted, None]:
-            text = ANSWER.answer
+            text = given.answer
             for start in range(0, len(text), 20):
                 await asyncio.sleep(delay_s)
                 yield AnswerDelta(text=text[start : start + 20])
                 if failure is not None:
                     raise failure
-            yield AnswerCompleted(answer=ANSWER)
+            yield AnswerCompleted(answer=given)
 
         return events()
 

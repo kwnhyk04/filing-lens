@@ -22,6 +22,7 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from typing import Any, Protocol, Self
 
 import structlog
@@ -36,6 +37,7 @@ from filinglens_api.schemas import (
     AnswerCompleted,
     AnswerDelta,
     AnswerRequest,
+    Calculation,
     Citation,
     FigureCheck,
     ReadCompany,
@@ -52,7 +54,7 @@ from filinglens_core.errors import (
 from filinglens_core.settings import ApiSettings
 from filinglens_db.models import Company, Filing, FilingStatus
 from filinglens_llm import answer as drafting
-from filinglens_llm import budget, router
+from filinglens_llm import budget, router, validate
 from filinglens_llm.providers import Anthropic, Completion, Provider, credits_usd
 from filinglens_retrieval import Hit, Ranking, Scope, search
 from filinglens_retrieval.facts import Fact, get_financial_fact, latest_fiscal_year
@@ -360,11 +362,16 @@ class Answerer:
         sources: list[drafting.Source] = []
         if routing.metric and routing.route in ("numeric", "comparison") and plan.ciks:
             unit, concepts = router.METRICS[routing.metric]
+            facts: list[tuple[drafting.Source, Fact, int | None]] = []
             for cik in plan.ciks:
                 for year in plan.years or [plan.latest.get(cik)]:
                     fact = await self._evidence.fact(cik, concepts, unit, year, plan.period)
                     if fact is not None:
-                        sources.append(_fact_source(len(sources) + 1, fact, year, plan))
+                        facts.append((_fact_source(len(facts) + 1, fact, year, plan), fact, year))
+            sources += [source for source, _, _ in facts]
+            if routing.route == "comparison" and len(facts) == 2:  # code does the arithmetic
+                calculated = calculation_source(facts, plan.names, plan.period)
+                sources += [calculated] if calculated is not None else []
             run.lap("facts_ms")
         degraded = False
         if routing.route != "numeric" or not sources:
@@ -439,16 +446,10 @@ class Answerer:
             )
             yield AnswerCompleted(answer=self._refusal(code, text, run, degraded, warnings))
             return
-        citations = [
-            Citation(
-                chunk_id=by_alias[alias].chunk_id,
-                fact_id=by_alias[alias].fact_id,
-                quote=by_alias[alias].text if by_alias[alias].fact_id else quote,
-                filing_url=by_alias[alias].url,
-            )
-            for alias, quote in checked.citations
-        ]
         number = {alias: n for n, (alias, _) in enumerate(checked.citations, 1)}
+        citations = [
+            _citation(by_alias[alias], quote, number) for alias, quote in checked.citations
+        ]
         answer = Answer(
             answer=checked.text,
             citations=citations,
@@ -709,6 +710,72 @@ def _fact_source(n: int, fact: Fact, year: int | None, plan: _Plan) -> drafting.
         text=f"{fact.value:,f} {fact.unit}",  # fixed point: values may come as 4.1616100E+11
         value=fact.value,
         url=_folder(fact.cik, fact.accession_number),
+    )
+
+
+def calculation_source(
+    facts: Sequence[tuple[drafting.Source, Fact, int | None]],
+    names: Mapping[int, str],
+    period: str = "FY",
+) -> drafting.Source | None:
+    """K1 for a comparison of two facts of one unit: both values, the difference, the change in
+    percent and which is higher, so the answer model computes nothing. One company's two years
+    run from the earlier, two companies from the lower; None for two units. A quarter (`period`)
+    is named beside each year."""
+    (_, one, _), (_, other, _) = facts
+    if one.unit != other.unit:
+        return None
+    over_time = one.cik == other.cik
+    ordered = sorted(facts, key=lambda item: (item[2] or 0) if over_time else item[1].value)
+    (first, low, first_year), (second, high, second_year) = ordered
+    difference = high.value - low.value
+    positive = low.value > 0 and high.value > 0
+    change = (difference / low.value * 100).quantize(Decimal("0.01")) if positive else None
+
+    def label(fact: Fact, year: int | None) -> str:
+        quarter = "" if period == "FY" else f" {period}"
+        return f"fiscal {year}{quarter}" if over_time else names.get(fact.cik, str(fact.cik))
+
+    was, now = label(low, first_year), label(high, second_year)
+    lines = [f"{_capital(was)}: {low.value:,f} {low.unit}."]
+    lines.append(f"{_capital(now)}: {high.value:,f} {high.unit}.")
+    if difference:
+        word, more = ("higher", "more") if difference > 0 else ("lower", "less")
+        percent = f", {abs(change):f}% {more} than {was}" if change is not None else ""
+        lines.append(f"{_capital(now)} is {word} by {abs(difference):,f} {low.unit}{percent}.")
+    else:
+        lines.append("The two are equal.")
+    return drafting.Source(
+        alias="K1",
+        chunk_id=None,
+        fact_id=None,
+        heading=f"Calculated by FilingLens from {first.alias} and {second.alias}",
+        text=" ".join(lines),
+        value=None,
+        url=first.url,
+        calculation=validate.Calculation(
+            (first.alias, second.alias), difference, change, over_time
+        ),
+    )
+
+
+def _capital(label: str) -> str:
+    """A label starting a sentence: "Fiscal 2024"; a company's name stays as it is."""
+    return label[:1].upper() + label[1:]
+
+
+def _citation(source: drafting.Source, quote: str, number: Mapping[str, int]) -> Citation:
+    """A checked citation: a fact's or calculation's own lines as its quote, a calculation's
+    facts by their citation numbers, in order."""
+    calculation = source.calculation
+    return Citation(
+        chunk_id=source.chunk_id,
+        fact_id=source.fact_id,
+        calculation=Calculation(inputs=sorted(number[fact] for fact in calculation.inputs))
+        if calculation is not None
+        else None,
+        quote=source.text if source.chunk_id is None else quote,
+        filing_url=source.url,
     )
 
 

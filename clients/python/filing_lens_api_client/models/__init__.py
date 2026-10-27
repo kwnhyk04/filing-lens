@@ -5,6 +5,7 @@ from .answer_completed import AnswerCompleted
 from .answer_delta import AnswerDelta
 from .answer_failed import AnswerFailed
 from .answer_request import AnswerRequest
+from .calculation import Calculation
 from .citation import Citation
 from .company import Company
 from .company_page import CompanyPage
@@ -39,6 +40,7 @@ __all__ = (
     "AnswerDelta",
     "AnswerFailed",
     "AnswerRequest",
+    "Calculation",
     "Citation",
     "Company",
     "CompanyPage",

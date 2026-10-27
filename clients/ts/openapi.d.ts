@@ -274,14 +274,27 @@ export interface components {
             fiscal_years?: number[] | null;
         };
         /**
+         * Calculation
+         * @description Arithmetic FilingLens did on two cited facts of one unit; the answer model computed none.
+         */
+        Calculation: {
+            /**
+             * Inputs
+             * @description The citations of the two facts it was calculated from, numbered from 1.
+             */
+            inputs: number[];
+        };
+        /**
          * Citation
-         * @description Exactly one source: chunk_id for filing text, fact_id for an XBRL fact.
+         * @description Exactly one source: chunk_id for filing text, fact_id for an XBRL fact, calculation for
+         *     arithmetic on two cited facts (its quote holds the values, difference and change).
          */
         Citation: {
             /** Chunk Id */
             chunk_id: string | null;
             /** Fact Id */
             fact_id: string | null;
+            calculation: components["schemas"]["Calculation"] | null;
             /** Quote */
             quote: string;
             /**

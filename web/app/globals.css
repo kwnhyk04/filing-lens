@@ -698,6 +698,14 @@ mark {
   box-decoration-break: clone;
 }
 
+/* A calculation's lines: FilingLens's own arithmetic, so not set like a filing's quoted words. */
+.calculation {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  font-variant-numeric: lining-nums tabular-nums;
+  overflow-wrap: anywhere;
+}
+
 .fact {
   display: grid;
   grid-template-columns: minmax(0, 6.5rem) minmax(0, 1fr);

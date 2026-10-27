@@ -238,8 +238,24 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
     - [ ] (user) n24: Haiku's "$4.1 billion" for 4,121,000,000 is 0.51% off, outside validation's 0.5% tolerance, so it was refused. Keep the rule, or accept a figure rounded at its last stated digit (could go in PR 4, which reworks validation).
     - [ ] (user) ship as one PR: `Answers: fewer wrong refusals, and comparisons state their figures`.
   - [x] PR 3 `reranker-budget`: not needed (the sweep found no winner).
-  - [ ] PR 4 `calculations`: calculation sources (contract, web card, judge path); E5.
-  - [ ] PR 5 `item-labels`: Items 7, 7A and 8 for the four separate financial sections; `reparse`.
+  - [ ] **One branch `calculations-item-labels` from main at d05884a, one PR (user, 2026-10-27):** PR 4 and PR 5, tests first, reported once.
+    - [x] PR 4 `calculations`: calculation sources (contract, web card, judge path); E5.
+      - [x] Tests first: n24's rounding rule ("$4.1 billion" for 4,121,000,000 passes, "$4.2 billion" fails); c09's and c13's differences pass with K1; a wrong amount or direction fails; K1 without its facts fails.
+      - [x] Validation and reply format read K; the answer prompt's K rule; K1 for a comparison of two facts of one unit.
+      - [x] Contract, expand only: `Citation.calculation`; codegen; `make contracts-breaking` ("No breaking changes").
+      - [x] Evals: `load_sources`, coverage and the judge path read K; only `answer_system`'s hash changed (E5's report).
+      - [x] Web: the calculation card, `/api/sources` without K, the mock API, a Playwright spec with axe, the three new screenshots only.
+      - [x] E5 within its estimate (activity-log.md).
+    - [x] PR 5 `item-labels` (code only): Items 7 and 8 for the four separate financial sections; `reparse`.
+      - [x] Pin the 26 other cached 10-Ks' section ranges from main's parser (local check; CI has no SEC cache).
+      - [x] Trimmed fixtures of JPM, CVX, NVDA and PLD; tests first.
+      - [x] Parser; `python -m filinglens_ingest.reparse ACCESSION...` (SEC cache only) with its integration test.
+      - [x] No dev re-parse (PR 6, the user's go).
+    - [x] Checks: lint, typecheck, unit tests, integration tests, web typecheck, unit tests and e2e (activity-log.md).
+    - [ ] (user) The comparison drafts' second sentence (E5: 8 of 10 regenerated, E2 2): a prompt line "state the difference in the same sentence as both figures", which changes the answer prompt and needs a measured run (about $0.04 of credits, about 50K judge tokens), or leave it (memory.md).
+    - [ ] Weakness, its own PR (found in E5): a Sources block written inline ("... [K1]. Sources: [F1] ...") stays in the answer text and passes validation (c13).
+    - [ ] (user) ship as one PR: `Answers: comparisons show their arithmetic; filings cite the right item`.
+    - [ ] (user, this PC) Application Control blocks the venv's `python.exe` since 2026-10-27, so `make` targets that run Python fail here (memory.md, the workaround).
   - [ ] PR 6 `golden-v2`: re-parse dev (the user's go), v2's pools and labels (estimate first), the user's spot check, freeze, corpus-v2 (the user uploads), E8 and v2's dev floors.
   - [ ] PR 7 `v2-results`: E9 (official, free models) and E10 (Claude); floors; README, eval card and landing page; corpus-v2 in production when the user picks.
   - [ ] PR 2 `first-words-sooner`, after PR 7, only if time remains (E3).

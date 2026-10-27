@@ -7,9 +7,13 @@ table of contents lists them first, in rising order, so item lines up to the fir
 after that and runs to the next item's heading; the last one runs to the end of the document.
 Running page headers ("Item 1A" atop each page) come after their item's heading and change nothing.
 A heading whose item reads "Not applicable" still counts as found. Titles are the form's own.
+Some 10-Ks keep MD&A or the statements in a separate financial section inside a later item, and
+their Items 7 or 8 only point there (JPM, CVX, NVDA, PLD): that section's own headings take the
+items, and the pointers keep no range, so each item is still one range.
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from itertools import accumulate
@@ -89,6 +93,23 @@ HEADING = re.compile(  # "(" stops it: a cover page's "Part III (Items 10-14)" i
     re.IGNORECASE,
 )
 PART = re.compile(r"part\s+(iv|i{1,3})\b", re.IGNORECASE)
+POINTER_MAX = 2_000  # characters: an Item 7 or 8 this short only points to the content
+APOSTROPHE = "['\N{RIGHT SINGLE QUOTATION MARK}]"
+# Whole lines that open a separate financial section's MD&A and statements, in item order; a
+# contents row ("...analysis:", "...Firm (PCAOB ID: 238)") never matches a whole line.
+OPENS = {
+    "7": re.compile(
+        rf"management{APOSTROPHE}s discussion and analysis"
+        r"(?: of financial condition and results of operations)?\.?",
+        re.IGNORECASE,
+    ),
+    "8": re.compile(
+        r"(?:report of independent registered public accounting firm"
+        rf"|management{APOSTROPHE}s responsibility for (?:the )?(?:consolidated )?financial"
+        r" statements)\.?",
+        re.IGNORECASE,
+    ),
+}
 
 
 class ParseError(FilingLensError):
@@ -208,7 +229,44 @@ def parse_filing(html: str, form: str) -> Parsed:
         end = starts[following.line] - 1 if following else len(text)
         title = titles[heading.key] + (f"; {titles[heading.also]}" if heading.also else "")
         sections.append(Section(heading.key, title, start, start + len(text[start:end].rstrip())))
+    if kind == "10-K":
+        sections = _financial_section(sections, lines, starts, text, titles)
     return Parsed(text, sections, [item for item in required if item not in found])
+
+
+def _financial_section(
+    sections: list[Section],
+    lines: list[str],
+    starts: list[int],
+    text: str,
+    titles: Mapping[str, str],
+) -> list[Section]:
+    """Items 7 and 8 that only point elsewhere take the first opening line of theirs after the
+    pointers (8 after 7's). Each runs to the next one, or to the end of the item that held it,
+    which keeps its part before them; market risk inside MD&A stays in 7, and 7A as it is."""
+    pointers = [s for s in sections if s.item in OPENS and s.end - s.start < POINTER_MAX]
+    found: dict[str, int] = {}  # item -> offset of its opening line
+    after = max((s.end for s in pointers), default=len(text))
+    for item, opening in OPENS.items():
+        if any(s.item == item for s in pointers):
+            later = (n for n, line in enumerate(lines) if starts[n] > after)
+            opened = next((n for n in later if opening.fullmatch(lines[n])), None)
+            if opened is not None:
+                found[item] = after = starts[opened]
+    cuts = sorted((start, item) for item, start in found.items())
+    split: list[Section] = []
+    for section in sections:
+        if section.item in found:  # a pointer whose item moved: its lines name pages, no more
+            continue
+        inside = [(start, item) for start, item in cuts if section.start < start < section.end]
+        ends = [start for start, _ in inside] + [section.end]
+        pieces = [
+            (section.item, section.title, section.start),
+            *((i, titles[i], s) for s, i in inside),
+        ]
+        for (item, title, start), end in zip(pieces, ends, strict=True):
+            split.append(Section(item, title, start, start + len(text[start:end].rstrip())))
+    return split
 
 
 def _headings(lines: list[str], kind: str) -> list[_Heading]:

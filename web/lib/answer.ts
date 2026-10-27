@@ -17,8 +17,9 @@ export function findSource(citation: Citation, sources?: Sources) {
   };
 }
 
-/** "NVDA 10-K FY2026, Item 1A", or undefined until the sources load. */
+/** "NVDA 10-K FY2026, Item 1A" once the sources load; a calculation names its sources at once. */
 export function sourceLabel(citation: Citation, sources?: Sources): string | undefined {
+  if (citation.calculation) return `Calculated by FilingLens from sources ${listed(citation.calculation.inputs.map(String))}`;
   const { chunk, fact } = findSource(citation, sources);
   if (chunk) {
     const { company, formType, fiscalYear } = chunk.filing;
@@ -69,6 +70,9 @@ export interface FigureRow {
 export function figureRows(answer: Answer, sources?: Sources): FigureRow[] {
   return answer.checks.map((check) => {
     const citation = answer.citations[check.citation - 1];
+    if (citation.calculation) {
+      return { figure: sourceLabel(citation) ?? "", written: check.text, reported: `${check.source_value}, calculated` };
+    }
     const { chunk, fact } = findSource(citation, sources);
     if (fact) {
       const figure = `${fact.label}, period ending ${fact.periodEnd}`;
@@ -81,9 +85,12 @@ export function figureRows(answer: Answer, sources?: Sources): FigureRow[] {
   });
 }
 
-/** "against XBRL data" when every checked amount cites a fact, else "against their sources". */
+/** "against XBRL data" when every checked amount cites a fact or a calculation on facts, else "against their sources". */
 export function checksTitle(answer: Answer): string {
-  const facts = answer.checks.every((check) => answer.citations[check.citation - 1]?.fact_id);
+  const facts = answer.checks.every((check) => {
+    const citation = answer.citations[check.citation - 1];
+    return citation?.fact_id || citation?.calculation;
+  });
   return `Numbers checked against ${facts ? "XBRL data" : "their sources"}`;
 }
 

@@ -494,6 +494,19 @@ async def _parse(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
         _sec().document, filing.cik, filing.accession_number, filing.primary_document
     )
     parsed = parsing.parse_filing(parsing.decode(document), filing.form_type)
+    async with engine.begin() as connection:
+        await _store(connection, filing_id, parsed)
+    if parsed.missing:
+        log.warning(
+            "filing lacks required items",
+            accession_number=filing.accession_number,
+            missing=parsed.missing,
+        )
+    return True
+
+
+async def _store(connection: AsyncConnection, filing_id: int, parsed: parsing.Parsed) -> None:
+    """A filing's sections and missing items from its parse; a section already stored stays."""
     sections = [
         {
             "filing_id": filing_id,
@@ -505,22 +518,14 @@ async def _parse(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) ->
         }
         for section in parsed.sections
     ]
-    async with engine.begin() as connection:
-        await connection.execute(
-            insert(Section)
-            .values(sections)
-            .on_conflict_do_nothing(index_elements=["filing_id", "item"])
-        )
-        await connection.execute(
-            update(Filing).where(Filing.id == filing_id).values(missing_items=parsed.missing)
-        )
-    if parsed.missing:
-        log.warning(
-            "filing lacks required items",
-            accession_number=filing.accession_number,
-            missing=parsed.missing,
-        )
-    return True
+    await connection.execute(
+        insert(Section)
+        .values(sections)
+        .on_conflict_do_nothing(index_elements=["filing_id", "item"])
+    )
+    await connection.execute(
+        update(Filing).where(Filing.id == filing_id).values(missing_items=parsed.missing)
+    )
 
 
 async def _chunk(engine: AsyncEngine, *, filing_id: int, job_id: UUID | None) -> bool:

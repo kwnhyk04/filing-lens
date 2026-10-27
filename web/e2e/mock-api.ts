@@ -36,6 +36,26 @@ const ADMISSION: Record<string, [number, string, string, string?]> = {
   "e2e: busy": [503, "overloaded", "Too many answers in progress.", "2"],
 };
 
+/** c02 with its conclusion citing FilingLens's arithmetic on the two facts, as a calculation (K1). */
+function calculated(): Answer {
+  const c02 = answerOf("c02");
+  const [alphabet, meta] = c02.citations;
+  const quote =
+    "Meta Platforms, Inc. (META): 200,966,000,000 USD. Alphabet Inc. (GOOGL): 402,836,000,000 USD." +
+    " Alphabet Inc. (GOOGL) is higher by 201,870,000,000 USD, 100.45% more than Meta Platforms, Inc. (META).";
+  const higher = "Alphabet's $402,836,000,000 was $201,870,000,000, or 100.45%, higher than Meta's $200,966,000,000 [1][2][3].";
+  return {
+    ...c02,
+    answer: `${c02.answer.split(" Therefore")[0]} ${higher}`,
+    citations: [alphabet, meta, { chunk_id: null, fact_id: null, calculation: { inputs: [1, 2] }, quote, filing_url: meta.filing_url }],
+    checks: [
+      ...c02.checks,
+      { text: "$201,870,000,000", citation: 3, source_value: "201,870,000,000" },
+      { text: "100.45%", citation: 3, source_value: "100.45" },
+    ],
+  };
+}
+
 /** What the API sends a key it does not know. */
 function rejected(res: ServerResponse) {
   send(res, 401, problem(401, "unauthorized", "Missing or unknown API key."), { "WWW-Authenticate": "APIKey" });
@@ -62,7 +82,7 @@ async function stream(res: ServerResponse, question: string) {
   const rewritten = question === "e2e: rewritten"; // x02's answer carries validation warnings
   const slow = question.startsWith("e2e: slow"); // about 3 s of draft, so a test can leave mid-answer
   const recorded = snapshot.answers.find((item) => item.question === question)?.answer as Answer | undefined;
-  const answer = rewritten ? answerOf("x02") : (recorded ?? answerOf("o02"));
+  const answer = rewritten ? answerOf("x02") : question === "e2e: calculated" ? calculated() : (recorded ?? answerOf("o02"));
   const draft = slow ? "Still drafting. ".repeat(50) : rewritten ? "A first draft that validation will rewrite." : answer.answer;
   for (const piece of draft.match(/[\s\S]{1,40}/g) ?? []) {
     emit({ type: "delta", text: piece });

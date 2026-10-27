@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from filinglens_llm.validate import (
     MARKER,
+    Calculation,
     Figure,
     Quoted,
     check_sentence,
@@ -31,10 +32,10 @@ INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 MAX_TOKENS = 1024  # answers and regenerations: short, fast, cheap, no runaway (docs/context.md)
 SOURCES_HEADING = re.compile(r"^[ \t*#_]*sources[ \t*_]*:?[ \t*_]*$", re.IGNORECASE | re.MULTILINE)
 SOURCE_LINE = re.compile(
-    r"^[ \t*-]*\[\s*(?P<alias>[CF]\d+)\s*\][ \t:|\-]*(?P<quote>.*?)[ \t]*$", re.MULTILINE
+    r"^[ \t*-]*\[\s*(?P<alias>[CFK]\d+)\s*\][ \t:|\-]*(?P<quote>.*?)[ \t]*$", re.MULTILINE
 )
 QUOTE_MARKS = "\"'“”‘’«»`"  # noqa: RUF001 - the quote marks models write
-OWN_MARKER = re.compile(r"\s*\[\s*[CF]\d+\s*\]$")  # x17 (dev) wrote [C1] "quote" [C1]
+OWN_MARKER = re.compile(r"\s*\[\s*[CFK]\d+\s*\]$")  # x17 (dev) wrote [C1] "quote" [C1]
 HOLD = 24  # characters a stream holds back: a starting "Sources:" heading or a split marker
 SYSTEM = f"""\
 You answer analysts' questions about companies' SEC filings, using only the sources given.
@@ -47,19 +48,23 @@ Rules:
    supports your sentence. For a financial fact (F1, F2...) quote its value as listed.
 4. Give figures as the sources state them, or rounded, such as $416.2 billion. A sentence that
    compares figures states each of them.
-5. Answer in at most 6 sentences, without headings or lists.
-6. If the sources do not answer the question, reply with only {INSUFFICIENT}."""
+5. A calculation (K1), when given, states two facts' difference, change in percent and which is
+   higher. Cite it for any of these, together with both of its facts, such as [F1][F2][K1], and
+   quote the figure you used; compute nothing yourself.
+6. Answer in at most 6 sentences, without headings or lists.
+7. If the sources do not answer the question, reply with only {INSUFFICIENT}."""
 
 
 @dataclass(frozen=True)
 class Source:
-    alias: str  # the id the model cites: F1 for a fact, C1 for a chunk
+    alias: str  # the id the model cites: F1 for a fact, C1 for a chunk, K1 for a calculation
     chunk_id: str | None
     fact_id: str | None
     heading: str  # company, filing, period, item
-    text: str  # a chunk's text, which a quote must come from; a fact's value line
+    text: str  # a chunk's text, which a quote must come from; a fact's or calculation's lines
     value: Decimal | None  # a fact's value
     url: str
+    calculation: Calculation | None = None  # K1's figures, from two of the facts
 
 
 def user_prompt(question: str, sources: Sequence[Source], problems: Sequence[str] = ()) -> str:

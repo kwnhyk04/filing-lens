@@ -170,18 +170,30 @@ class AnswerRequest(Schema):
     fiscal_years: list[FiscalYear] | None = Field(default=None, max_length=10)
 
 
+class Calculation(Schema):
+    """Arithmetic FilingLens did on two cited facts of one unit; the answer model computed none."""
+
+    inputs: list[int] = Field(
+        min_length=2,
+        max_length=2,
+        description="The citations of the two facts it was calculated from, numbered from 1.",
+    )
+
+
 class Citation(Schema):
-    """Exactly one source: chunk_id for filing text, fact_id for an XBRL fact."""
+    """Exactly one source: chunk_id for filing text, fact_id for an XBRL fact, calculation for
+    arithmetic on two cited facts (its quote holds the values, difference and change)."""
 
     chunk_id: str | None = None
     fact_id: str | None = None
+    calculation: Calculation | None = None
     quote: str
     filing_url: Url
 
     @model_validator(mode="after")
     def _one_source(self) -> Self:
-        if (self.chunk_id is None) == (self.fact_id is None):
-            raise ValueError("set exactly one of chunk_id and fact_id")
+        if [self.chunk_id, self.fact_id, self.calculation].count(None) != 2:
+            raise ValueError("set exactly one of chunk_id, fact_id and calculation")
         return self
 
 
