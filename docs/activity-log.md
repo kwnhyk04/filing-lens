@@ -15,6 +15,36 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-01: graphql-core 3.3.1 and pyasn1 0.6.5 for CI's security job, fixed at the source (uncommitted, branch `golden-v2`)
+
+- Changes, on `golden-v2` after 98b6f2d (the user's request: fix it on this branch; CI's security job failed on 5 HIGH in `uv.lock`):
+  - `uv.lock`: graphql-core 3.3.0 to 3.3.1 (CVE-2026-119286) and pyasn1 0.6.4 to 0.6.5 (CVE-2026-119194 to 119197), each package's version, sdist and wheel lines only. No ignore file or allowlist.
+  - Docs: memory, todo, this log.
+- Small events, in order:
+  1. **Gates:** GateGuard held the first Bash call and the first edit of `uv.lock` and of these docs until their facts were given. Each retry passed.
+  2. **Release age, a stop:** the user asked to respect any release-age setting the project has, and to stop and report if it blocked a version.
+     - uv has none: no `exclude-newer` in `pyproject.toml`, no user or system `uv.toml`, no `UV_EXCLUDE_NEWER`. So the project's setting is Dependabot's 7-day cooldown for uv.
+     - PyPI's JSON API, at 2026-10-31 17:28 UTC: graphql-core 3.3.1 was uploaded on 2026-10-25 at 09:34 UTC (6 days 8 hours old), pyasn1 0.6.5 on 2026-10-27 at 06:33 UTC (4 days 11 hours). Both are the newest releases.
+     - Both were inside the cooldown, so the work stopped and was reported, with `uv.lock` untouched.
+  3. **Read-only checks before the stop:**
+     - `uv lock --upgrade-package graphql-core --upgrade-package pyasn1 --dry-run` listed only these two updates.
+     - PyPI's integrity API: graphql-core 3.3.1's wheel and sdist carry PEP 740 attestations from `graphql-python/graphql-core`, workflow `publish.yml`. pyasn1 0.6.5 has none, and neither do 0.6.3 and 0.6.4. An anonymous `git ls-remote` shows upstream's `v0.6.5` tag.
+  4. **Exception:** the user then took both as a security exception, logged like certifi (2026-10-21).
+  5. **The lock's header:** the exact command ("Updated graphql-core v3.3.0 -> v3.3.1", "Updated pyasn1 v0.6.4 -> v0.6.5") rewrote `revision = 3` to `revision = 5` again (memory.md, 2026-10-21 pitfall). It was set back to 3 with the edit tool. `uv sync` then swapped only the two packages.
+  6. **My mistake, an exit code:** the first `uv lock --check` ran through a pipe, so the exit code printed was `tail`'s. It was re-run without the pipe and exited 0.
+  7. **Line ends:** git warns again that the working copy of `uv.lock` will get CRLF; uv writes LF. The committed blob is LF either way.
+  8. **Control:** the pre-fix lock from `HEAD` (extracted with `git archive` into the scratchpad) was scanned with the same Trivy command and database. It showed exactly the 5 HIGH, each fixed in the version taken, so the 0 below comes from the fix, not from a database that lacks them.
+  9. **Nothing live:** no model or SEC call. Docker ran only Trivy (`--rm`): the three `make vuln-scan` scans and the control. Trivy downloaded a fresh database first.
+- Files: `uv.lock`; `docs/{memory,todo,activity-log}.md`.
+- Validation:
+  - `make vuln-scan`: 0 HIGH or CRITICAL in `uv.lock`, `web/package-lock.json` and `clients/ts/package-lock.json`.
+  - `make test` 573 passed (52 deselected); `make typecheck` 0 errors. `make lint` was not run: no source file changed.
+  - Lock diff: `git diff --numstat` gives `6 6 uv.lock`, the two packages' lines only.
+  - Eval check:
+    - `uv.lock` is in CI's `EVAL_INPUTS`, so CI's eval runs; this branch's other changes run it anyway.
+    - The reply cache key (`evals/calls.py`, `key()`) holds the role, model, options and run context, plus the prompts, schema and token cap. No package version is in it, so this change adds no cache miss. graphql-core sits under Strawberry (the API's GraphQL), pyasn1 under google-auth (google-genai's auth).
+- Outstanding: the user ships it. The images were not rebuilt or scanned this time (not asked; `make image-scan` fails only on a CRITICAL).
+
 ### 2026-10-31: PR 7: Claude first everywhere, and the official v2 runs (uncommitted, branch `golden-v2`)
 
 - Changes (the user's second task, sent during PR 6: Claude first in every model role with today's free chain behind it, the judge off Claude, each stop proven on recorded error shapes, the official v2 run Claude first and a free-only run, both shown labelled; CI free-only):
