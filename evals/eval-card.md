@@ -1,6 +1,55 @@
-# Eval card: FilingLens golden set v1
+# Eval card: FilingLens golden sets v2 and v1
 
-## Golden set
+## Golden set v2 (frozen 2026-10-31)
+
+Golden set v2 is the set in use. Its passage gold is AI-labeled, cross-checked blind by a second model; no human spot check in v2.
+
+Its gold mixes two labelling standards. About 10 of the 150 carried gold passages would fail the strict qualifier rule, and they were left as they are. So Claude's 168 gold follow the qualifier rule and the 150 carried follow v1's looser rule (details below).
+
+- **Questions:** 155, in `evals/golden/v2/questions.jsonl`.
+  - v1's 100, unchanged and all in dev now, with v1's ci flags: the answer-quality round read v1's test answers, so v1's test split is no longer held out.
+  - 55 new test questions (`V2_*` in `evals/golden.py`), written in free phrasing and hashed (sha256 `bf12aaa6...4224c`) before any fix of the round.
+  - Numeric and comparison gold: XBRL facts by the latest-filed rule, as in v1.
+- **Corpus:** the dev database after the four 10-Ks with a separate financial section (JPM, CVX, NVDA, PLD) were re-parsed, so their MD&A and statements sit under Items 7 and 8.
+  - 30 indexed 10-Ks, 677 sections, 11,257 chunks with model A vectors (`embedding`), 856,438 facts, revision 0008.
+  - Published for CI as the release asset `corpus-v2` (46.5 MB, sha256 pinned in `evals/corpus.py`).
+- **Pools:** 59 (v1's 30 and 29 new), 1,129 passages.
+  - v1's pools keep their passages by text hash: 538, 36 of them under new chunk ids.
+  - They also take the chunks overlapping the 5 v1 passages whose text changed, and what v1's pool sources find on the re-parsed corpus.
+  - New pools come from v1's pool sources.
+- **Labels:**
+  - The 538 kept passages carry v1's final label (`carried.jsonl`), described under golden set v1 below. About 10 of their 150 gold would fail the strict qualifier rule; they were left as they are.
+  - Claude labeled the other 591, each with a one-line reason, under v1's guideline plus the qualifier rule: "A passage is gold only if it answers the question as asked, qualifier included." The passage itself must establish the qualifier, never outside knowledge.
+  - Before the sample was drawn, one Claude reviewer checked all 180 of Claude's gold labels against the qualifier rule. 6 questions were labeled again in full, and 12 passages went to not gold.
+  - Gold: 318 passages, 150 carried and 168 Claude's. Every textual question has gold; no absent question has any.
+- **Cross-check (2026-10-31):** the judge model (`LLM_JUDGE`, `groq:openai/gpt-oss-120b`, another model family than Claude) labeled the fixed-seed blind sample of 50.
+  - The sample comes from Claude's v2 labels only: 31 questions, 28 Claude-gold, none carried.
+  - The judge saw what `make audit`'s blind screen shows (the question and its kind, the company, the item and the passage), never Claude's label or reason. Its rule was the one above, worded as the audit screen words it.
+  - Its labels went through `make audit`'s path (`labels.jsonl`, `golden.audit_stats`), so the numbers come out as v1's did (`python -m evals.label crosscheck`).
+  - **Agreement:** 90.0% (45 of 50), Cohen's kappa 0.80 (95% bootstrap CI 0.62 to 0.96). Claude said gold on 28, the judge on 25.
+  - **Disagreements, 5:**
+    - Claude gold, judge not gold, 4: x26 (Amazon's AI infrastructure spending; the passage says spending rises to support AI, and the judge wanted an amount); x31 (what ConocoPhillips gained from Marathon Oil; the judge read the transaction terms only); x35 (Goldman winding down its consumer business; Apple Card markdowns, with no statement about winding down); x38 (UnitedHealth's medical cost trends in 2025; the judge found no mention of 2025).
+    - Judge gold, Claude not gold, 1: x43 (how Linde delivers industrial gases; Claude read an inventory policy, the judge read delivery methods).
+  - A model's labels only measure agreement. They never become final, and nothing reviewed the 5: Claude's labels stand.
+  - Two models agreeing does not show that the labels are right.
+  - Cost: 50 calls, 35,388 gpt-oss-120b tokens on Groq's free tier.
+- **The carried labels under the qualifier rule (2026-10-31, read only):** one fresh Claude reviewer checked the 150 carried gold labels as Claude's 180 had been checked. 10 would fail; nothing was changed.
+  - 8 of the 10 were Claude's v1 labels and 2 the human's (of the 150: 123 and 27).
+  - By question: x14 4 (Pfizer's patent expiries: the passages never establish "most significant products"), x05 2 (Tesla's plants, never said to build vehicles), and 1 each in x02 (no effect on sales to China stated), x09 (the acquisition never named as Hess), x19 (strategic capital never named) and x20 (electric and gas states listed together).
+  - Two of x14's depend on reading "most significant" as a qualifier the passage must establish.
+  - So v2's gold holds two standards: Claude's 168 under the qualifier rule, and the 150 carried under v1's rule, of which the qualifier rule would drop about 7%.
+- **What the labels support:** retrieval metrics on v2 measure agreement with Claude's relevance judgments, and with v1's for the carried passages. Numeric, comparison and refusal gold does not depend on these labels.
+- **Judge calibration:** v2 keeps v1's judge prompt, schema and model, so v2 reports cite v1's calibration (`evals/calibration/v1/result.json`, kappa 0.84; below). A test pins the prompt and schema hashes to those v1's official report recorded.
+- **Floors:** keyed by golden version in `evals/thresholds.json` (`v2:...`; v1's keep theirs as `v1:...`). The dev floors CI gates come from E8 (2026-10-31), run on the free models CI uses, by the floor rule:
+  - `v2:answer:dev:ci:gemini:gemini-3.5-flash-lite` from `evals/reports/runs/20261031T144658Z-answer-dev-ci` (25 questions, no judge): numeric exact match 1.000 (n 8), comparison match 1.000 (3), citation coverage 1.000 (14), correct refusal 1.000 (10), false refusal 0.067 (1 of 15: x15), time to first token p50 1.61 s and p95 2.71 s, full answer p95 3.85 s.
+  - `v2:retrieval:dev:full` from `evals/reports/runs/20261031T145959Z-retrieval-dev-full` (20 textual questions): recall@10 0.595, MRR@10 0.742, nDCG@10 0.590, retrieval p95 328 ms at 11,257 chunks.
+- **Results (2026-10-31, the 55 test questions, two runs, both judged by gpt-oss-120b; README has the table):**
+  - **Claude first, the headline** (`evals/reports/2026-10-31-claude-first`, labelled; Claude Haiku 5.5 routes and answers, as production runs it): false refusal 4.4% (2 of 45), citation precision 0.980, faithfulness 0.968, coverage 0.950, numeric and comparison 1.000, correct refusal 1.000, router accuracy 0.982. Misses: time to first token p50 2.11 s and p95 5.06 s, full answer p95 7.07 s, 9,534 input tokens per query. $0.0012 of credits per query, about $0.066 in all.
+  - **Free models only** (`evals/reports/2026-10-31`; Gemini 3.5 Flash-Lite answers, gpt-oss-20b routes): false refusal 13.3% (6 of 45), citation precision 1.000, faithfulness 0.990, router accuracy 0.564, time to first token p50 1.47 s. v2's test floors (`v2:...:test:full`) come from this run, as CI's floors must come from the free models.
+  - Retrieval, the same search in both: recall@10 0.596 and MRR@10 0.628 over 25 textual questions.
+  - Both ran on the uncommitted branch (each report pins its source sha256) at about 15:30 and 16:00 UTC, not at the 07:20 UTC of v1's run, so their latency reflects that hour.
+
+## Golden set v1
 
 - 100 questions, written on 2026-10-16 against the dev database: the latest 10-K of 30 companies in 11 sectors (11,263 chunks) and their XBRL facts.
   - 40 numeric, 20 textual, 15 comparison.

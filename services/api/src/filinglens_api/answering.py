@@ -100,6 +100,7 @@ class Models:
     primary: Provider
     fallback: Provider
     answer_fallback: Provider | None = None  # LLM_ANSWER_FALLBACK: answers only, before `fallback`
+    router_fallback: Provider | None = None  # LLM_ROUTER_FALLBACK: routing only, before `fallback`
 
 
 @dataclass
@@ -467,15 +468,16 @@ class Answerer:
         yield AnswerCompleted(answer=answer)
 
     async def _chain(self, role: str) -> list[Provider]:
-        """The models a router or answer call tries in order: its own, then for answers
-        LLM_ANSWER_FALLBACK, then LLM_FALLBACK; evals turn fallbacks off. Claude is left out
-        while it cannot answer (off for good, or today's budget used up), with no fallback logged;
-        alone in the chain, its reason is raised."""
+        """The models a router or answer call tries in order: its own, then LLM_ROUTER_FALLBACK
+        for routing or LLM_ANSWER_FALLBACK for answers, then LLM_FALLBACK; evals turn fallbacks
+        off. Claude is left out while it cannot take the call (off for good, or today's budget
+        used up), with no fallback logged; alone in the chain, its reason is raised."""
         models = self._models
-        chain = [models.router if role == "router" else models.primary]
+        router = role == "router"
+        chain = [models.router if router else models.primary]
         if self._allow_fallback:
-            if role == "primary" and models.answer_fallback:
-                chain.append(models.answer_fallback)
+            if extra := models.router_fallback if router else models.answer_fallback:
+                chain.append(extra)
             chain.append(models.fallback)
         usable: list[Provider] = []
         skipped: FilingLensError | None = None

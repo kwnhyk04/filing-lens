@@ -26,6 +26,16 @@ const TABLE = [
   "| `groq:openai/gpt-oss-20b` | 30 | 29 | 30,931 | 2,264 |",
 ].join("\r\n");
 
+test("a Claude-first report's side-by-side table never replaces its own results", () => {
+  // The harness appends the free run's values beside a labelled run's, under the same row labels.
+  const beside = ["", "| Metric | Official | This run |", "| False refusal | 0.133 | 0.044 |"];
+  const rows = resultRows([TABLE, ...beside].join("\r\n"));
+  assert.deepEqual(
+    rows.find((row) => row.label === "False refusals, answerable questions"),
+    { label: "False refusals, answerable questions", target: "≤ 5%", result: "13%", status: "Below target" },
+  );
+});
+
 test("the report's table, in the page's order, units and words", () => {
   assert.deepEqual(resultRows(TABLE), [
     { label: "Numeric accuracy (exact match)", target: "92%", result: "100%", status: "Met" },

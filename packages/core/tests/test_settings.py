@@ -99,12 +99,33 @@ def test_the_answer_fallback_is_off_by_default_and_claude_only_answers(
         load_settings(ApiSettings)
     set_env(monkeypatch, ANTHROPIC_API_KEY="a")
     assert load_settings(ApiSettings).llm_answer_fallback == "anthropic:claude-haiku-5-5"
-    set_env(monkeypatch, LLM_ROUTER="anthropic:claude-haiku-5-5")
-    with pytest.raises(SystemExit, match="LLM_ROUTER cannot be Claude"):
+
+
+def test_claude_may_route_first_while_the_free_models_behind_it_stay_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = {"AI_ENABLED": "true", "GEMINI_API_KEY": "k", "NVIDIA_API_KEY": "n"}
+    claude = "anthropic:claude-haiku-5-5"
+    set_env(monkeypatch, **keys, LLM_ROUTER=claude, LLM_ROUTER_FALLBACK="groq:openai/gpt-oss-20b")
+    with pytest.raises(SystemExit, match="LLM_ROUTER needs ANTHROPIC_API_KEY"):
         load_settings(ApiSettings)
-    set_env(monkeypatch, LLM_ROUTER=None, LLM_FALLBACK="anthropic:claude-haiku-5-5")
-    with pytest.raises(SystemExit, match="LLM_FALLBACK cannot be Claude"):  # it also routes
+    set_env(monkeypatch, ANTHROPIC_API_KEY="a")
+    with pytest.raises(SystemExit, match="LLM_ROUTER_FALLBACK needs GROQ_API_KEY"):
         load_settings(ApiSettings)
+    set_env(monkeypatch, GROQ_API_KEY="g")
+    settings = load_settings(ApiSettings)  # production's chain: Claude, then the free router
+    assert (settings.llm_router, settings.llm_router_fallback) == (
+        claude,
+        "groq:openai/gpt-oss-20b",
+    )
+    set_env(monkeypatch, LLM_ROUTER_FALLBACK="")  # what compose passes when it is unset
+    assert load_settings(ApiSettings).llm_router_fallback is None
+    for role in ("LLM_ROUTER_FALLBACK", "LLM_FALLBACK"):  # the free tail Claude's stops fall to
+        set_env(
+            monkeypatch, **({"LLM_ROUTER_FALLBACK": None, "LLM_FALLBACK": None} | {role: claude})
+        )
+        with pytest.raises(SystemExit, match=f"{role} cannot be Claude"):
+            load_settings(ApiSettings)
 
 
 @pytest.mark.parametrize("settings_class", [ApiSettings, IngestSettings])

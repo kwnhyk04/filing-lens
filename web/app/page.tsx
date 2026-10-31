@@ -2,14 +2,21 @@
 // the demo snapshot, imported at build time; e2e/landing.spec.ts fails when the page and they drift apart.
 import Link from "next/link";
 
-import report from "../../evals/reports/2026-10-17.json";
-import table from "../../evals/reports/2026-10-17.md";
+import claude from "../../evals/reports/2026-10-31-claude-first.json";
+import claudeTable from "../../evals/reports/2026-10-31-claude-first.md";
+import report from "../../evals/reports/2026-10-31.json";
+import table from "../../evals/reports/2026-10-31.md";
 import { AnswerText, sourceLabel } from "../components/answer-view.tsx";
 import { LandingHeader } from "../components/chrome.tsx";
 import { demo } from "../lib/demo.ts";
-import { evalDate, resultRows, SAMPLE } from "../lib/landing.ts";
+import { evalDate, type ResultRow, resultRows, SAMPLE } from "../lib/landing.ts";
 
-const rows = resultRows(table);
+// The two official runs of golden v2's test split: Claude first, as the live site runs while its credits
+// last, and the free models alone, which CI's floors come from.
+const RUNS = [
+  { id: "claude-first", title: "Claude first: the live site while its credits last", run: claude, table: claudeTable },
+  { id: "free", title: "Free models only: CI's floors, and the live site once the credits end", run: report, table },
+].map((item) => ({ ...item, rows: resultRows(item.table) }));
 const { config, judge_calibration: judge } = report;
 const labeler = judge.labeler.charAt(0).toUpperCase() + judge.labeler.slice(1);
 const sample = demo.answers.find((item) => item.id === SAMPLE);
@@ -49,8 +56,47 @@ function Sample() {
             : "Checked: the quote is in the filing, word for word"}
         </p>
       </div>
-      <figcaption>A saved answer from the evaluation&apos;s test run, as the demo shows it.</figcaption>
+      <figcaption>A saved answer from golden v1&apos;s test run, as the demo shows it.</figcaption>
     </figure>
+  );
+}
+
+/** One run's results: each metric's target, its result, and whether it met the target. */
+function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] }) {
+  return (
+    <div className="scroll">
+      <table>
+        <caption className="visually-hidden">
+          {caption}: each metric&apos;s target, its result, and whether it met the target
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Metric</th>
+            <th scope="col" className="num">
+              Target
+            </th>
+            <th scope="col" className="num">
+              Result
+            </th>
+            <th scope="col">
+              <span className="visually-hidden">Status</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <th scope="row">{row.label}</th>
+              <td className="num">{row.target}</td>
+              <td className="num measured">{row.result}</td>
+              <td>
+                <span className={row.status === "Met" ? "pill" : "tag"}>{row.status}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -123,52 +169,30 @@ export default function LandingPage() {
         <section id="results" aria-labelledby="results-title">
           <h2 id="results-title">Evaluation results</h2>
           <p>
-            Measured on {report.records.answer.length} questions from the golden set&apos;s test split on{" "}
-            {evalDate(report.created_at)}, with free-tier models: answers by <code>{config.primary}</code> (thinking{" "}
-            {config.thinking}), routing by <code>{config.router}</code>, judging by <code>{config.judge}</code>.
-            Nothing was tuned on this set.
+            Measured on {report.records.answer.length} questions from golden set v2&apos;s test split on{" "}
+            {evalDate(report.created_at)}, twice, judging by <code>{config.judge}</code>. Nothing was tuned on this
+            set.
           </p>
           <p>
-            On the live site, Claude Haiku 5.5 answers first, within its daily budget and while its prepaid credits
-            last; then Gemini 3.5 Flash-Lite, then gpt-oss-20b on NVIDIA. The table measures the free models, not
-            Claude.
+            On the live site, Claude Haiku 5.5 routes and answers first, within its daily budget and while its
+            prepaid credits last; then the free models: Gemini 3.5 Flash-Lite answers, gpt-oss-20b on Groq routes,
+            and gpt-oss-20b on NVIDIA is the last fallback.
           </p>
-          <div className="scroll">
-            <table>
-              <caption className="visually-hidden">Each metric&apos;s target, its result, and whether it met the target</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Metric</th>
-                  <th scope="col" className="num">
-                    Target
-                  </th>
-                  <th scope="col" className="num">
-                    Result
-                  </th>
-                  <th scope="col">
-                    <span className="visually-hidden">Status</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.label}>
-                    <th scope="row">{row.label}</th>
-                    <td className="num">{row.target}</td>
-                    <td className="num measured">{row.result}</td>
-                    <td>
-                      <span className={row.status === "Met" ? "pill" : "tag"}>{row.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {RUNS.map(({ id, title, run, rows }) => (
+            <div key={id} id={`results-${id}`}>
+              <h3>{title}</h3>
+              <p className="small">
+                Answers by <code>{run.config.primary}</code> (thinking {run.config.thinking}), routing by{" "}
+                <code>{run.config.router}</code>.
+              </p>
+              <ResultsTable caption={title} rows={rows} />
+            </div>
+          ))}
           <p className="small">
             Citation precision and faithfulness are graded by an LLM judge, <code>{config.judge}</code>, calibrated
             against labels written by {labeler} (Cohen&apos;s kappa {judge.kappa.toFixed(2)}), not by a human.
             Retrieval recall rests on {report.metrics.retrieval["recall@10"].n} questions, whose passage labels are
-            AI-written and spot-checked by a non-expert, not verified by experts.
+            AI-labeled, cross-checked blind by a second model; no human spot check in v2.
           </p>
         </section>
 

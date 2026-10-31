@@ -29,7 +29,7 @@ Needs uv, Docker, GNU make, and Node 24.7+ (`web/` signs in with `node:crypto`'s
 | `make test` / `make test-int` | Unit tests (no Docker, no network; about 10 s) / integration tests in throwaway Postgres, RabbitMQ and Redis containers (needs Docker; about 2 minutes). Tests never reach SEC or a model provider: `network_guard.py` refuses every host but this machine |
 | `make lint` / `make typecheck` | ruff / pyright (strict for `packages/*`) |
 | `make migrate` / `make seed` | Apply Alembic migrations up to `REV` (default head; dev uses `REV=0008`) / upsert seed data |
-| `make seed-real` | Live SEC, needs `make dev`: check the golden-set CIKs and tickers against SEC, then ingest each company's latest 10-K and its XBRL facts through the worker; prints filings per status, chunks per filing, facts per company and the SEC requests made. Do not run it, or queue ingest jobs, while golden set v1's test runs go on: new filings (Apple's FY2026 10-K lands around 2026-10-30) change the corpus, and the eval's drift check then stops every run |
+| `make seed-real` | Live SEC, needs `make dev`: check the golden-set CIKs and tickers against SEC, then ingest each company's latest 10-K and its XBRL facts through the worker; prints filings per status, chunks per filing, facts per company and the SEC requests made. Do not run it, or queue ingest jobs, while golden set v2's runs go on: new filings (Apple's FY2026 10-K lands around 2026-10-30) change the corpus, and the eval's drift check then stops every run |
 | `make models` | Once, outside tests: fetch the pinned local models into `HF_HOME` |
 | `make smoke` | Live models: three questions (numeric, textual, unanswerable) through the answer pipeline; prints answers, citations, tokens, stage latencies and time to first token |
 | `make record-fixtures` | Live models: re-record the replies the answering tests replay (`services/api/tests/fixtures/answers`) |
@@ -38,12 +38,12 @@ Needs uv, Docker, GNU make, and Node 24.7+ (`web/` signs in with `node:crypto`'s
 | `make codegen` | Export `contracts/` from the app, then regenerate `clients/python`, `clients/python-graphql` and `clients/ts` |
 | `make contracts-check` | Run codegen and fail if `contracts/` or `clients/` changed (commit or stage the output first) |
 | `make contracts-breaking` | oasdiff (Docker): fail on breaking OpenAPI changes against `BASE` (default `main`) |
-| `make eval` | Golden-set eval, needs `make dev`: `SUITE=retrieval\|answer\|all SPLIT=dev\|test SUBSET=full\|ci`. `ARGS` takes `--tag=NAME` (calls the answer models live once under NAME; earlier replies stay cached), `--primary-tag=NAME` (the same for the answer model only, with router replies from the cache), `--router-primary=PROVIDER:MODEL` (reuse the router replies of that answer model's run, so two answer models get identical inputs), `--min-relevance=X`, `--thinking=default`, `--claude-primary` (a labelled local run: Claude Haiku 5.5 answers on the official free run's router replies, those of the default `LLM_PRIMARY` whatever `.env` sets, and its report sits beside that run's last report; needs `ANTHROPIC_API_KEY`, never checks or sets floors, refused under `--ci` or in CI), `--no-judge` and `--ci` (CI runs: see CI below). Runs check the floors in `evals/thresholds.json` but never write them; `uv run python -m evals.harness --set-floors REPORT` writes the floors the rule gives a saved report's measured values, latency included, keeping only tighter ones; add `--replace` to replace that report's floors even when looser (only on request, with a reason). Pass/fail metrics use Wilson intervals. The answer suite calls the live models and prints a quota estimate first. Replies are cached, so a run stopped by a quota or rate limit (exit 2, the only stop that says to rerun after the quota resets) resumes when rerun. Reports go to `evals/reports/`. Exits 1 on a broken floor, 3 when the golden set or the corpus changed since the freeze, and 4 on any other failure with its reason (a refused key, credits gone, a retired model). The harness's own exit code shows when it runs directly; through make every failure is make's exit 2 |
-| `make corpus-dump` / `make corpus-restore` | Dev stack: golden v1's corpus for CI as `.cache/corpus/corpus-v1.dump`, with rows of the public SEC tables only, checked for secrets / an empty Postgres (CI): fetch the `corpus-v1` release asset if missing, check its sha256 and restore it (`evals/corpus.py`) |
+| `make eval` | Golden-set eval, needs `make dev`: `SUITE=retrieval\|answer\|all SPLIT=dev\|test SUBSET=full\|ci`. `ARGS` takes `--tag=NAME` (calls the answer models live once under NAME; earlier replies stay cached), `--primary-tag=NAME` (the same for the answer model only, with router replies from the cache), `--router-primary=PROVIDER:MODEL` (reuse the router replies of that answer model's run, so two answer models get identical inputs), `--min-relevance=X`, `--thinking=default`, `--claude-first` (a labelled run: Claude Haiku 5.5 routes and answers, as production runs it, and its report sits beside the free-only run's last report; a full test run goes to `evals/reports/<date>-claude-first`; needs `ANTHROPIC_API_KEY`, never checks or sets floors, refused under `--ci` or in CI; it replaced `--claude-primary`, which answered on the free run's routes, on 2026-10-31), `--no-judge` and `--ci` (CI runs: see CI below). Runs check the floors in `evals/thresholds.json` but never write them; `uv run python -m evals.harness --set-floors REPORT` writes the floors the rule gives a saved report's measured values, latency included, keeping only tighter ones; add `--replace` to replace that report's floors even when looser (only on request, with a reason). Pass/fail metrics use Wilson intervals. The answer suite calls the live models and prints a quota estimate first. Replies are cached, so a run stopped by a quota or rate limit (exit 2, the only stop that says to rerun after the quota resets) resumes when rerun. Reports go to `evals/reports/`. Exits 1 on a broken floor, 3 when the golden set or the corpus changed since the freeze, and 4 on any other failure with its reason (a refused key, credits gone, a retired model). The harness's own exit code shows when it runs directly; through make every failure is make's exit 2 |
+| `make corpus-dump` / `make corpus-restore` | Dev stack: golden v2's corpus for CI as `.cache/corpus/corpus-v2.dump`, with rows of the public SEC tables only, checked for secrets / an empty Postgres (CI): fetch the `corpus-v2` release asset if missing, check its sha256 and restore it (`evals/corpus.py`) |
 | `make demo-export` | Dev Postgres: write `web/demo/snapshot.json` for the public demo, from 8 recorded answers of the golden v1 test run (no model call) plus their sources and the coverage, read through the API's own GraphQL. It stops on a citation it cannot resolve or one inside the four mislabeled sections (Known limitations). Rebuild the web after it |
 | `make actionlint` / `make secrets-scan` | Lint the GitHub Actions workflows / gitleaks over every commit (run it before a push) |
 | `make vuln-scan` / `make image-scan` | Trivy on each lockfile, dev dependencies included, failing on a high or critical with a fix / on an image (`IMAGE`, default `filinglens-api`), failing on a critical with a fix |
-| `make audit` / `make label` | Interactive passage labeling for the golden set (resumable). Both refuse once the set is frozen |
+| `make audit` / `make label` | Interactive passage labeling for the golden set (resumable). Both refuse once the set is frozen. Golden v2's cross-check took the blind pass with the judge model instead: `uv run --env-file .env python -m evals.label crosscheck` (live, gpt-oss-120b; its labels only measure agreement) |
 | `make calibrate` | Judge calibration. On screen you label sampled answer sentences against their cited sources. `ARGS=export` writes the sample for an outside labeler, and `ARGS=import` scores its labels from `claude_labels.jsonl`. The judge then scores the same sentences, Cohen's kappa goes to `evals/calibration/v1/result.json` with the labeler named, and judge metrics count only at 0.7 or more. A first argument `followup` (`ARGS="followup export"`) works on the second sample in `evals/calibration/v1-followup/`: natural sentences that fail the validator, from the fallback-model runs |
 
 - API: `http://127.0.0.1:4100`. `/healthz` and `/readyz` need no key; everything else needs `X-API-Key`. `API_KEY` opens `/v1/companies`, `/v1/filings`, `/v1/search`, `/v1/answers` (plus `/stream` for Server-Sent Events) and `/graphql`; the admin routes `/v1/ingest-jobs` take only `ADMIN_API_KEY`. The contract is `contracts/openapi.json` (errors are RFC 9457 problems) and `contracts/schema.graphql`. Companies, filings and the GraphQL sections, chunks and facts come from Postgres; GraphQL `chunks(ids)` and `facts(ids)` look up an answer's citations (up to 20 ids) with their section, filing and company, and `totals` counts the companies with an indexed filing and the indexed filings. Every answer carries `reading` (how the router read the question) and `checks` (each amount with the cited source that holds it). An ingest job discovers each company's 10-K and 10-Q filings on EDGAR, fetches them into the SEC cache (`.cache/sec`, shared by the worker and host runs), splits them into item sections and token-aware chunks, embeds the chunks on the `embed` worker, and loads the company's XBRL facts. Search and answers run on that data (answers need `AI_ENABLED=true`).
@@ -74,7 +74,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests, pushes to mai
 - Jobs: lint (ruff, pyright, actionlint, and guards against an Anthropic secret or model and against steps that cannot fail), unit and integration tests, contracts (`make contracts-check`, the `clients/ts` tests, `make contracts-breaking` against the base), web (types, unit tests, build, Playwright; no secrets), security (gitleaks over the full history, Trivy on the lockfiles), migrations, eval, images (build api and ingest, Trivy), and on main only, publish to GHCR (`sha-<short>` and `latest`, with provenance) after migrations and every check.
 - Pinning: actions are pinned to commits and tools to image digests, each release at least 7 days old. Trivy runs from 0.75.0 by digest with no token, no secret and no Docker socket; its GitHub Actions and the hijacked releases (binary 0.69.4, images 0.69.5 and 0.69.6) are never used.
 - Secrets: Actions secrets `GEMINI_API_KEY` and `GROQ_API_KEY` only, read by the answer eval step alone. CI never calls Claude: there is no Anthropic secret, and `LLM_ANSWER_FALLBACK` is empty.
-- Eval: it runs only when an eval input changed (`packages/{core,db,llm,retrieval,telemetry}/src`, `services/api/src`, `evals` without its reports, tests and Markdown, or `uv.lock`). It restores the frozen corpus from the `corpus-v1` release asset.
+- Eval: it runs only when an eval input changed (`packages/{core,db,llm,retrieval,telemetry}/src`, `services/api/src`, `evals` without its reports, tests and Markdown, or `uv.lock`). It restores the frozen corpus from the `corpus-v2` release asset.
   - The retrieval suite runs on all 70 dev questions, with local models and no LLM call.
   - The answer suite runs on the 20-question dev ci subset without the judge.
   - The verdicts go to the PR comment and the job summary, and the reports to an artifact.
@@ -92,6 +92,42 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests, pushes to mai
 
 ## Evaluation
 
+Golden set v2 (`evals/golden/v2`, frozen 2026-10-31) is the set in use. It holds 155 questions: v1's 100, all in dev now, and 55 new test questions, hashed before any fix of the answer-quality round. Its corpus is the re-parsed dev database (11,257 chunks, release asset `corpus-v2`). How it was built and labeled is in `evals/eval-card.md` (Golden set v2).
+
+- Textual gold is AI-labeled, cross-checked blind by a second model; no human spot check in v2.
+- Claude labeled the 591 passages that carry no v1 label, under v1's rule plus the qualifier rule: a passage is gold only if it answers the question as asked, qualifier included. The other 538 keep v1's final label (below).
+- **v2's gold mixes two labelling standards.** About 10 of the 150 carried gold passages would fail the strict qualifier rule (a read-only check, 2026-10-31). They were left as they are, so Claude's 168 gold follow the qualifier rule and the 150 carried follow v1's looser rule.
+- The cross-check: the judge model (gpt-oss-120b, another model family) labeled a fixed-seed sample of 50 of Claude's labels without seeing them. Agreement 90.0%, Cohen's kappa 0.80 (95% CI 0.62 to 0.96). Two models agreeing does not show the labels are right.
+- Its labels only measure agreement: on the 5 disagreements Claude's labels stand.
+
+### Official results, golden v2: test split, 2026-10-31
+
+Two runs of the same 55 test questions, both judged by gpt-oss-120b. Nothing was tuned on this set.
+- **Claude first (the headline):** Claude Haiku 5.5 routes and answers, as the live site runs while its credits last (`evals/reports/2026-10-31-claude-first`, 16:01 UTC).
+- **Free models only:** Gemini 3.5 Flash-Lite answers and gpt-oss-20b routes. The site falls back to them when Claude stops, and CI's test floors come from this run (`evals/reports/2026-10-31`, 15:31 UTC).
+- Both ran on the uncommitted branch; each report pins its source sha256.
+
+| Metric | Target | Claude first (headline) | Free models only |
+| --- | --- | --- | --- |
+| Retrieval recall@10 (n 25) | 0.90 | 0.596 | 0.596 (the same search) |
+| MRR@10 | 0.70 | 0.628 | 0.628 |
+| Numeric exact match (n 12) | 0.92 | 1.000 | 1.000 |
+| Citation precision (judge) | 0.95 | 0.980 (n 42) | 1.000 (n 37) |
+| Citation coverage | 0.95 | 0.950 | 1.000 |
+| Faithfulness (judge) | 0.92 | 0.968 | 0.990 |
+| Correct refusal (n 10) | 0.90 | 1.000 | 1.000 |
+| False refusal (n 45) | 5% or lower | 4.4% (x21, x42) | 13.3% (x21, x25, x26, x35, x40, x42) |
+| Router accuracy (route, tickers, years, metric) | - | 0.982 | 0.564 |
+| Time to first token p50 / p95 | 1.0 s / 2.0 s | 2.11 s / 5.06 s | 1.47 s / 2.12 s |
+| Full answer latency p95 | 6 s | 7.07 s | 3.98 s |
+| Tokens per query, in / out | 8,000 / 600 | 9,534 / 493 | 5,715 / 321 |
+| Cost per query, as billed | $0.015 | $0.0012 in credits | $0 |
+
+- **Claude first** misses only speed and input tokens. It routes in 1.16 s at p50 against Groq's 0.66 s, its first draft starts later (1.93 s against 1.45 s at p50), and it redrafts more often (draft citation pass rate 0.915 against 0.972). Its routing prompt is about twice Groq's in tokens.
+- **Free models only** miss false refusal (13.3%) and time to first token p50. Their router reads 56% of questions fully right, against Claude's 98%.
+- Recall@10 (0.596) misses for both: the search is the same, and its gold labels are Claude's (above).
+- Golden v1's results below are history.
+
 Golden set v1 (`evals/golden/v1`, frozen 2026-10-16) holds 100 questions over the 30 companies' latest 10-Ks. How it was built and labeled is in `evals/eval-card.md`.
 
 - Textual gold is AI-labeled, spot-checked by a non-expert. Claude labeled every pooled passage.
@@ -100,9 +136,9 @@ Golden set v1 (`evals/golden/v1`, frozen 2026-10-16) holds 100 questions over th
 - The human then made the final call on the 40 disagreements and kept Claude's label on 37. That review showed Claude's reason, so it was not independent.
 - Later, after reading the passage text, the human corrected 2 of their 3 overrides back to not gold. The final key now differs from Claude's labels on one passage.
 - The judge behind citation precision and faithfulness (gpt-oss-120b) is calibrated against labels by Claude, a different and stronger model than the judge, not by a human. On 29 sentences it agreed 93.1%, Cohen's kappa 0.84 (95% CI 0.59 to 1.00), so those metrics count. Every negative in that sample was constructed. A follow-up spot check on natural sentences that fail the validator (2026-10-17) found the judge failing 3 of the 4 that Claude labeled not supported.
-- While golden v1 is in use, don't run `make seed-real` or queue ingest jobs (see `make seed-real` above).
+- While a golden set is in use (v2 now), don't run `make seed-real` or queue ingest jobs (see `make seed-real` above).
 
-### Official results: test split, 2026-10-17
+### Golden v1's official results: test split, 2026-10-17 (history)
 
 The run covers 30 questions on the free tiers. Gemini 3.5 Flash-Lite answers, gpt-oss-20b routes and gpt-oss-120b judges (report `evals/reports/2026-10-17.md`). The test floors in `evals/thresholds.json` come from this run. The dev floors that CI gates come from the dev reports of 2026-10-17. Retrieval accuracy floors sit one question's share below the measured value, because retrieval calls no model and repeats exactly (`evals/eval-card.md`).
 
@@ -164,8 +200,7 @@ Known weaknesses, with v2 ideas (nothing here is tuned on test results):
 
 - **Section labels in four 10-Ks:** JPM, CVX, NVDA and PLD keep MD&A or the financial statements in a separate financial section, which their Items 7, 7A or 8 only point to.
   - The parser labels that content with the item heading before it: JPM under Item 15, CVX under Item 14, and NVDA and PLD under Items 15 and 16 for their Item 8 content. That is 1,373 of the 11,263 chunks.
-  - Fixed in the parser on 2026-10-27; the stored corpus keeps the old labels until the next corpus (golden v2).
+  - Fixed in the parser on 2026-10-27. The dev corpus was re-parsed the same day, so `corpus-v2` (CI) and golden v2 carry Items 7 and 8; production keeps `corpus-v1`'s old labels until corpus-v2 is restored there.
   - The UI shows the item as stored, and the demo export refuses a citation inside these sections.
-  - The fix waits for the next corpus: relabeling changes chunk ids that golden v1 freezes (`docs/memory.md`, 2026-10-18).
 
 Layout: `services/` (api, ingest), `packages/` (core, db, retrieval, llm, sec_client, telemetry), `contracts/` (exported OpenAPI and GraphQL), `clients/` (generated), `web/`, `evals/`, `infra/`. See `docs/context.md` for the design and `docs/todo.md` for the build plan.

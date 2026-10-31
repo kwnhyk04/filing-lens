@@ -44,7 +44,8 @@ export function resultRows(markdown: string): ResultRow[] {
   const table = new Map<string, string[]>();
   for (const line of markdown.split("\n")) {
     const [label, ...cells] = line.split("|").slice(1, -1).map((cell) => cell.trim());
-    if (cells.length) table.set(label, cells);
+    // The first table with the label: a Claude-first report repeats it in its side-by-side table.
+    if (cells.length && !table.has(label)) table.set(label, cells);
   }
   return ROWS.map(({ report, label, unit, ceiling }): ResultRow => {
     const cells = table.get(report);

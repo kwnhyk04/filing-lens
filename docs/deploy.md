@@ -95,10 +95,12 @@ It prints 43 URL-safe characters with no `$`.
 | `DAILY_AI_TOKEN_BUDGET` | `300000`: about 55 textual answers a day, and it leaves room in Groq gpt-oss-20b's 200K a day for CI. It counts the free models in this stack's Redis only |
 | `LLM_PRIMARY` | `anthropic:claude-haiku-5-5`: Claude answers first |
 | `LLM_ANSWER_FALLBACK` | `gemini:gemini-3.5-flash-lite`: the free chain behind Claude |
-| `LLM_ROUTER`, `LLM_FALLBACK`, `LLM_MAX_INFLIGHT`, `LOG_LEVEL` | leave out for the defaults: Groq routes, NVIDIA last, 4 answers at once, `INFO` |
+| `LLM_ROUTER` | `anthropic:claude-haiku-5-5`: Claude routes first (since 2026-10-31) |
+| `LLM_ROUTER_FALLBACK` | `groq:openai/gpt-oss-20b`: the free router behind Claude |
+| `LLM_FALLBACK`, `LLM_MAX_INFLIGHT`, `LOG_LEVEL` | leave out for the defaults: NVIDIA last in both chains, 4 answers at once, `INFO` |
 | `ANTHROPIC_API_KEY` | FilingLens's Anthropic key; here only, never on Vercel |
 | `ANTHROPIC_CREDITS_EXPIRE` | `2026-11-10`: Claude is off for good from that day (UTC) |
-| `CLAUDE_DAILY_TOKEN_BUDGET` | `1500000`: at most $0.75 a day, FilingLens's $15 share over the days to 2026-11-10. It counts this stack's Redis only; the dev api and the local `--claude-primary` evals count apart |
+| `CLAUDE_DAILY_TOKEN_BUDGET` | `1500000`: at most $0.75 a day, FilingLens's $15 share over the days to 2026-11-10. It counts this stack's Redis only, routing and answers together; the dev api and the local `--claude-first` evals count apart |
 | `GEMINI_API_KEY` | a key from FilingLens's own Google project, billing off (step 28); empty until then, which AI off allows |
 | `GROQ_API_KEY`, `NVIDIA_API_KEY` | the dev keys (same quotas) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` with `observability` (telemetry on: any value turns it on, and compose passes the collector's URL); empty with monitoring off. Set both or neither |
@@ -313,7 +315,7 @@ Run these in the same session as steps 30 to 35, with `IMAGE_TAG` at the alert d
 
 - **Public kill switch** (seconds): `docker compose --env-file .env.prod stop tailscale`. The web serves the demo; `start tailscale` undoes it.
 - **AI off:** set `AI_ENABLED=false` in `.env.prod`, then `docker compose --env-file .env.prod up -d api`. Ask shows the switched-off message, and no model is called.
-- **Claude only off:** set `LLM_PRIMARY=gemini:gemini-3.5-flash-lite` and an empty `LLM_ANSWER_FALLBACK`, then `docker compose --env-file .env.prod up -d api`. Answers then run on the free chain alone.
+- **Claude only off:** set `LLM_PRIMARY=gemini:gemini-3.5-flash-lite`, `LLM_ROUTER=groq:openai/gpt-oss-20b`, and empty `LLM_ANSWER_FALLBACK` and `LLM_ROUTER_FALLBACK`, then `docker compose --env-file .env.prod up -d api`. Routing and answers then run on the free chains alone.
 - **Backend image:** set `IMAGE_TAG` back to the previous `sha-<7>` (the activity log records each deployed tag), then `docker compose --env-file .env.prod pull api egress-proxy` and `docker compose --env-file .env.prod up -d api`. No `filinglens-squid` image exists before the egress proxy's merge commit, so going back past it needs the egress proxy's rollback as well; the pull fails first and changes nothing. A squid image from before alert delivery's merge has no socat, so `smtp-relay` would stop: roll monitoring back first (below).
 - **Monitoring and alert delivery** (about 2 minutes; the egress proxy stays). Roll this back before the egress proxy, whose rollback restores an override without these services.
   1. In `.env.prod`: `COMPOSE_PROFILES=` and `OTEL_EXPORTER_OTLP_ENDPOINT=`, both empty.

@@ -25,6 +25,7 @@ from redis.asyncio import Redis
 
 from filinglens_api import limits
 from filinglens_api.answering import Answerer, Evidence, Models, calculation_source
+from filinglens_api.main import models
 from filinglens_api.schemas import (
     Answer,
     AnswerCompleted,
@@ -36,6 +37,7 @@ from filinglens_api.schemas import (
     Reading,
 )
 from filinglens_core.errors import AiUnavailableError, OverloadedError, UpstreamError
+from filinglens_core.settings import ApiSettings
 from filinglens_llm import budget
 from filinglens_llm.answer import Source
 from filinglens_llm.providers import (
@@ -239,6 +241,7 @@ def answerer(
     evidence: RecordedEvidence | None = None,
     answer_fallback: Provider | None = None,
     first: Provider | None = None,
+    router_first: Provider | None = None,
     **options: Any,
 ) -> Answerer:
     groq = OpenAICompatible("groq", BASE_URLS["groq"], "openai/gpt-oss-20b", "k", http)
@@ -247,6 +250,8 @@ def answerer(
     # Claude first, as production runs it: LLM_PRIMARY Claude, LLM_ANSWER_FALLBACK Gemini.
     free = Models(groq, gemini, nvidia, answer_fallback)
     models = Models(groq, first, nvidia, gemini) if first else free
+    if router_first:  # and LLM_ROUTER Claude, LLM_ROUTER_FALLBACK Groq
+        models = replace(models, router=router_first, router_fallback=groq)
     redis = Redis.from_url("redis://0.0.0.0:1/0")  # down: usage is logged, not counted
     evidence = evidence or RecordedEvidence(recorded["evidence"])
     return Answerer(evidence, models, redis, max_inflight=max_inflight, **options)
@@ -258,6 +263,7 @@ async def run(
     answer_fallback: Provider | None = None,
     first: Provider | None = None,
     question: str | None = None,
+    router_first: Provider | None = None,
     **options: Any,
 ) -> tuple[Answer, str, dict[str, Any]]:
     """Answer the fixture's question, or `question`; returns the answer, the joined deltas and
@@ -268,7 +274,9 @@ async def run(
         deltas: list[str] = []
         answer = None
         request = AnswerRequest(question=question or recorded["question"])
-        pipeline = answerer(recorded, http, 2, evidence, answer_fallback, first, **options)
+        pipeline = answerer(
+            recorded, http, 2, evidence, answer_fallback, first, router_first, **options
+        )
         async for event in pipeline.events(request, stats):
             if isinstance(event, AnswerDelta):
                 deltas.append(event.text)
@@ -643,6 +651,118 @@ async def test_claude_is_skipped_while_its_daily_budget_is_used_up(
     answer, _, stats = await run("numeric", first=model)
     assert not answer.refused and stats["fallbacks"] == [] and len(sent) == asked
     assert ledger.switched_off is None  # a new day brings Claude back
+
+
+def claude_message(text: str) -> httpx2.Response:
+    """A Claude Messages reply holding `text` (a routing reply's JSON), 700 tokens in and 40 out."""
+    body = {
+        "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-haiku-5-5",
+        "content": [{"type": "text", "text": text}], "stop_reason": "end_turn",
+        "stop_sequence": None, "usage": {"input_tokens": 700, "output_tokens": 40},
+    }  # fmt: skip
+    return httpx2.Response(200, json=body)
+
+
+def routing_text(recorded: dict[str, Any]) -> str:
+    """The routing JSON of a fixture's recorded router reply."""
+    return json.loads(recorded["exchanges"][0]["body"])["choices"][0]["message"]["content"]
+
+
+async def test_claude_routes_first_with_the_routers_schema_and_its_own_budget(
+    mocked: respx.MockRouter,
+) -> None:
+    recorded = fixture("numeric")
+    groq = mocked.post(host="api.groq.com")
+    replay(mocked, recorded["exchanges"][1:])  # Gemini's answer
+    ledger = Ledger()
+    model, sent = claude(claude_message(routing_text(recorded)), ledger=ledger)
+    answer, _, stats = await run("numeric", router_first=model)
+    assert not answer.refused and stats["fallbacks"] == [] and not groq.called
+    assert stats["routing"]["route"] == "numeric" and ledger.used == 740
+    held = json.loads(sent[0].content)["output_config"]["format"]
+    assert held["type"] == "json_schema" and held["schema"]["required"][0] == "route"
+
+
+@pytest.mark.parametrize(
+    ("status", "kind"),
+    [(402, "credits"), (400, "credits"), (401, "key_or_model"), (403, "key_or_model"),
+     (404, "key_or_model")],
+)  # fmt: skip
+async def test_claude_off_for_good_hands_this_and_every_later_route_to_the_free_router(
+    mocked: respx.MockRouter, status: int, kind: str
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"] * 2)  # Groq routes and Gemini answers, twice
+    ledger = Ledger()
+    model, sent = claude(claude_error(status), ledger=ledger)
+    first, _, stats = await run("numeric", router_first=model)
+    assert not first.refused and fell_back_from(stats) == ["anthropic:claude-haiku-5-5"]
+    assert stats["fallbacks"][0].startswith("router: ")
+    assert ledger.switched_off is not None and ledger.switched_off[0] == kind
+    restarted, never_sent = claude(ledger=ledger)  # another process, or this one restarted
+    later, _, stats = await run("numeric", router_first=restarted)
+    assert not later.refused and stats["fallbacks"] == [] and never_sent == [] and len(sent) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "headers"),
+    [(429, None), (429, {"retry-after": "60"}), (500, None)],
+    ids=["429 without Retry-After", "429 asking 60 s", "a server error"],
+)
+async def test_a_claude_429_or_error_hands_only_that_route_to_the_free_router(
+    mocked: respx.MockRouter, status: int, headers: dict[str, str] | None
+) -> None:
+    recorded = fixture("numeric")
+    replay(mocked, recorded["exchanges"] + recorded["exchanges"][1:])  # Groq once, Gemini twice
+    ledger = Ledger()
+    reply = claude_message(routing_text(recorded))
+    model, sent = claude(claude_error(status, headers), reply, ledger=ledger)
+    first, _, stats = await run("numeric", router_first=model)
+    assert not first.refused and fell_back_from(stats) == ["anthropic:claude-haiku-5-5"]
+    later, _, stats = await run("numeric", router_first=model)
+    assert not later.refused and stats["fallbacks"] == [] and len(sent) == 2
+    assert ledger.switched_off is None
+
+
+@pytest.mark.parametrize(
+    ("used", "today"),
+    [(1_500_000, date(2026, 10, 17)), (0, date(2026, 11, 10))],
+    ids=["the daily budget used up", "the day the credits expire"],
+)
+async def test_claude_sits_out_routing_while_its_budget_is_used_up_or_its_credits_expired(
+    mocked: respx.MockRouter, used: int, today: date
+) -> None:
+    replay(mocked, fixture("numeric")["exchanges"])  # Groq routes, Gemini answers
+    model, sent = claude(claude_message("{}"), ledger=Ledger(used=used), today=today)
+    answer, _, stats = await run("numeric", router_first=model)
+    assert not answer.refused and stats["fallbacks"] == [] and sent == []  # skipped, not failed
+
+
+async def test_production_settings_put_claude_first_with_the_free_chains_behind() -> None:
+    claude = "anthropic:claude-haiku-5-5"
+    values = {
+        "database_url": "postgresql+asyncpg://app:p@localhost:5433/app",
+        "redis_url": "redis://localhost:6380/0",
+        "broker_url": "amqp://app:p@localhost:5672//",
+        "api_key": "k" * 32,
+        "admin_api_key": "a" * 32,
+        **{f"{name}_api_key": "x" for name in ("anthropic", "groq", "gemini", "nvidia")},
+        "llm_router": claude,
+        "llm_router_fallback": "groq:openai/gpt-oss-20b",
+        "llm_primary": claude,
+        "llm_answer_fallback": "gemini:gemini-3.5-flash-lite",
+    }  # production's .env.prod (docs/deploy.md)
+    settings = ApiSettings.model_validate(values)
+    async with httpx.AsyncClient() as http:
+        chain = models(settings, http, cast(Any, Ledger()))
+    names = {role: getattr(chain, role).name for role in ("router", "router_fallback", "primary")}
+    assert names == {
+        "router": "anthropic:claude-haiku-5-5",
+        "router_fallback": "groq:openai/gpt-oss-20b",
+        "primary": "anthropic:claude-haiku-5-5",
+    }
+    assert chain.answer_fallback is not None and chain.answer_fallback.name.startswith("gemini:")
+    assert chain.fallback.name == "nvidia:openai/gpt-oss-20b"  # the free tail of both
 
 
 async def test_claude_never_gets_a_prompt_that_could_pass_100000_tokens() -> None:

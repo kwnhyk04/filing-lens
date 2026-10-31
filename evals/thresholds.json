@@ -1,5 +1,5 @@
 {
- "answer:dev:ci:gemini:gemini-3.5-flash-lite": {
+ "v1:answer:dev:ci:gemini:gemini-3.5-flash-lite": {
   "answer_p95_ms": 5831.25,
   "citation_coverage": 0.95,
   "correct_refusal": 0.722467,
@@ -12,7 +12,7 @@
   "ttft_p50_ms": 2990.25,
   "ttft_p95_ms": 3157.05
  },
- "answer:test:full:gemini:gemini-3.5-flash-lite": {
+ "v1:answer:test:full:gemini:gemini-3.5-flash-lite": {
   "answer_p95_ms": 6000.0,
   "citation_coverage": 0.914286,
   "citation_precision": 0.833333,
@@ -27,14 +27,52 @@
   "ttft_p50_ms": 2428.95,
   "ttft_p95_ms": 2000.0
  },
- "retrieval:dev:full": {
+ "v1:retrieval:dev:full": {
   "mrr@10": 0.577381,
   "recall@10": 0.541667,
   "retrieval_p95_ms": 477.75
  },
- "retrieval:test:full": {
+ "v1:retrieval:test:full": {
   "mrr@10": 0.666667,
   "recall@10": 0.415873,
   "retrieval_p95_ms": 545.4
+ },
+ "v2:answer:dev:ci:gemini:gemini-3.5-flash-lite": {
+  "answer_p95_ms": 5776.2,
+  "citation_coverage": 0.95,
+  "correct_refusal": 0.722467,
+  "cost_billed_usd": 0.0,
+  "cost_usd": 0.002866,
+  "false_refusal": 0.298165,
+  "input_tokens": 8000.0,
+  "numeric_exact_match": 0.675592,
+  "output_tokens": 403.68,
+  "ttft_p50_ms": 2555.1,
+  "ttft_p95_ms": 4064.7
+ },
+ "v2:answer:test:full:gemini:gemini-3.5-flash-lite": {
+  "answer_p95_ms": 6000.0,
+  "citation_coverage": 0.95,
+  "citation_precision": 0.95,
+  "correct_refusal": 0.722467,
+  "cost_billed_usd": 0.0,
+  "cost_usd": 0.003922,
+  "faithfulness": 0.92,
+  "false_refusal": 0.261773,
+  "input_tokens": 8000.0,
+  "numeric_exact_match": 0.757506,
+  "output_tokens": 588.736364,
+  "ttft_p50_ms": 2409.3,
+  "ttft_p95_ms": 3563.55
+ },
+ "v2:retrieval:dev:full": {
+  "mrr@10": 0.691667,
+  "recall@10": 0.545179,
+  "retrieval_p95_ms": 533.85
+ },
+ "v2:retrieval:test:full": {
+  "mrr@10": 0.588048,
+  "recall@10": 0.555651,
+  "retrieval_p95_ms": 542.25
  }
 }
