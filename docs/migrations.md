@@ -29,7 +29,7 @@ Dev, and the backend on the PC, stays on the last revision before the swap (now 
 - `make seed-fake` fills whichever embedding columns exist.
 - A plain `make migrate` goes to head: 0004 and 0005 only add, and 0006 refuses to drop model A while any chunk lacks `embedding_v2`. To return to the dev path: `uv run --env-file .env python -m alembic downgrade 0008`.
 - CI checks every change on real data (`migrations` job in `.github/workflows/ci.yml`):
-  1. Restore `corpus-v1.dump`, golden v1's corpus at the deployed revision (`make corpus-restore`).
+  1. Restore `corpus-v2.dump`, golden v2's corpus at the deployed revision 0008 (`make corpus-restore`; corpus-v1 until 2026-10-31).
   2. Upgrade to the dev path's target: the revision 0004 revises, read from the chain, so a new revision is picked up by itself.
   3. Downgrade one step, then upgrade again.
 
@@ -49,9 +49,9 @@ Chunks start on model A (`embedding`, BAAI/bge-small-en-v1.5, 384 dimensions) an
 
 Release N ships 0004 and 0005, with code that knows both columns:
 
-1. Expand: `alembic upgrade 0004` adds nullable `embedding_v2` and `embedding_v2_model`. Rollback: `alembic downgrade 0008`.
+1. Expand: `uv run --env-file .env python -m alembic upgrade 0004` adds nullable `embedding_v2` and `embedding_v2_model`. Rollback: `uv run --env-file .env python -m alembic downgrade 0008`.
 2. Migrate: start the backfill once, with `docker compose exec ingest celery -A filinglens_ingest.worker call filinglens_ingest.reembed.reembed`. Each run embeds the next 256 chunks, in chunk id order, that model B has not embedded, then queues the next run with the last id. Runs are rate limited to 60 a minute; Celery's limit is per worker, but only one run is queued at a time. A crash or restart redelivers the message, and the run skips the rows already done. Progress: `SELECT count(*) FILTER (WHERE embedding_v2_model = 'BAAI/bge-base-en-v1.5'), count(*) FROM chunks;`
-3. Index: when the backfill finishes, `alembic upgrade 0005` builds the HNSW index on `embedding_v2` concurrently. One build after the backfill is faster than updating the index row by row. Size the build first:
+3. Index: when the backfill finishes, `uv run --env-file .env python -m alembic upgrade 0005` builds the HNSW index on `embedding_v2` concurrently. One build after the backfill is faster than updating the index row by row. Size the build first:
    - A parallel build keeps its graph in shared memory of about `maintenance_work_mem`. Compose gives postgres `shm_size: 256mb` in dev and prod, so keep `maintenance_work_mem` at 200 MB or less for a parallel build; `make check-parallel-hnsw` confirms on the dev stack that one fits. With Docker's default 64 MB it fails with "could not resize shared memory segment".
    - The graph needs about 4 KB per 768-dimension vector, so 200 MB holds about 50k. Past that, pgvector notes that the graph no longer fits and the rest of the build slows down.
    - A serial build (`SET max_parallel_maintenance_workers = 0`) keeps the graph in local memory instead, so `maintenance_work_mem` can be larger: the seed builds 100k vectors in 140 s with 512 MB. The prod memory limit (1.5 GB) covers `shm_size`, 512 MB of `maintenance_work_mem`, `shared_buffers` and connections; raise it before using more.
@@ -62,7 +62,7 @@ Release N ships 0004 and 0005, with code that knows both columns:
 Release N+1, once every running API reads `embedding_v2`:
 
 6. Check that `SELECT count(*) FROM chunks WHERE embedding_v2 IS NULL` returns 0; if not, run the task again.
-7. Contract: deploy code that no longer reads `embedding`, then `alembic upgrade 0006`. It refuses to run while any chunk lacks `embedding_v2`, then drops `ix_chunks_embedding` concurrently and the old columns. Its downgrade restores an empty column and index only: re-embed with model A before pointing the flag back.
+7. Contract: deploy code that no longer reads `embedding`, then `uv run --env-file .env python -m alembic upgrade 0006`. It refuses to run while any chunk lacks `embedding_v2`, then drops `ix_chunks_embedding` concurrently and the old columns. Its downgrade restores an empty column and index only: re-embed with model A before pointing the flag back.
 
 The next swap repeats these steps with a new column such as `embedding_v3`, added to `EmbeddingColumn` and `EMBEDDING_MODELS` in `filinglens_core.settings`.
 

@@ -2,6 +2,7 @@
 is called."""
 
 import asyncio
+import hashlib
 import json
 from collections import Counter
 from collections.abc import AsyncIterator, Mapping
@@ -304,7 +305,7 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
         "input_tokens": entry(3000.0, 2800.0, 3200.0),
         "cost_billed_usd": entry(0.0, 0.0, 0.0),
     }
-    report = {"suite": "all", "split": "test", "subset": "full"} | {
+    report = {"suite": "all", "split": "test", "subset": "full", "golden": {"version": "v2"}} | {
         "config": {"primary": "gemini:gemini-3.5-flash-lite"},
         "judge_calibration": {"kappa": 0.84},
         "metrics": {"answer": answer, "retrieval": {"recall@10": entry(0.60, 0.45, 0.75)}},
@@ -313,7 +314,7 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
     saved.write_text(json.dumps(report), encoding="utf-8")
     harness.set_floors(saved)
     floors = json.loads(thresholds.read_text(encoding="utf-8"))
-    free = "answer:test:full:gemini:gemini-3.5-flash-lite"  # answer floors go per primary model
+    free = "v2:answer:test:full:gemini:gemini-3.5-flash-lite"  # answer floors go per primary model
     assert floors[free] == {
         "numeric_exact_match": 0.763869,  # min(Wilson low of 19 of 20, target)
         "faithfulness": 0.9,  # counted: the run's judge was calibrated
@@ -322,7 +323,7 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
         "input_tokens": 4800.0,  # meets its target: min(high x 1.5, target)
         "cost_billed_usd": 0.0,  # the free setup bills nothing
     }
-    assert floors["retrieval:test:full"] == {"recall@10": 0.55}  # no model call: value - 1/n
+    assert floors["v2:retrieval:test:full"] == {"recall@10": 0.55}  # no model call: value - 1/n
     answer["ttft_p95_ms"] = entry(2800.0, 2400.0, 3000.0)
     saved.write_text(json.dumps(report), encoding="utf-8")
     harness.set_floors(saved)
@@ -342,6 +343,37 @@ def test_set_floors_applies_the_rule_to_a_saved_reports_values(
     with pytest.raises(SystemExit, match="never set floors"):  # measured beside, never gated
         harness.set_floors(saved)
     assert thresholds.read_text(encoding="utf-8") == before
+
+
+def test_previous_matches_the_golden_version_and_an_answer_run_finds_an_all_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(harness, "REPORTS", tmp_path)
+    (tmp_path / "runs").mkdir()
+
+    def saved(name: str, suite: str, version: str, day: int) -> dict[str, Any]:
+        body = {
+            "suite": suite, "split": "test", "subset": "full", "golden": {"version": version},
+            "created_at": f"2026-11-{day:02}T07:20:00+00:00", "config": {"primary": "gemini:g"},
+        }  # fmt: skip
+        (tmp_path / "runs" / f"{name}.json").write_text(json.dumps(body), encoding="utf-8")
+        return body
+
+    saved("v1-answer", "answer", "v1", 3)  # the newest, but of another golden set
+    official = saved("e9", "all", "v2", 1)  # the official run: every suite
+    saved("retrieval", "retrieval", "v2", 2)  # newer, but holds no answers
+    run = {key: value for key, value in official.items() if key != "created_at"}
+    assert harness.previous(run | {"suite": "answer"}) == official
+
+
+def test_v2_reports_cite_v1s_judge_calibration_while_the_judge_is_unchanged() -> None:
+    result = harness.calibration()
+    assert harness.CALIBRATION.parent.name == "v1" and harness.calibrated(result)
+    assert result is not None and result["judge"] == EvalSettings.model_fields["llm_judge"].default
+    # The prompt and schema v1's calibration measured, as v1's official report recorded them.
+    v1 = json.loads((harness.REPORTS / "2026-10-17.json").read_text(encoding="utf-8"))
+    assert hashlib.sha256(judge.SYSTEM.encode()).hexdigest() == v1["prompts"]["judge_system"]
+    assert harness.digest(judge.SCHEMA) == v1["prompts"]["judge_schema"]
 
 
 def test_the_judge_can_never_be_claude(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -447,9 +479,9 @@ def test_the_sweep_takes_the_midpoint_of_the_best_range_under_5_percent_false_re
 CLAUDE = "anthropic:claude-haiku-5-5"
 REFUSED: list[tuple[str, list[str], dict[str, str], str]] = [
     ("the official eval", [], {"LLM_PRIMARY": CLAUDE}, "official eval runs the free models"),
-    ("--ci", ["--claude-primary", "--ci"], {}, "local only"),
-    ("a CI runner", ["--claude-primary"], {"CI": "true"}, "local only"),
-    ("no key", ["--claude-primary"], {"ANTHROPIC_API_KEY": ""}, "needs ANTHROPIC_API_KEY"),
+    ("--ci", ["--claude-first", "--ci"], {}, "local only"),
+    ("a CI runner", ["--claude-first"], {"CI": "true"}, "local only"),
+    ("no key", ["--claude-first"], {"ANTHROPIC_API_KEY": ""}, "needs ANTHROPIC_API_KEY"),
 ]
 
 
@@ -471,15 +503,17 @@ FREE: str = EvalSettings.model_fields["llm_primary"].default  # the official run
 
 # .env's LLM_PRIMARY: the free default, or Claude first as production runs it (README).
 @pytest.mark.parametrize("primary", [FREE, CLAUDE], ids=["free primary", "Claude primary"])
-def test_the_claude_configuration_swaps_the_answer_model_and_keeps_the_official_routes(
+def test_claude_first_routes_and_answers_with_claude_as_production_does(
     monkeypatch: pytest.MonkeyPatch, primary: str
 ) -> None:
     monkeypatch.delenv("CI", raising=False)
     for name, value in (ENV | {"ANTHROPIC_API_KEY": "sk-test", "LLM_PRIMARY": primary}).items():
         monkeypatch.setenv(name, value)
-    args = harness.parse_args(["--claude-primary"])
-    assert harness.answer_model(args, harness.eval_settings()).llm_primary == CLAUDE
-    assert args.router_primary == FREE  # the official free run's routes: a fair comparison
+    args = harness.parse_args(["--claude-first"])
+    settings = harness.answer_model(args, harness.eval_settings())
+    assert (settings.llm_router, settings.llm_primary) == (CLAUDE, CLAUDE)
+    assert args.router_primary == ""  # Claude's own routes, not the free run's
+    assert settings.llm_judge != CLAUDE  # the judge stays off Claude
 
 
 def test_the_official_eval_keeps_the_free_models(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -515,4 +549,17 @@ def test_a_claude_run_is_labelled_and_reported_beside_the_official_run() -> None
     assert harness.CLAUDE_LABEL in lines[1] and official["created_at"] in lines[1]
     official_value, claude_value = (harness.shown("false_refusal", v) for v in (0.096, 0.12))
     assert any(official_value in line and claude_value in line for line in lines)
-    assert harness.run_name(claude, "20261021T120000Z").endswith("-answer-dev-full-claude-primary")
+    assert harness.run_name(claude, "20261021T120000Z").endswith("-answer-dev-full-claude-first")
+
+
+def test_both_official_test_runs_take_the_date_the_claude_first_one_marked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(harness, "REPORTS", tmp_path)
+    monkeypatch.setattr(harness, "markdown", lambda report: "")
+    run = {"suite": "all", "split": "test", "subset": "full", "config": {"primary": FREE}}
+    run["created_at"] = "2026-10-31T23:31:56+00:00"  # its UTC day names it, not the PC's clock
+    claude = run | {"config": {"primary": CLAUDE, "label": harness.CLAUDE_LABEL}}
+    assert harness.write_report(run).name == "2026-10-31.md"  # the free-only run: CI's floors
+    assert harness.write_report(claude).name == "2026-10-31-claude-first.md"  # the headline
+    assert harness.write_report(claude | {"split": "dev"}).parent.name == "runs"

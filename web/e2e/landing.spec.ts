@@ -14,6 +14,14 @@ const newest = readdirSync(REPORTS)
 if (!newest) throw new Error("No official report in evals/reports");
 const report = JSON.parse(readFileSync(new URL(newest, REPORTS), "utf8"));
 const table = readFileSync(new URL(newest.replace(/json$/, "md"), REPORTS), "utf8");
+// The same day's Claude-first run, the page's first table; the free-only run above is its second.
+const claudeName = newest.replace(/\.json$/, "-claude-first.json");
+const claude = JSON.parse(readFileSync(new URL(claudeName, REPORTS), "utf8"));
+const claudeTable = readFileSync(new URL(claudeName.replace(/json$/, "md"), REPORTS), "utf8");
+const RUNS = [
+  ["claude-first", claude, claudeTable],
+  ["free", report, table],
+] as const;
 
 test.use(signedOut);
 
@@ -35,7 +43,9 @@ test("/ needs no API: it renders while the API is off, with no detour to the dem
   const response = await page.goto(`${OFFLINE}/`);
   expect(response?.status()).toBe(200);
   await expect(page).toHaveURL(`${OFFLINE}/`);
-  await expect(page.locator("#results tbody tr")).toHaveCount(resultRows(table).length);
+  await expect(page.locator("#results tbody tr")).toHaveCount(
+    resultRows(claudeTable).length + resultRows(table).length,
+  );
   await expect(page.getByTestId("demo-banner")).toHaveCount(0);
 });
 
@@ -61,21 +71,25 @@ test("the header's and the hero's links lead where they say", async ({ page }) =
   await expect(page.getByRole("heading", { level: 1, name: "Ask" })).toBeVisible();
 });
 
-test("the evaluation's table, date, models and notes are the newest report's", async ({ page }) => {
+test("the evaluation's tables, date, models and notes are the newest reports'", async ({ page }) => {
   await page.goto("/");
   const results = page.locator("#results");
-  const rows = await results
-    .locator("tbody tr")
-    .evaluateAll((trs) => trs.map((tr) => [...(tr as HTMLTableRowElement).cells].map((cell) => cell.textContent?.trim())));
-  expect(rows).toEqual(resultRows(table).map((row) => [row.label, row.target, row.result, row.status]));
+  for (const [id, run, markdown] of RUNS) {
+    const block = page.locator(`#results-${id}`);
+    const rows = await block
+      .locator("tbody tr")
+      .evaluateAll((trs) => trs.map((tr) => [...(tr as HTMLTableRowElement).cells].map((cell) => cell.textContent?.trim())));
+    expect(rows).toEqual(resultRows(markdown).map((row) => [row.label, row.target, row.result, row.status]));
+    for (const text of [run.config.primary, `thinking ${run.config.thinking}`, run.config.router]) {
+      await expect(block).toContainText(text);
+    }
+  }
   const { config, judge_calibration: judge } = report;
   const texts = [
     `${report.records.answer.length} questions`,
     evalDate(report.created_at),
-    config.primary,
-    `thinking ${config.thinking}`,
-    config.router,
     config.judge,
+    "cross-checked blind by a second model; no human spot check in v2",
     `Cohen's kappa ${judge.kappa.toFixed(2)}`,
     `rests on ${report.metrics.retrieval["recall@10"].n} questions`,
   ];

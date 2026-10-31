@@ -26,5 +26,6 @@ metrics.observe_answer_limits(
 )
 metrics.observe_claude(partial(budget.claude_off_kind, redis))  # ClaudeKeyOrModelRejected
 roles = (settings.llm_router, settings.llm_primary, settings.llm_fallback)
-metrics.start_answer_series({*roles, *filter(None, [settings.llm_answer_fallback])})
+extras = (settings.llm_answer_fallback, settings.llm_router_fallback)
+metrics.start_answer_series({*roles, *filter(None, extras)})
 uvicorn.run(app, host=settings.api_host, port=settings.api_port, log_config=None)

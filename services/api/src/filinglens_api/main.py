@@ -58,6 +58,19 @@ until it is null.
 log = structlog.get_logger(__name__)
 
 
+def models(settings: ApiSettings, http: httpx.AsyncClient, ledger: ClaudeLedger) -> Models:
+    """Each role's chain from settings: production routes and answers with Claude first (one
+    ledger), then the free models behind it."""
+    answer_extra, router_extra = settings.llm_answer_fallback, settings.llm_router_fallback
+    return Models(
+        router=provider(settings.llm_router, settings, http, ledger),
+        primary=provider(settings.llm_primary, settings, http, ledger),
+        fallback=provider(settings.llm_fallback, settings, http),
+        answer_fallback=provider(answer_extra, settings, http, ledger) if answer_extra else None,
+        router_fallback=provider(router_extra, settings, http) if router_extra else None,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings(ApiSettings)
@@ -72,17 +85,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     http = httpx.AsyncClient(timeout=TIMEOUT)  # every model provider call
     answerer = None
     if settings.ai_enabled:  # settings checked that each role's key is set
-        extra = settings.llm_answer_fallback  # None keeps a single answer model before the fallback
         ledger = ClaudeLedger(app.state.redis, settings.claude_daily_token_budget)
-        models = Models(
-            router=provider(settings.llm_router, settings, http),
-            primary=provider(settings.llm_primary, settings, http, ledger),
-            fallback=provider(settings.llm_fallback, settings, http),
-            answer_fallback=provider(extra, settings, http, ledger) if extra else None,
-        )
         evidence = PostgresEvidence(app.state.engine, settings)
         answerer = Answerer(
-            evidence, models, app.state.redis, max_inflight=settings.llm_max_inflight
+            evidence,
+            models(settings, http, ledger),
+            app.state.redis,
+            max_inflight=settings.llm_max_inflight,
         )
     discover = DiscoverQueue(str(settings.broker_url.get_secret_value()))
     app.state.backend = LiveBackend(app.state.engine, discover, settings, answerer)

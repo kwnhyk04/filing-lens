@@ -108,10 +108,10 @@ record-fixtures: ## live: re-record the model replies the answering tests replay
 demo-export: ## dev Postgres: the public demo's snapshot, web/demo/snapshot.json (rebuild the web after)
 	uv run --env-file .env python scripts/export_demo.py
 
-corpus-dump: ## dev stack: golden v1's corpus for CI, rows of the public SEC tables only (evals/corpus.py)
+corpus-dump: ## dev stack: golden v2's corpus for CI, rows of the public SEC tables only (evals/corpus.py)
 	uv run --env-file .env python -m evals.corpus dump
 
-corpus-restore: ## an empty Postgres (CI): fetch the corpus-v1 release asset if missing, check its sha256, restore
+corpus-restore: ## an empty Postgres (CI): fetch the corpus-v2 release asset if missing, check its sha256, restore
 	uv run --env-file .env python -m evals.corpus restore
 
 actionlint: ## lint the GitHub Actions workflows (CI runs it too)

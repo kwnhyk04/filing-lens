@@ -106,6 +106,9 @@ class ApiSettings(DatabaseSettings, TelemetrySettings):
     # anthropic:claude-haiku-5-5 runs on prepaid credits, skipped once they are gone and from the
     # day ANTHROPIC_CREDITS_EXPIRE (UTC).
     llm_answer_fallback: ModelRole | None = None
+    # Routing only: tried after LLM_ROUTER, before LLM_FALLBACK. With Claude routing first, the
+    # free router that takes over when Claude stops (production: groq:openai/gpt-oss-20b).
+    llm_router_fallback: ModelRole | None = None
     anthropic_credits_expire: date = date(2026, 11, 10)
     gemini_api_key: SecretStr | None = None
     groq_api_key: SecretStr | None = None
@@ -114,7 +117,7 @@ class ApiSettings(DatabaseSettings, TelemetrySettings):
     anthropic_api_key: SecretStr | None = None
     ollama_url: HttpUrl = HttpUrl("http://127.0.0.1:11434/v1")
 
-    @field_validator("llm_answer_fallback", mode="before")
+    @field_validator("llm_answer_fallback", "llm_router_fallback", mode="before")
     @classmethod
     def _empty_fallback_is_off(cls, value: Any) -> Any:
         return value or None  # compose passes LLM_ANSWER_FALLBACK= when it is unset
@@ -122,12 +125,14 @@ class ApiSettings(DatabaseSettings, TelemetrySettings):
     @model_validator(mode="after")
     def _keys_for_roles(self) -> Self:
         """With AI on, every role's provider needs its key; the error names the variable. Claude
-        writes answers only, so it cannot route (LLM_FALLBACK routes when the router fails)."""
-        for role in ("llm_router", "llm_fallback"):
-            if getattr(self, role).startswith("anthropic:"):
-                raise ValueError(f"{role.upper()} cannot be Claude, which writes answers only")
+        may route and answer first, but the models behind it stay free, since its stops (credits,
+        key, budget) hand every call to them."""
+        for role in ("llm_router_fallback", "llm_fallback"):
+            if (getattr(self, role) or "").startswith("anthropic:"):
+                raise ValueError(f"{role.upper()} cannot be Claude: the chain behind it is free")
         if self.ai_enabled:
-            for role in ("llm_primary", "llm_router", "llm_fallback", "llm_answer_fallback"):
+            roles = ("llm_primary", "llm_router", "llm_router_fallback", "llm_fallback")
+            for role in (*roles, "llm_answer_fallback"):
                 if (value := getattr(self, role)) is None:
                     continue
                 key = PROVIDER_KEYS[value.partition(":")[0]]

@@ -1,17 +1,20 @@
-"""Golden set v1: questions built from the dev database, candidate pools to label, the manifest.
+"""Golden set v2: questions from v1 and the dev database, candidate pools to label, the manifest.
 
-    uv run --env-file .env python -m evals.golden build    # questions.jsonl, pools.jsonl
+    uv run --env-file .env python -m evals.golden build    # questions, pools, carried labels
     uv run python -m evals.golden freeze                    # after labeling: manifest.json
 
+v2 (plan of 2026-10-26): v1's 100 questions as frozen, all in dev, plus new test questions (V2_*).
 Numeric and comparison gold comes from XBRL facts by the latest-filed rule (get_financial_fact).
-Passage gold (textual questions; none for the absent ones) is AI-labeled, spot-checked by a
-non-expert (user decision, 2026-10-16): Claude labeled every pooled passage (ai_labels.jsonl);
-the user labeled a blind sample and made the final call on each disagreement after seeing
-Claude's reason (labels.jsonl, `make audit`), and later corrected two calls (step
-"correction"). The final label is the user's where given, otherwise Claude's; see
-evals/eval-card.md. Build keeps every record it wrote and adds
-missing ones; once freeze has written the manifest, nothing in the version may change: a change
-makes v2.
+Each pool comes from the pool sources on today's corpus; a v1 pool also keeps its passages by text
+hash, with v1's final label (carried.jsonl), and takes the chunks that overlap a passage whose
+text changed. Passage gold (textual questions; none for the absent ones) is AI-labeled,
+cross-checked blind by a second model; no human spot check in v2 (user, 2026-10-31): Claude labels
+every passage without a carried label (ai_labels.jsonl); the judge model labels the blind sample
+through make audit's path (labels.jsonl rows with `labeler`, `python -m evals.label crosscheck`),
+which measures agreement only. The final label is the carried one or Claude's; a human's label
+in labels.jsonl would win, and v2 has none. See evals/eval-card.md. Build keeps
+every record it wrote and adds missing ones; once freeze has written the manifest, nothing in the
+version may change: a change makes the next version.
 """
 
 import asyncio
@@ -38,14 +41,20 @@ from filinglens_retrieval import Scope, matching_chunks, nearest_chunks, search
 from filinglens_retrieval.facts import Fact, get_financial_fact, latest_fiscal_year
 from filinglens_telemetry import configure_logging
 
-VERSION = "v1"
+VERSION = "v2"
 ROOT = Path(__file__).parent / "golden" / VERSION
-FILES = ("questions.jsonl", "pools.jsonl", "ai_labels.jsonl", "audit.jsonl", "labels.jsonl")
-AI_LABELS, AUDIT, USER_LABELS = (
+V1 = ROOT.parent / "v1"  # frozen 2026-10-16: v2 takes its questions, pools and final labels
+FILES = (
+    "questions.jsonl", "pools.jsonl", "carried.jsonl", "ai_labels.jsonl", "audit.jsonl",
+    "labels.jsonl",
+)  # fmt: skip
+CARRIED, AI_LABELS, AUDIT, USER_LABELS = (
+    ROOT / "carried.jsonl",
     ROOT / "ai_labels.jsonl",
     ROOT / "audit.jsonl",
     ROOT / "labels.jsonl",
 )
+KEEP = ("chunk_id", "accession_number", "item", "char_start", "sha256")  # a label's passage
 COMPANIES = Path(__file__).parent / "golden-companies.csv"
 NAMES = {
     "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "GOOGL": "Alphabet", "META": "Meta",
@@ -438,19 +447,6 @@ V2_TRAPS = [  # id, ticker, route, metric, fiscal year (after the latest 10-K), 
     ("t12", "PG", "textual", None, 2027,
      "What did Procter & Gamble say about pricing in its fiscal 2027 annual report?"),
 ]  # fmt: skip
-# Questions per (category, kind) in dev (the rest are test), and in the ci subset (from dev).
-DEV = {
-    ("numeric", "latest"): 21, ("numeric", "prior"): 7, ("textual", "passage"): 14,
-    ("comparison", "peers"): 5, ("comparison", "years"): 5, ("unanswerable", "absent"): 7,
-    ("unanswerable", "out_of_scope"): 2, ("unanswerable", "untracked"): 2,
-    ("time_trap", "numeric"): 4, ("time_trap", "textual"): 3,
-}  # fmt: skip
-CI = {
-    ("numeric", "latest"): 6, ("numeric", "prior"): 2, ("textual", "passage"): 4,
-    ("comparison", "peers"): 2, ("comparison", "years"): 1, ("unanswerable", "absent"): 1,
-    ("unanswerable", "out_of_scope"): 1, ("unanswerable", "untracked"): 1,
-    ("time_trap", "numeric"): 1, ("time_trap", "textual"): 1,
-}  # fmt: skip
 # The reranker configurations decision 1 compares (model, candidates, max tokens); each feeds the
 # pools, so recall is fair to all three.
 RERANKERS = {
@@ -489,6 +485,14 @@ CANDIDATES = text(
     join sections s on s.id = c.section_id
     join filings f on f.id = s.filing_id
     where c.id = any(:ids)
+    """
+)
+FILING_CHUNKS = text(
+    """
+    select c.id, c.text, c.char_start, s.item, f.accession_number, f.cik from chunks c
+    join sections s on s.id = c.section_id
+    join filings f on f.id = s.filing_id
+    where f.accession_number = any(:accessions)
     """
 )
 
@@ -537,8 +541,10 @@ def labels(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], bool], set
 
 
 def final_labels() -> tuple[dict[tuple[str, str], bool], set[str]]:
-    """Gold per (question, chunk): the user's latest label where given, otherwise Claude's."""
-    return labels(read_jsonl(AI_LABELS) + read_jsonl(USER_LABELS))
+    """Gold per (question, chunk): the user's latest label where given, otherwise Claude's or the
+    one carried from v1. A model's blind labels (v2's cross-check) only measure agreement."""
+    human = [row for row in read_jsonl(USER_LABELS) if row.get("labeler", "human") == "human"]
+    return labels(read_jsonl(CARRIED) + read_jsonl(AI_LABELS) + human)
 
 
 def blind_labels(rows: list[dict[str, Any]]) -> dict[tuple[str, str], bool]:
@@ -548,8 +554,9 @@ def blind_labels(rows: list[dict[str, Any]]) -> dict[tuple[str, str], bool]:
 
 
 def audit_stats() -> dict[str, Any]:
-    """The user's blind labels against Claude's, before review; how the review went; and the
-    corrections the user made later, after reading the passage text."""
+    """The blind labels (the user's; in v2 the judge model's) against Claude's, before review;
+    how the review went; and the corrections the user made later, after reading the passage
+    text."""
     claude = labels(read_jsonl(AI_LABELS))[0]
     rows = read_jsonl(USER_LABELS)
     mine = blind_labels(rows)
@@ -557,14 +564,16 @@ def audit_stats() -> dict[str, Any]:
     differ = [key for key in mine if key in claude and mine[key] != claude[key]]
     if not pairs:
         raise SystemExit("No blind labels yet: run make audit.")
-    final = labels(rows)[0]
+    final = final_labels()[0]
     review = labels([row for row in rows if row.get("step") == "review"])[0]
     corrected = labels([row for row in rows if row.get("step") == "correction"])[0]
     low, high = bootstrap(pairs, cohen_kappa)
+    blind = {row.get("labeler", "human") for row in rows if "step" not in row and "flag" not in row}
     return {
+        "blind_labeler": ", ".join(sorted(blind)),
         "passages": len(pairs),
         "claude_gold": sum(b for _, b in pairs),
-        "human_gold": sum(a for a, _ in pairs),
+        "blind_gold": sum(a for a, _ in pairs),
         "agreement": sum(a == b for a, b in pairs) / len(pairs),
         "kappa": cohen_kappa(pairs),
         "kappa_ci": [low, high],
@@ -625,47 +634,54 @@ async def questions(
             routing=_routing("numeric", [ticker], [year], metric), ciks=[ciks[ticker]],
             facts=[await fact(ticker, metric, year)],
         )  # fmt: skip
-    for qid, first, second, metric, year in PEERS:
-        question = (
-            f"Which was higher in fiscal {year}: {NAMES[first]}'s or {NAMES[second]}'s"
-            f" {LABELS[metric]}?"
-        )
+    for qid, ticker, metric, year, question in V2_NUMERIC:
+        add(
+            qid, "numeric", "latest" if year == latest[ticker] else "prior", question,
+            expect="answer", routing=_routing("numeric", [ticker], [year], metric),
+            ciks=[ciks[ticker]], facts=[await fact(ticker, metric, year)],
+        )  # fmt: skip
+    peers = [
+        (qid, first, second, metric, year, f"Which was higher in fiscal {year}: {NAMES[first]}'s"
+         f" or {NAMES[second]}'s {LABELS[metric]}?")
+        for qid, first, second, metric, year in PEERS
+    ]  # fmt: skip
+    for qid, first, second, metric, year, question in peers + V2_PEERS:
         add(
             qid, "comparison", "peers", question, expect="answer",
             routing=_routing("comparison", [first, second], [year], metric),
             ciks=[ciks[first], ciks[second]],
             facts=[await fact(first, metric, year), await fact(second, metric, year)],
         )  # fmt: skip
-    for qid, ticker, metric in YEARS:
-        year = latest[ticker]
-        question = (
-            f"How did {NAMES[ticker]}'s {LABELS[metric]} in fiscal {year} compare with"
-            f" fiscal {year - 1}?"
-        )
+    years_asked = [
+        (qid, ticker, metric, latest[ticker], f"How did {NAMES[ticker]}'s {LABELS[metric]} in"
+         f" fiscal {latest[ticker]} compare with fiscal {latest[ticker] - 1}?")
+        for qid, ticker, metric in YEARS
+    ]  # fmt: skip
+    for qid, ticker, metric, year, question in years_asked + V2_YEARS:
         add(
             qid, "comparison", "years", question, expect="answer",
             routing=_routing("comparison", [ticker], [year - 1, year], metric),
             ciks=[ciks[ticker]],
             facts=[await fact(ticker, metric, year), await fact(ticker, metric, year - 1)],
         )  # fmt: skip
-    for qid, ticker, question, years, items, hints in TEXTUAL:
+    for qid, ticker, question, years, items, hints in TEXTUAL + V2_TEXTUAL:
         add(
             qid, "textual", "passage", question, expect="answer",
             routing=_routing("textual", [ticker], years, None), ciks=[ciks[ticker]],
             fiscal_years=years, items=items, keywords=hints,
         )  # fmt: skip
-    for qid, ticker, question, years, items, hints in ABSENT:
+    for qid, ticker, question, years, items, hints in ABSENT + V2_ABSENT:
         add(
             qid, "unanswerable", "absent", question, expect="refuse",
             routing=_routing(None, [ticker], None, None), ciks=[ciks[ticker]],
             fiscal_years=years, items=items, keywords=hints,
         )  # fmt: skip
-    for qid, question, tickers in OUT_OF_SCOPE:
+    for qid, question, tickers in OUT_OF_SCOPE + V2_OUT_OF_SCOPE:
         add(
             qid, "unanswerable", "out_of_scope", question, expect="refuse",
             routing=_routing("out_of_scope", tickers, None, None),
         )  # fmt: skip
-    for qid, question, route, tickers, years, metric in UNTRACKED:
+    for qid, question, route, tickers, years, metric in UNTRACKED + V2_UNTRACKED:
         add(
             qid, "unanswerable", "untracked", question, expect="refuse",
             routing=_routing(route, tickers, years, metric),
@@ -683,21 +699,30 @@ async def questions(
             qid, "time_trap", "textual", template.format(year=year), expect="refuse",
             routing=_routing("textual", [ticker], [year], None), ciks=[ciks[ticker]],
         )  # fmt: skip
+    for qid, ticker, route, metric, year, question in V2_TRAPS:
+        add(
+            qid, "time_trap", route, question, expect="refuse",
+            routing=_routing(route, [ticker], [year], metric), ciks=[ciks[ticker]],
+        )  # fmt: skip
     return rows
 
 
-def assign_splits(rows: list[dict[str, Any]]) -> None:
-    """Dev, test and the ci subset per (category, kind), by position under a fixed seed, so a
-    question replaced before the freeze takes its predecessor's split."""
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for row in rows:
-        groups.setdefault((row["category"], row["kind"]), []).append(row)
-    for group, members in groups.items():
-        order = list(range(len(members)))
-        random.Random(f"{VERSION}:{group[0]}:{group[1]}").shuffle(order)  # noqa: S311 - a split
-        for rank, index in enumerate(order):
-            members[index]["split"] = "dev" if rank < DEV[group] else "test"
-            members[index]["ci"] = rank < CI[group]
+def with_v1(built: list[dict[str, Any]], frozen: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """v1's questions as frozen, all in dev with their ci flags, and the new ones in test; stops
+    when a v1 question built again from the database differs from its frozen row."""
+    v1 = {row["id"]: row for row in frozen}
+    bare = {
+        qid: {k: v for k, v in row.items() if k not in ("split", "ci")} for qid, row in v1.items()
+    }
+    drift = [row["id"] for row in built if row["id"] in v1 and row != bare[row["id"]]]
+    if drift:
+        raise SystemExit(f"v1 questions built unlike their frozen rows: {', '.join(drift)}")
+    return [
+        v1[row["id"]] | {"split": "dev"}
+        if row["id"] in v1
+        else row | {"split": "test", "ci": False}
+        for row in built
+    ]
 
 
 async def pool(
@@ -755,20 +780,108 @@ async def _candidates(
 ) -> list[dict[str, Any]]:
     """Pool entries for chunk ids, with the sources that found each, in chunk id order."""
     rows = await connection.execute(CANDIDATES, {"ids": list(found)})
-    candidates = [
-        {
-            "chunk_id": row.id,
-            "cik": row.cik,
-            "accession_number": row.accession_number,
-            "item": row.item,
-            "char_start": row.char_start,
-            "sha256": hashlib.sha256(row.text.encode()).hexdigest(),
-            "found_by": sorted(found[row.id]),
-            "text": row.text,
-        }
-        for row in rows
-    ]
+    candidates = [_candidate(row, sorted(found[row.id])) for row in rows]
     return sorted(candidates, key=lambda candidate: candidate["chunk_id"])
+
+
+def _candidate(row: Any, found_by: list[str]) -> dict[str, Any]:
+    return {
+        "chunk_id": row.id,
+        "cik": row.cik,
+        "accession_number": row.accession_number,
+        "item": row.item,
+        "char_start": row.char_start,
+        "sha256": hashlib.sha256(row.text.encode()).hexdigest(),
+        "found_by": found_by,
+        "text": row.text,
+    }
+
+
+def rekey(
+    old: list[dict[str, Any]], new: list[dict[str, Any]]
+) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], list[dict[str, Any]]]:
+    """Old candidates paired with the new chunk of their filing that holds the same text (the
+    nearest by offset when it repeats), then the new chunks that overlap an old candidate whose
+    text is gone, in offset order: those are labeled again."""
+    same: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for found in new:
+        same.setdefault((found["accession_number"], found["sha256"]), []).append(found)
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    gone: list[dict[str, Any]] = []
+    for row in old:
+        matches = same.get((row["accession_number"], row["sha256"]))
+        if matches:
+            pairs.append((row, _nearest(matches, row["char_start"])))
+        else:
+            gone.append(row)
+    paired = {found["chunk_id"] for _, found in pairs}
+    overlapping = {
+        found["chunk_id"]: found
+        for row in gone
+        for found in new
+        if found["chunk_id"] not in paired and _overlaps(row, found)
+    }
+    return pairs, sorted(overlapping.values(), key=lambda found: found["char_start"])
+
+
+def _overlaps(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Two passages of one filing that share characters."""
+    return (
+        a["accession_number"] == b["accession_number"]
+        and a["char_start"] < b["char_start"] + len(b["text"])
+        and b["char_start"] < a["char_start"] + len(a["text"])
+    )
+
+
+def _nearest(rows: list[dict[str, Any]], start: int) -> dict[str, Any]:
+    return min(rows, key=lambda row: abs(row["char_start"] - start))
+
+
+def carry(
+    qid: str,
+    old: dict[str, Any],
+    new: list[dict[str, Any]],
+    final: dict[tuple[str, str], bool],
+    human: set[tuple[str, str]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """A v1 pool on today's chunks of its filings: the passages kept by text hash with v1's final
+    label (the human's where given), and the chunks that replace a passage whose text changed."""
+    pairs, changed = rekey(old["candidates"], new)
+    kept_ids = {row["chunk_id"] for row, _ in pairs}
+    lost = [
+        row["chunk_id"][:12]
+        for row in old["candidates"]
+        if row["chunk_id"] not in kept_ids
+        and final[qid, row["chunk_id"]]
+        and not any(_overlaps(row, found) for found in new)
+    ]
+    if lost:  # its gold would leave the set unnoticed
+        raise SystemExit(f"{qid}: v1 gold passages with no successor: {', '.join(lost)}")
+    carried = [
+        {
+            "id": qid,
+            **{key: found[key] for key in KEEP},
+            "gold": final[qid, row["chunk_id"]],
+            "labeler": "human" if (qid, row["chunk_id"]) in human else "claude",
+            "from": "v1",
+            "v1_chunk_id": row["chunk_id"],
+        }
+        for row, found in pairs
+    ]
+    kept = [found | {"found_by": ["v1"]} for _, found in pairs]
+    return kept + [found | {"found_by": ["v1 changed"]} for found in changed], carried
+
+
+def merged(pooled: dict[str, Any], kept: list[dict[str, Any]]) -> dict[str, Any]:
+    """A pool joined with a v1 pool's kept and replacing passages, shuffled as pool() does."""
+    found = {candidate["chunk_id"]: candidate for candidate in pooled["candidates"]}
+    for candidate in kept:
+        known = found.get(candidate["chunk_id"])
+        sources = set(candidate["found_by"]) | set(known["found_by"] if known else [])
+        found[candidate["chunk_id"]] = (known or candidate) | {"found_by": sorted(sources)}
+    candidates = sorted(found.values(), key=lambda candidate: candidate["chunk_id"])
+    random.Random(pooled["id"]).shuffle(candidates)  # noqa: S311 - display order
+    return {"id": pooled["id"], "candidates": candidates}
 
 
 async def add_to_pool(
@@ -806,19 +919,29 @@ async def build() -> None:
                 raise SystemExit(f"{ticker} has no annual facts; run make seed-real first.")
             latest[ticker] = year
         built = await questions(connection, ciks, latest)
-    assign_splits(built)
     old = {row["id"]: row for row in read_jsonl(ROOT / "questions.jsonl")}
-    rows = [old.get(row["id"], row) for row in built]
+    rows = [old.get(row["id"], row) for row in with_v1(built, read_jsonl(V1 / "questions.jsonl"))]
     write_jsonl(ROOT / "questions.jsonl", rows)
     pools = {row["id"]: row for row in read_jsonl(ROOT / "pools.jsonl")}
+    v1_pools = {row["id"]: row for row in read_jsonl(V1 / "pools.jsonl")}
+    v1_user = read_jsonl(V1 / "labels.jsonl")
+    final, human = labels(read_jsonl(V1 / "ai_labels.jsonl") + v1_user)[0], set(labels(v1_user)[0])
+    carried = read_jsonl(CARRIED)
     column = settings.retrieval_embedding_column
     for row in rows:
         if "items" in row and row["id"] not in pools:
-            pools[row["id"]] = await pool(engine, column, row)
-            print(f"{row['id']}: {len(pools[row['id']]['candidates'])} candidates", flush=True)
+            pooled, note = await pool(engine, column, row), ""
+            if row["id"] in v1_pools:
+                new = await _filing_chunks(engine, v1_pools[row["id"]])
+                kept, kept_labels = carry(row["id"], v1_pools[row["id"]], new, final, human)
+                pooled, carried = merged(pooled, kept), carried + kept_labels
+                note = f", {len(kept_labels)} with v1's label"
+            pools[row["id"]] = pooled
+            print(f"{row['id']}: {len(pooled['candidates'])} candidates{note}", flush=True)
         if row["id"] in ADDED:
             await add_to_pool(engine, row, pools[row["id"]])
     write_jsonl(ROOT / "pools.jsonl", [pools[row["id"]] for row in rows if row["id"] in pools])
+    write_jsonl(CARRIED, carried)
     await engine.dispose()
     if not (ROOT / "manifest.json").exists():
         corpus = {"embedding_column": column, "latest_fiscal_years": latest}
@@ -829,16 +952,28 @@ async def build() -> None:
         key = f"{row['category']} {row['split']}"
         counts[key] = counts.get(key, 0) + 1
     print(json.dumps(counts, sort_keys=True))
-    print(f"{sum(len(p['candidates']) for p in pools.values())} candidates to label")
+    judged = final_labels()[0]
+    keys = [(p["id"], c["chunk_id"]) for p in pools.values() for c in p["candidates"]]
+    print(f"{len(keys)} candidates, {sum(key not in judged for key in keys)} to label")
+
+
+async def _filing_chunks(engine: AsyncEngine, pooled: dict[str, Any]) -> list[dict[str, Any]]:
+    """Today's chunks of the filings a pool's candidates came from."""
+    accessions = sorted({candidate["accession_number"] for candidate in pooled["candidates"]})
+    async with engine.connect() as connection:
+        rows = await connection.execute(FILING_CHUNKS, {"accessions": accessions})
+        return [_candidate(row, []) for row in rows]
 
 
 def freeze() -> None:
-    """Check the labels and the audit are complete, then hash every file into the manifest."""
+    """Check the labels and the audit are complete and every label's passage sits in its pool,
+    with no passage labeled both by v1 and by Claude; then hash every file into the manifest."""
     manifest = read_manifest()
     if manifest["status"] == "frozen":
         raise SystemExit(f"Golden set {VERSION} is already frozen.")
     judged, flagged = final_labels()
     rows = {row["id"]: row for row in read_jsonl(ROOT / "questions.jsonl")}
+    pools = read_jsonl(ROOT / "pools.jsonl")
     problems = [f"{qid}: flagged as a bad question" for qid in sorted(flagged)]
     user = read_jsonl(USER_LABELS)
     mine = blind_labels(user)
@@ -846,9 +981,16 @@ def freeze() -> None:
     if not picks or any((pick["id"], pick["chunk_id"]) not in mine for pick in picks):
         problems.append("the blind audit sample is not fully labeled (make audit)")
     stats = audit_stats()
-    if stats["reviewed"] < stats["disagreements"]:
+    if stats["blind_labeler"] == "human" and stats["reviewed"] < stats["disagreements"]:
         problems.append(f"{stats['disagreements'] - stats['reviewed']} disagreements not reviewed")
-    for pooled in read_jsonl(ROOT / "pools.jsonl"):
+    pooled_keys = {(pool["id"], c["chunk_id"]) for pool in pools for c in pool["candidates"]}
+    carried, claude = labels(read_jsonl(CARRIED))[0], labels(read_jsonl(AI_LABELS))[0]
+    for name, keys in (("Carried", carried), ("Claude", claude), ("Blind", labels(user)[0])):
+        if outside := sorted({qid for qid, chunk in keys if (qid, chunk) not in pooled_keys}):
+            problems.append(f"{name} labels for passages outside their pools: {', '.join(outside)}")
+    if both := carried.keys() & claude.keys():
+        problems.append(f"{len(both)} passages labeled both by v1 (carried) and by Claude")
+    for pooled in pools:
         qid = pooled["id"]
         missing = [c for c in pooled["candidates"] if (qid, c["chunk_id"]) not in judged]
         gold = [c for c in pooled["candidates"] if judged.get((qid, c["chunk_id"]))]
@@ -865,10 +1007,12 @@ def freeze() -> None:
         "status": "frozen",
         "frozen_on": date.today().isoformat(),
         "gold": (
-            "AI-labeled (Claude), spot-checked by a non-expert: a fast blind spot-check of a"
-            " sample, then a final call on each disagreement after seeing Claude's reason (not"
-            " independent), then corrections after reading the passage text; the human's final"
-            " label wins where given. The spot-check cannot validate the labels on its own"
+            "AI-labeled, cross-checked blind by a second model; no human spot check in v2."
+            " Claude labeled every passage that carries no v1 label, under v1's rule plus the"
+            f" qualifier rule; {stats['blind_labeler']} labeled the blind sample under the same"
+            " rule without seeing Claude's labels. Its labels measure agreement only: Claude's"
+            " stand where the two differ. Carried passages keep v1's final label (AI-labeled,"
+            " spot-checked by a non-expert in v1)"
         ),
         "audit": stats,
         "files": files,

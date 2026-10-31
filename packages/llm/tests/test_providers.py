@@ -14,7 +14,8 @@ from opentelemetry.trace import SpanKind, StatusCode
 from structlog.testing import capture_logs
 
 from filinglens_core.errors import AiUnavailableError, RateLimitedError, UpstreamError
-from filinglens_llm.providers import Anthropic, Completion, credits_usd
+from filinglens_llm import router
+from filinglens_llm.providers import Anthropic, Completion, claude_schema, credits_usd
 
 EXPIRES = date(2026, 11, 10)
 SSE = {"content-type": "text/event-stream"}
@@ -185,6 +186,44 @@ async def test_a_429_with_a_short_retry_after_is_retried_once(
     with pytest.raises(RateLimitedError) as raised:  # too long to wait inside an answer
         await ask(model)
     assert raised.value.retry_after_s == 30 and len(sent) == 1 and model.off() is None
+
+
+async def test_claude_routes_with_its_reply_held_to_the_routers_schema() -> None:
+    routing = '{"route": "numeric", "tickers": ["AAPL"]}'
+    model, sent = claude(message(routing))
+    schema = {
+        "type": "object",
+        "properties": {"route": {"type": "string", "enum": ["numeric", "textual"]}},
+        "required": ["route"],
+        "additionalProperties": False,
+    }
+    reply = await model.complete("system", "question", max_tokens=400, schema=schema)
+    assert reply.text == routing and model.off() is None
+    body = json.loads(sent[0].content)
+    held = {"type": "json_schema", "schema": schema}
+    assert body["output_config"] == {"effort": "low", "format": held}
+    assert body["thinking"] == {"type": "disabled"}  # as for answers: one short reply
+    model, sent = claude(message("Revenue rose [F1]."))
+    await ask(model)  # an answer asks for no format
+    assert json.loads(sent[0].content)["output_config"] == {"effort": "low"}
+
+
+def test_a_nullable_enum_goes_to_claude_as_any_of_an_enum_and_null() -> None:
+    # Claude refused the router's form: "Enum value 'FY' does not match declared type
+    # '['string', 'null']'" (400, live check 2026-10-31); the free models keep it unchanged.
+    sent = claude_schema(router.schema({"AAPL": "Apple"}))["properties"]
+    assert sent["fiscal_period"] == {
+        "anyOf": [{"type": "string", "enum": ["FY", "Q1", "Q2", "Q3", "Q4"]}, {"type": "null"}]
+    }
+    assert (
+        sent["metric"]["anyOf"][1] == {"type": "null"}
+        and None not in sent["metric"]["anyOf"][0]["enum"]
+    )
+    assert sent["tickers"] == {"type": "array", "items": {"type": "string", "enum": ["AAPL"]}}
+    assert router.schema({"AAPL": "Apple"})["properties"]["fiscal_period"]["type"] == [
+        "string",
+        "null",
+    ]
 
 
 async def test_claude_is_off_from_the_day_its_credits_expire() -> None:

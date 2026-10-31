@@ -16,12 +16,13 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Concatenate, Final, Protocol
+from typing import Any, Concatenate, Final, Protocol, cast
 
 import anthropic
 import httpx
 import httpx2
 import structlog
+from anthropic.types import OutputConfigParam
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -401,6 +402,24 @@ def _retry_after(headers: Mapping[str, str]) -> float | None:
         return math.inf
 
 
+def claude_schema(node: Any) -> Any:
+    """A JSON Schema in the form Claude's structured outputs take: a nullable enum, such as the
+    router's {"type": ["string", "null"], "enum": [..., null]}, becomes anyOf an enum and null,
+    since the API refuses the first form (400, live check 2026-10-31)."""
+    if isinstance(node, list):
+        return [claude_schema(item) for item in cast(list[Any], node)]
+    if not isinstance(node, dict):
+        return node
+    fields = {key: claude_schema(value) for key, value in cast(dict[str, Any], node).items()}
+    kinds = cast(list[str], fields["type"]) if isinstance(fields.get("type"), list) else []
+    if "null" in kinds and len(kinds) == 2 and "enum" in fields:
+        kind = next(kind for kind in kinds if kind != "null")
+        values = [value for value in cast(list[Any], fields["enum"]) if value is not None]
+        rest = {key: value for key, value in fields.items() if key not in ("type", "enum")}
+        return rest | {"anyOf": [{"type": kind, "enum": values}, {"type": "null"}]}
+    return fields
+
+
 class Anthropic:
     """Claude on the Anthropic API through the official SDK, paid from prepaid credits.
 
@@ -409,9 +428,9 @@ class Anthropic:
     404, logged as an error for the alert); from the day the credits expire (UTC) too. It also sits
     out while today's ledger budget is used up. Each call then fails at once without a request, and
     the answer chain skips it (`unusable`). A 429 hands that one call on: one asking for
-    CLAUDE_RETRY_MAX_S or less is retried once first. Answers get CLAUDE_MAX_TOKENS, and no prompt
-    goes that could pass LONG_PROMPT tokens. It writes answers only, never JSON replies, so settings
-    keep it out of routing and judging.
+    CLAUDE_RETRY_MAX_S or less is retried once first. Its calls get CLAUDE_MAX_TOKENS, and no
+    prompt goes that could pass LONG_PROMPT tokens. It answers and routes (a JSON reply held to the
+    router's schema); settings keep it out of judging and of the free models behind it.
     """
 
     def __init__(
@@ -536,9 +555,10 @@ class Anthropic:
     async def complete(
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
     ) -> Completion:
-        if schema is not None:
-            raise NotImplementedError(f"{self.name} writes answers only, not JSON replies.")
         await self._ready(system, user)
+        config: OutputConfigParam = {"effort": CLAUDE_EFFORT}
+        if schema is not None:  # a routing reply: JSON held to the router's schema
+            config["format"] = {"type": "json_schema", "schema": claude_schema(schema)}
         started = time.perf_counter()
         message = await self._send(
             lambda: self._client.messages.create(
@@ -547,7 +567,7 @@ class Anthropic:
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 thinking={"type": CLAUDE_THINKING},
-                output_config={"effort": CLAUDE_EFFORT},
+                output_config=config,
             )
         )
         if message.stop_reason == "refusal":

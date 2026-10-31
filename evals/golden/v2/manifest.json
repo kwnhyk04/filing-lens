@@ -1,0 +1,67 @@
+{
+ "version": "v2",
+ "status": "frozen",
+ "as_of": "2026-10-27",
+ "corpus": {
+  "embedding_column": "embedding",
+  "latest_fiscal_years": {
+   "AAPL": 2025,
+   "MSFT": 2026,
+   "NVDA": 2026,
+   "GOOGL": 2025,
+   "META": 2025,
+   "VZ": 2025,
+   "AMZN": 2025,
+   "TSLA": 2025,
+   "HD": 2025,
+   "WMT": 2026,
+   "PG": 2026,
+   "KO": 2025,
+   "COP": 2025,
+   "CVX": 2025,
+   "JPM": 2025,
+   "BAC": 2025,
+   "GS": 2025,
+   "V": 2025,
+   "LLY": 2025,
+   "UNH": 2025,
+   "JNJ": 2025,
+   "PFE": 2025,
+   "CAT": 2025,
+   "LMT": 2025,
+   "UNP": 2025,
+   "LIN": 2025,
+   "FCX": 2025,
+   "PLD": 2025,
+   "NEE": 2025,
+   "DUK": 2025
+  }
+ },
+ "frozen_on": "2026-10-31",
+ "gold": "AI-labeled, cross-checked blind by a second model; no human spot check in v2. Claude labeled every passage that carries no v1 label, under v1's rule plus the qualifier rule; groq:openai/gpt-oss-120b labeled the blind sample under the same rule without seeing Claude's labels. Its labels measure agreement only: Claude's stand where the two differ. Carried passages keep v1's final label (AI-labeled, spot-checked by a non-expert in v1)",
+ "audit": {
+  "blind_labeler": "groq:openai/gpt-oss-120b",
+  "passages": 50,
+  "claude_gold": 28,
+  "blind_gold": 25,
+  "agreement": 0.9,
+  "kappa": 0.8,
+  "kappa_ci": [
+   0.6153846153846153,
+   0.9586776859504131
+  ],
+  "disagreements": 5,
+  "reviewed": 0,
+  "review_as_claude": 0,
+  "corrections": 0,
+  "final_as_claude": 5
+ },
+ "files": {
+  "questions.jsonl": "b88eeae0be911921fc86051935fdef7b2d66c1d474dedc64c98a9741bded7157",
+  "pools.jsonl": "0698f265de6223bcfde38e8034d2ce52bcfc0ba4674ec65833e607ea7fa9d75e",
+  "carried.jsonl": "51a26ffe10868ff16fe1291f2f097826aa8d3fc4d1856be10ea805bd51622ce6",
+  "ai_labels.jsonl": "de0e8a23bb287d6f547f1df90a5eddc27cb9436a575a80415d3eab857149b686",
+  "audit.jsonl": "4c5ccd6c30bce4517e02730c91d6cbab1851c56f74ffcde40547608fec981ec7",
+  "labels.jsonl": "8ce8dd93dcd772f71d6a50be6b1458970af4637195667f130ca52a938758bed5"
+ }
+}

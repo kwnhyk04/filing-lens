@@ -22,7 +22,7 @@ def entry(value: float | None) -> dict[str, Any]:
 def report(**metrics: float | None) -> dict[str, Any]:
     return {
         "suite": "retrieval", "split": "dev", "subset": "full", "created_at": "now", "ci": True,
-        "golden": {"version": "v1", "manifest_sha256": "0" * 64, "as_of": "2026-10-16"},
+        "golden": {"version": "v2", "manifest_sha256": "0" * 64, "as_of": "2026-10-27"},
         "index": {"chunks": 3, "model": "m"},
         "config": {
             "router": "r", "primary": "gemini:g", "thinking": "minimal", "judge": None,
@@ -37,9 +37,28 @@ def report(**metrics: float | None) -> dict[str, Any]:
 @pytest.fixture
 def floors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "thresholds.json"
-    path.write_text(json.dumps({"retrieval:dev:full": {"recall@10": 0.5, "retrieval_p95_ms": 100}}))
+    floors = {"v2:retrieval:dev:full": {"recall@10": 0.5, "retrieval_p95_ms": 100}}
+    path.write_text(json.dumps(floors))
     monkeypatch.setattr(harness, "THRESHOLDS", path)
     return path
+
+
+def test_a_reports_notes_describe_its_golden_versions_labels() -> None:
+    run = report(**{"recall@10": 0.6}) | {"records": {"retrieval": [{"recall": 1.0}]}}
+    text = " ".join(harness.notes(run))
+    assert "AI-labeled, cross-checked blind by a second model; no human spot check in v2" in text
+    assert "spot-checked by a non-expert" not in text  # v1's wording stays v1's
+    v1 = run | {"golden": run["golden"] | {"version": "v1"}}
+    assert "spot-checked by a non-expert" in " ".join(harness.notes(v1))
+
+
+def test_floor_keys_carry_the_golden_version(floors: Path) -> None:
+    floors.write_text(json.dumps({"v1:retrieval:dev:full": {"recall@10": 0.9}}))
+    run = report(**{"recall@10": 0.6})
+    assert harness.floor_key(run, "retrieval") == "v2:retrieval:dev:full"
+    assert harness.apply_floors(run, False, True) == ([], 0, 0)  # v1's floor never gates v2
+    v1 = run | {"golden": run["golden"] | {"version": "v1"}}
+    assert len(harness.apply_floors(v1, False, True)[0]) == 1  # it still gates a v1 report
 
 
 def test_ci_reports_latency_without_gating_it(floors: Path) -> None:
@@ -55,14 +74,15 @@ def test_replacing_floors_recomputes_a_collapsed_pass_fail_range_with_wilson(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "thresholds.json"
-    path.write_text(json.dumps({"answer:dev:ci:gemini:g": {"correct_refusal": 0.9}}))
+    path.write_text(json.dumps({"v2:answer:dev:ci:gemini:g": {"correct_refusal": 0.9}}))
     monkeypatch.setattr(harness, "THRESHOLDS", path)
     run = report() | {"split": "dev", "subset": "ci"}
     run["metrics"] = {"answer": {"correct_refusal": entry(1.0) | {"n": 5}}}  # 5 of 5: 1.0 to 1.0
     harness.apply_floors(run, True, True)
-    assert json.loads(path.read_text())["answer:dev:ci:gemini:g"] == {"correct_refusal": 0.9}
+    assert json.loads(path.read_text())["v2:answer:dev:ci:gemini:g"] == {"correct_refusal": 0.9}
     harness.apply_floors(run, True, True, replace=True)  # floors only tighten unless replaced
-    assert json.loads(path.read_text())["answer:dev:ci:gemini:g"] == {"correct_refusal": 0.565518}
+    replaced = json.loads(path.read_text())["v2:answer:dev:ci:gemini:g"]
+    assert replaced == {"correct_refusal": 0.565518}
 
 
 def test_the_ci_subset_holds_ten_should_refuse_dev_questions() -> None:
@@ -75,7 +95,7 @@ def test_the_ci_subset_holds_ten_should_refuse_dev_questions() -> None:
 
 def test_ci_stops_before_any_call_when_the_setup_has_no_floors(floors: Path) -> None:
     args = argparse.Namespace(suite="all", split="dev", subset="full")
-    assert harness.unfloored(args, "gemini:g") == ["answer:dev:full:gemini:g"]
+    assert harness.unfloored(args, "gemini:g") == ["v2:answer:dev:full:gemini:g"]
 
 
 def test_errored_questions_fail_plainly_with_their_reasons() -> None:

@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 
+from filinglens_core.settings import ApiSettings
 from filinglens_llm.providers import BASE_URLS
 
 ROOT = Path(__file__).parents[2]
@@ -228,6 +229,12 @@ def test_each_client_goes_out_through_its_own_port(prod: dict[str, Any]) -> None
 
 
 @pytest.mark.integration
+def test_every_model_role_reaches_productions_api(prod: dict[str, Any]) -> None:
+    passed = environment(prod["services"]["api"])  # compose passes the api's variables by name
+    roles = [name.upper() for name in ApiSettings.model_fields if name.startswith("llm_")]
+    assert "LLM_ROUTER_FALLBACK" in roles and [role for role in roles if role not in passed] == []
+
+
 def test_alert_delivery_goes_out_through_its_own_ports(prod: dict[str, Any]) -> None:
     alertmanager, relay = prod["services"]["alertmanager"], prod["services"]["smtp-relay"]
     config = yaml.safe_load(ALERTMANAGER_CONFIG.read_text(encoding="utf-8"))

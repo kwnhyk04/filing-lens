@@ -2,12 +2,19 @@
 
     make audit    # blind sample of Claude-labeled passages, then review of every disagreement
     make label    # every pooled passage not labeled yet (the first labeling pass)
+    uv run --env-file .env python -m evals.label crosscheck  # v2: the judge labels the sample
 
 Keys, no Enter needed in a Windows console (elsewhere type the letter and Enter): y yes, n no,
 b back, x flag the question as bad, q quit (Ctrl+C too). Each key is appended to labels.jsonl at
 once, so a later run resumes where this one stopped. Blind screens never show Claude's label.
+
+crosscheck (v2, no human spot check; user, 2026-10-31): the judge model (LLM_JUDGE) takes the
+blind pass in the user's place, one call per sample passage it has not labeled, shown what the
+blind screen shows; each label goes to labels.jsonl with the model's name, and the run ends with
+make audit's agreement numbers. A model's labels measure agreement only (golden.final_labels).
 """
 
+import asyncio
 import io
 import json
 import random
@@ -20,6 +27,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from evals.calls import Cache, Recorded, Stop, patiently
 from evals.golden import (
     AI_LABELS,
     AUDIT,
@@ -33,8 +41,9 @@ from evals.golden import (
     read_manifest,
     write_jsonl,
 )
+from filinglens_llm.providers import Completion, Provider
 
-AUDIT_SIZE, AUDIT_MIN_GOLD = 60, 20  # user decision, 2026-10-16
+AUDIT_SIZE, AUDIT_MIN_GOLD = 50, 20  # v2 (plan, 2026-10-26); v1 drew 60 (user, 2026-10-16)
 FIRST_GUESS_S = 9.0  # seconds per passage until this run has its own pace
 IDLE_S = 120.0  # a longer gap is a break, not labeling time
 BOLD, DIM, RESET, CLEAR = "\x1b[1m", "\x1b[2m", "\x1b[0m", "\x1b[2J\x1b[H"
@@ -44,6 +53,7 @@ STOPWORDS = {
 }  # fmt: skip
 KEYS = f"""Textual questions: press {BOLD}y{RESET} when the passage by itself states all or part of
 the answer (gold), {BOLD}n{RESET} otherwise. Several passages may be gold; judge each on its own.
+A passage is gold only if it answers the question as asked, qualifier included.
 
 Absent questions (asking for something the filing should not contain): press {BOLD}y{RESET} only
 if the passage does answer the question, {BOLD}n{RESET} if it does not.
@@ -66,6 +76,27 @@ reason: there you make the final call. The run ends with agreement and Cohen's k
 {KEYS}
 
 Press any key to start, q to quit."""
+# The cross-check's labeler gets KEYS's rule, the eval card's with the qualifier clause, and only
+# what the blind screen shows (cross_prompt): never Claude's label or reason.
+CROSS_SYSTEM = """\
+You label passages from SEC 10-K filings for a retrieval test set. Judge each passage by itself,
+never with outside knowledge.
+
+Textual questions: the passage is gold when by itself it states all or part of the answer.
+Several passages may be gold; judge each on its own. A passage is gold only if it answers the
+question as asked, qualifier included.
+
+Absent questions (asking for something the filing should not contain): the passage is gold only
+if it does answer the question.
+
+Reply with JSON only: gold, true or false, and why, in one short sentence."""
+CROSS_SCHEMA = {
+    "type": "object",
+    "properties": {"gold": {"type": "boolean"}, "why": {"type": "string"}},
+    "required": ["gold", "why"],
+    "additionalProperties": False,
+}
+CROSS_MAX_TOKENS = 1024  # the JSON plus gpt-oss's short reasoning
 
 
 def enable_ansi() -> None:
@@ -194,9 +225,10 @@ def blind(items: list[Item], questions: dict[str, dict[str, Any]], title: str) -
 def audit_sample(pools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The blind sample, drawn once with a fixed seed and kept in audit.jsonl.
 
-    Passages the user has not labeled yet: one Claude-gold and one other passage from each
-    question, more Claude-gold ones until AUDIT_MIN_GOLD, then any, round robin over the
-    questions in a shuffled order; shown grouped by question.
+    Passages Claude labeled in this version (never one carried from v1) that the user has not
+    labeled yet: one Claude-gold and one other passage from each question, more Claude-gold ones
+    until AUDIT_MIN_GOLD, then any, round robin over the questions in a shuffled order; shown
+    grouped by question.
     """
     if AUDIT.exists():
         return read_jsonl(AUDIT)
@@ -206,7 +238,9 @@ def audit_sample(pools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     free: dict[str, list[str]] = {}
     for pool in pools:
         ids = sorted(
-            c["chunk_id"] for c in pool["candidates"] if (pool["id"], c["chunk_id"]) not in judged
+            c["chunk_id"]
+            for c in pool["candidates"]
+            if (pool["id"], c["chunk_id"]) in claude and (pool["id"], c["chunk_id"]) not in judged
         )
         rng.shuffle(ids)
         if ids and pool["id"] not in flagged:
@@ -288,15 +322,91 @@ def review(questions: dict[str, dict[str, Any]], candidates: dict[tuple[str, str
 def report() -> None:
     stats = audit_stats()
     low, high = stats["kappa_ci"]
+    settled = (
+        f"{stats['reviewed']} reviewed, {stats['review_as_claude']} settled on Claude's label"
+        if stats["blind_labeler"] == "human"
+        else "a model's labels get no review, so Claude's stand"
+    )
     print(
-        f"\nBlind labels against Claude's, before review: {stats['passages']} passages"
-        f" ({stats['claude_gold']} Claude-gold, {stats['human_gold']} yours)."
+        f"\nBlind labels ({stats['blind_labeler']}) against Claude's, before review:"
+        f" {stats['passages']} passages ({stats['claude_gold']} Claude-gold,"
+        f" {stats['blind_gold']} gold in the blind labels)."
         f" Agreement {stats['agreement']:.1%}, Cohen's kappa {stats['kappa']:.2f}"
         f" (95% CI {low:.2f} to {high:.2f}, bootstrap)."
-        f"\nDisagreements {stats['disagreements']}: {stats['reviewed']} reviewed,"
-        f" {stats['review_as_claude']} settled on Claude's label.",
+        f"\nDisagreements {stats['disagreements']}: {settled}.",
         flush=True,
     )
+
+
+def cross_prompt(question: dict[str, Any], candidate: dict[str, Any]) -> str:
+    """What the blind screen shows, for a model: the question and its kind, the company and the
+    item, the passage, and the screen's question."""
+    absent = question["category"] == "unanswerable"
+    return "\n".join(
+        [
+            f"Question ({'absent' if absent else 'textual'}): {question['question']}",
+            f"{question['routing']['tickers'][0]} · Item {candidate['item']}",
+            "",
+            candidate["text"],
+            "",
+            "Does this passage answer the question?" if absent else "Is this passage gold?",
+        ]
+    )
+
+
+async def cross_labels(model: Provider, cache: Cache) -> None:
+    """make audit's blind pass with a model in the user's place: its label of each sample passage
+    it has not labeled yet, saved as the user's would be, with its name and reason."""
+    questions, pools = golden()
+    candidates = {(p["id"], c["chunk_id"]): c for p in pools for c in p["candidates"]}
+    done = blind_labels(read_jsonl(USER_LABELS))
+    for pick in audit_sample(pools):
+        key = (pick["id"], pick["chunk_id"])
+        if key in done:
+            continue
+        context = {"question": pick["id"], "passage": pick["chunk_id"]}
+        recorded = Recorded(model, "label", cache, context, [])
+        prompt = cross_prompt(questions[pick["id"]], candidates[key])
+
+        async def ask(recorded: Recorded = recorded, prompt: str = prompt) -> Completion:
+            return await recorded.complete(
+                CROSS_SYSTEM, prompt, max_tokens=CROSS_MAX_TOKENS, schema=CROSS_SCHEMA
+            )
+
+        text = (await patiently(ask)).text
+        try:
+            reply = json.loads(text)
+            gold, why = reply["gold"], str(reply["why"])
+            if not isinstance(gold, bool):
+                raise TypeError("gold is not true or false")
+        except (ValueError, KeyError, TypeError) as exc:
+            unread = f"{pick['id']} {pick['chunk_id'][:8]}: unreadable reply ({exc})."
+            raise SystemExit(unread) from exc
+        save_label(pick["id"], candidates[key], gold, labeler=model.name, why=why)
+
+
+def cross_check() -> None:
+    """The judge model (LLM_JUDGE) labels the blind sample, then make audit's agreement numbers."""
+    import httpx
+
+    from evals.harness import CACHE, EvalSettings
+    from filinglens_core.settings import load_settings
+    from filinglens_llm.providers import TIMEOUT, provider
+    from filinglens_telemetry import configure_logging
+
+    settings = load_settings(EvalSettings)
+    configure_logging("label", "WARNING")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as http:
+            model = provider(settings.llm_judge, settings, http)
+            await cross_labels(model, Cache(CACHE / "calls.jsonl"))
+
+    try:
+        asyncio.run(run())
+    except Stop as stop:
+        raise SystemExit(f"{stop} The labels so far are saved; rerun to finish.") from None
+    report()
 
 
 def audit() -> None:
@@ -333,5 +443,7 @@ if __name__ == "__main__":
         audit()
     elif command == "label":
         label_all()
+    elif command == "crosscheck":
+        cross_check()
     else:
-        raise SystemExit("usage: python -m evals.label audit|label")
+        raise SystemExit("usage: python -m evals.label audit|label|crosscheck")

@@ -15,6 +15,118 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-10-31: PR 7: Claude first everywhere, and the official v2 runs (uncommitted, branch `golden-v2`)
+
+- Changes (the user's second task, sent during PR 6: Claude first in every model role with today's free chain behind it, the judge off Claude, each stop proven on recorded error shapes, the official v2 run Claude first and a free-only run, both shown labelled; CI free-only):
+  - **Tests first, each red, then green:**
+    - settings (`LLM_ROUTER_FALLBACK`, Claude may route, the free tail stays free);
+    - `Anthropic.complete` with the router's schema (`output_config.format`, red on NotImplementedError);
+    - the routing chain (`Models.router_fallback`, `main.models`, red on the missing import) with each stop case for routing: 402, a 400 spend limit, 401, 403, 404, a 429 with and without Retry-After, a 500, the daily budget and the expiry day;
+    - compose: every `LLM_*` role reaches production's api, red on `LLM_ROUTER_FALLBACK`;
+    - the harness's `--claude-first` (7 red).
+  - **Wiring:** `infra/docker-compose.yml` passes `LLM_ROUTER_FALLBACK`; `.env.example`; deploy.md's `.env.prod` rows and the "Claude only off" rollback; the api's metric series.
+  - **The live routing check** (scratch `claude_route_probe.py`, the user's OK): the first two calls drew 400s that billed nothing; the message named the nullable enum. Fixed test first (`claude_schema`). The third call routed "What was Apple's total revenue in fiscal 2025?" right (numeric, AAPL, 2025, FY, revenue), 1,970 tokens in and 62 out.
+  - **The runs** (CI's free settings exported, as for E8):
+    - Free-only `make eval SUITE=all SPLIT=test` at 15:31 UTC, exit 0: `evals/reports/2026-10-31`. Then `--set-floors`: `v2:retrieval:test:full`, `v2:answer:test:full:gemini:gemini-3.5-flash-lite`.
+    - The estimate grew after the routing check (routing prompts about 1,970 tokens, the judge 61K), so the user was asked again and said go.
+    - Claude-first `ARGS=--claude-first` at 16:01 UTC, exit 0. It was named `2026-11-01-claude-first` by the PC's local date; fixed test first and renamed to `2026-10-31-claude-first`.
+  - **The landing page** shows both runs as two labelled tables (`web/app/page.tsx`, `ResultsTable`), with v2's label wording and golden v1 named on the demo's sample. The spec checks both tables against both reports.
+    - The first screenshot showed the Claude table wrong (side-by-side rows overwrote its own). Fixed test first in `lib/landing.ts`, and the three landing screenshots were retaken after axe.
+  - **README and eval card:** both runs' results, labelled. Context's roles table; memory.
+  - Dev containers `filinglens-postgres-1` and `filinglens-redis-1` were stopped by exact name at the end, as found. Production untouched.
+- Files: packages/core/src/filinglens_core/settings.py, packages/core/tests/test_settings.py, packages/llm/src/filinglens_llm/providers.py, packages/llm/tests/test_providers.py, services/api/src/filinglens_api/answering.py, services/api/src/filinglens_api/main.py, services/api/src/filinglens_api/__main__.py, services/api/tests/test_answering.py, infra/docker-compose.yml, infra/tests/test_egress.py, .env.example, evals/harness.py, evals/tests/test_calls.py, evals/thresholds.json, evals/reports/2026-10-31{,-claude-first}.{json,md}, web/app/page.tsx, web/lib/landing.ts, web/lib/landing.test.ts, web/e2e/landing.spec.ts, docs/screenshots/ui/landing-{light,dark,phone}.png, README.md, evals/eval-card.md, docs/deploy.md, docs/context.md, docs/memory.md, docs/todo.md, docs/activity-log.md.
+- Validation (after both PRs' changes): `make lint` clean (164 files); `make typecheck` 0 errors; `make test` 573 passed; web: `npm test` 94, `tsc` clean, `next build`, `npx playwright test` 89 passed, the three landing screens with axe. gitleaks not run: no secret-bearing file changed.
+- Outstanding: (user) `.env.prod`'s two router lines and the api's recreate with the new image (deploy.md); `make test-int` not run here (Testcontainers needs a container go; CI runs it).
+
+### 2026-10-31: PR 6, second part: the judge model's blind cross-check, the carried count, the freeze, corpus-v2, the harness for v2, E8 and v2's dev floors (uncommitted, branch `golden-v2`)
+
+- Changes (the user's request: no human spot check in v2; the judge model labels the 50 sample passages blind through `make audit`'s path; record it as "AI-labeled, cross-checked blind by a second model; no human spot check in v2"; a read-only count of the carried labels under the qualifier rule; then the freeze, corpus-v2, E8 and the dev floors on CI's free models):
+  - **Cross-check, tests first** (`test_golden.py`, 3 red: the model's label became final and the stats had no labeler; `cross_labels` was missing; freeze stopped on "1 disagreements not reviewed" with no pool check. Then green):
+    - `label.py`: `CROSS_SYSTEM` (KEYS's rule), `cross_prompt` (only the blind screen's parts), `cross_labels` (one cached call per unlabeled sample passage, saved through `save_label` with `labeler` and `why`), `cross_check` and the `crosscheck` command. `report()` names the blind labeler.
+    - `golden.py`: `final_labels` skips a model's labels. `audit_stats` gives `blind_labeler` and `blind_gold`. `freeze` asks for a review only of a human's blind labels, checks that every label's passage is in its pool and that no passage is both carried and Claude-labeled, and writes v2's `gold` text.
+  - **Dry run before the call:** the 50 prompts held 123,546 characters (about 31K tokens) and no Claude reason.
+  - **Live** (`uv run --env-file .env python -m evals.label crosscheck`, 14:30 to 14:34 UTC, exit 0): 50 calls to groq:openai/gpt-oss-120b, 30,914 tokens in and 4,474 out, 41 short 429 waits. Agreement 90.0%, kappa 0.80 (95% CI 0.62 to 0.96), 28 Claude-gold against 25. 5 disagreements: x26, x31, x35 and x38 Claude-gold, x43 judge-gold. Claude's labels stand.
+  - **Carried count (read only):** `carried_review.py` (scratch) wrote the 150 carried gold passages per question. One fresh Claude subagent (no API call) judged them under the qualifier rule: 10 fail, 8 of them Claude's v1 labels and 2 the human's. Its verdict file was checked: 150 names, each once. Nothing changed.
+  - **Freeze** (14:43 UTC): the new checks were dry-run first (1,129 labels, all in their pools, none shared). It ran before the count finished (memory.md).
+  - **Harness, tests first** (8 red: the 3 new tests, 4 tests in the new key form, and the unfrozen-set test. Then green): `CALIBRATION` is v1's; `floor_key` and `unfloored` carry the golden version; `previous()` matches the version and takes `all` reports. v1's four floor keys were renamed `v1:...`, values unchanged.
+  - **corpus-v2:**
+    - Ports 5433 and 6380 were free. `filinglens-postgres-1` started by exact name at 14:35:54 UTC, `filinglens-redis-1` at 14:37:05.
+    - The dev database: 0008, 30 filings indexed, 11,257 chunks all with vectors, 856,438 facts.
+    - `make corpus-dump` took 8 s. It holds data of the six public tables and only the schema of the rest, and no secret value. 46.5 MB, sha256 `34b9abeb...dbcea2`, pinned in `corpus.py` (checked with Python and with certutil). `NAME` and `URL` name corpus-v2.
+  - **E8:** answer dev ci (`--tag=v2-floors --no-judge`), then retrieval dev full, with CI's model settings exported. `--set-floors` from both.
+    - The first retrieval report carried v1's label wording. Fixed test first (`GOLD_LABELS`), that report and its floors deleted, the suite run again (memory.md).
+  - **Docs:** eval card (the v2 section), README (v2, corpus-v2, the cross-check command), context, memory, todo, migrations (CI's restore line), the Makefile's help text, and the auto-memory wording rule.
+- Files: evals/label.py, evals/golden.py, evals/harness.py, evals/corpus.py, evals/thresholds.json, evals/eval-card.md, evals/tests/test_golden.py, evals/tests/test_calls.py, evals/tests/test_ci.py, evals/golden/v2/ (labels.jsonl, manifest.json), evals/reports/runs/20261031T144658Z-answer-dev-ci.{json,md}, evals/reports/runs/20261031T145959Z-retrieval-dev-full.{json,md}, Makefile, README.md, docs/context.md, docs/memory.md, docs/migrations.md, docs/todo.md, docs/activity-log.md.
+- Validation: `pytest evals/tests` 61 passed. `make lint` clean. `make typecheck` 0 errors, after a `stream` method on the test's fake labeler, which pyright asked for (`Labeler` is incompatible with protocol `Provider`). GateGuard refused the session's first Bash call and each file's first edit; each passed once its facts were given.
+- Outstanding: the user reviews the dump's tables and uploads `corpus-v2` before CI runs. PR 7 follows on this branch (the user's second task, 2026-10-31).
+
+### 2026-10-28: The audit screen states the qualifier rule (uncommitted, branch `golden-v2`)
+
+- Changes (user): `evals/label.py`'s `KEYS`, the guide text on the `make audit` and `make label` screens, gains one line in the eval card's wording: "A passage is gold only if it answers the question as asked, qualifier included." So the blind labels follow the rule that v2's new Claude labels follow.
+- Files: evals/label.py, docs/activity-log.md.
+- Validation: `echo q | make audit` shows the line and stops at its first key (50 of 50 blind passages left, exit 0, no `labels.jsonl` written); ruff check and format clean; `pytest evals/tests/test_golden.py` 5 passed.
+- Outstanding: the user's `make audit`.
+
+### 2026-10-28: Every Python tool through `python -m`, and `make audit` checked (uncommitted, branch `golden-v2`)
+
+- Changes (the user's request: Windows Smart App Control is on and blocks the unsigned launchers in `.venv\Scripts`, os error 4551; Triage Copilot's `alembic.exe` was blocked tonight; the venv's `python.exe` runs):
+  - **First check:** `uv run python` ran (3.12.15), so no stop.
+  - **Audit** of everything that starts a Python tool:
+    - every make target already used `uv run python -m` (since 2026-10-14);
+    - the scripts spawn only git, docker compose or `sys.executable`;
+    - the pre-commit config documents `uv run python -m pre_commit install`, and its git hook runs `.venv\Scripts\python.exe -mpre_commit`;
+    - the compose `celery` commands run in Linux containers;
+    - `ruff.exe` is ruff's own binary, not a launcher stub, and it ran.
+  - **Changed:** `docs/migrations.md`'s four bare `alembic` commands (steps 1, 3 and 7) now read `uv run --env-file .env python -m alembic upgrade 0004`, then `downgrade 0008`, `upgrade 0005` and `upgrade 0006`, the form the runbook's other commands use.
+  - **No `__main__.py` added:** no workspace `pyproject.toml` defines console scripts, and `filinglens_api/__main__.py` already exists.
+  - **Tried:** `uv run python -m alembic --help` exited 0. The venv's `alembic.exe --help` also exited 0 here, so it was not blocked in this repo tonight; why it differs from Triage Copilot's is not confirmed.
+  - **`make audit`:** `echo q | make audit` printed the guide and stopped at its first key ("Stopped: 50 of 50 blind passages left. make audit resumes here."), exit 0. No `labels.jsonl` was written, and `audit.jsonl` is unchanged.
+- Files: docs/migrations.md, docs/memory.md, docs/context.md, docs/todo.md, docs/activity-log.md.
+- Validation: as above. No code changed, so lint, typecheck and tests were not rerun.
+- Outstanding: the user's `make audit`.
+
+### 2026-10-28: PR 6: golden v2's new labels under one rule, the blind sample drawn again (uncommitted, branch `golden-v2`)
+
+- Changes (the user's request, before the spot check):
+  - **The rule:** v1's written rule (`label.py` KEYS, `eval-card.md`, the step 6b plan: "A passage is gold if by itself it states all or part of the answer"; an absent question's passage only if it answers it) does not settle a passage that covers the topic without the question's qualifier. So the user's strict rule applies with it: gold only when the passage answers the question as asked, qualifier included.
+  - **The check:** `make_review.py` (scratch) wrote each question's gold and not-gold passages with their labels and reasons. One Claude subagent (claude-opus-5-5, no API call) read all 180 gold labels in the 28 questions with gold; the 5 absent questions had none. The strict rule can only turn gold into not gold, so a question with a failing gold label was labeled again in full: all its passages, gold and not gold.
+  - **Result:** 22 questions followed the rule, including x09, x10 and x19's new labels. 6 were labeled again: x21 7 to 4, x22 11 to 10, x26 4 to 3, x35 8 to 6, x37 5 to 1, x44 6 to 5. 12 passages went to not gold, none to gold.
+  - **Applied:** `apply_relabel.py` (scratch) checked that the re-labeled questions' 123 keys each came exactly once and that the compliant and re-labeled ids together were the 28. It then replaced those rows' gold, reason and time in `ai_labels.jsonl`, still 591 rows, and asserted that no carried key was touched. Claude's v2 gold: 180 to 168. All v2 gold: 318 (150 carried). Every textual question still has gold, and no absent question has any.
+  - **Sample:** `evals/golden/v2/audit.jsonl` deleted and drawn again (the same seed, from the final labels): 50 passages from 31 questions, 28 Claude-gold, 7 from v1's changed pools, none carried. A second draw is identical.
+- Files: evals/golden/v2/ai_labels.jsonl, evals/golden/v2/audit.jsonl, docs/todo.md, docs/activity-log.md, docs/memory.md, docs/context.md.
+- Validation: the apply script's checks above; `pytest evals/tests/test_golden.py` 5 passed. No code changed, so lint, typecheck and the suite were not rerun.
+- Outstanding: the user's `make audit`, then the PR 6 steps in todo.md.
+
+### 2026-10-27: PR 6, first part: dev re-parsed, golden v2's pools built and labeled, the blind sample drawn (uncommitted, branch `golden-v2`)
+
+- Changes, on `golden-v2` from main at a2b71ec (#36). The user's go: re-parse the dev database with `filinglens_ingest.reparse` (dev only); build v2's pools; estimate the Claude labelling cost before any live call and label if it is under $0.50; draw the blind sample for `make audit` and stop there. Not done, as asked: the spot check, the freeze, corpus-v2, E8.
+  - **Containers:** ports 5433, 6380, 5672 and 15672 were free (netstat). `filinglens-postgres-1`, `-redis-1` and `-rabbitmq-1` (all exited) were started by exact name at 15:17 UTC, then `filinglens-embed-1`; all four were stopped as found at 15:44 UTC. `filinglens-prod`'s five containers stayed up and untouched.
+  - **Re-parse:** `uv run --env-file .env python -m filinglens_ingest.reparse 0001628280-26-008131 0000093410-26-000078 0001045810-26-000021 0001193125-26-051453` on the host, exit 0 at 15:18 UTC. Not in the ingest container as reparse's docstring says: its image dates from 2026-10-17, before PR 5's parser, so it would have parsed with the old one. The embed worker (image 2026-10-17; its embed path differs from main's by metrics only) indexed all four in about 2.5 minutes, with no error line.
+    - Before: 11,263 chunks, all with vectors, 30 filings indexed. After: 11,257, all with vectors, 30 indexed.
+    - JPM Item 15 down to 22,827 characters (20 chunks), Item 7 403,071 (309), Item 8 598,549 (484); CVX 14 down to 2,447 (2), 7 99,274 (74), 8 232,431 (199); NVDA 15 down to 1,069 (1), 8 106,569 (83); PLD 16 down to 1,433 (1), 8 238,846 (200). The old pointer sections 7 and 8 are gone. Every figure matches PR 5's measurement (memory.md).
+  - **Code, tests first** (`evals/tests/test_golden.py`: 4 tests red, 3 missing functions and a KeyError in `audit_sample` on a passage carried from v1; then green):
+    - `evals/golden.py`: `VERSION = "v2"`. Questions: v1's 100 frozen rows, moved to dev with their ci flags, plus PR 0's 55 in test (`questions` builds the V2_* constants; `with_v1` stops when a v1 question built again differs from its frozen row). Pools: the pool sources on today's corpus; a v1 pool also keeps v1's passages by text hash (`rekey`, `carry`, `merged`), with v1's final label in the new `carried.jsonl`, and takes the chunks overlapping a passage whose text changed. `final_labels` reads `carried.jsonl` first. DEV, CI and `assign_splits` are removed (v1's split code; v2 splits by rule).
+    - `evals/label.py`: the blind sample is 50 for v2, drawn only from passages Claude labeled in v2.
+    - `evals/harness.py`: a comment that named `assign_splits`.
+  - **Build** (`uv run --env-file .env python -m evals.golden build`, exit 0): 155 questions (dev 100, test 55) and 59 pools with 1,129 passages. The rebuild of v1's 100 matched their frozen rows.
+    - v1's 543 passages: 538 kept (36 under new chunk ids, same text), holding 150 of v1's 152 gold. 5 lost their text: 2 gold (x09, CVX's old Item 14; x10, JPM's old Item 15), whose overlapping chunks are labeled again, and 3 not gold (a JPM line, PLD's Item 8 pointer, PLD's "Item 16. Form 10-K Summary" page).
+    - The 25 v1 pools outside the four filings came back identical. x09, x10, x19 and a06 gained 18 passages: overlapping chunks and what the pool sources found on the re-parsed corpus.
+  - **Estimate:** 591 passages to label (573 in the 29 new pools, 18 in v1's), 1,046,265 characters, about 262K tokens. Claude labels them in this session with no API call, so $0 of credits, under the user's $0.50: labeled without stopping.
+  - **Labels:** six Claude subagents (claude-opus-5-5), one batch of 87 to 103 passages each, with v1's guideline and reason style. `merge_labels.py` (scratch) checked one well-formed label per passage, then wrote `ai_labels.jsonl` once: 591 labels, 180 gold. Every textual question has gold, and no absent question has any (freeze's checks).
+    - The labelers flagged borderline passages. For a passage that states the topic but not the question's qualifier, they differ: lenient on x21, x26 and x37, strict on x25, x31 and x42 (memory.md). Not overridden.
+  - **Blind sample:** `evals/golden/v2/audit.jsonl`, 50 passages from 31 questions, 28 of them Claude-gold, 7 from v1's changed pools. The same seed draws the same sample, and `make audit` uses it.
+  - **Final review** (a fresh reviewer, Opus): no Critical, 1 Important, 8 Minor. It re-derived every count, carried label, re-key and the audit draw from the files.
+    - Fixed, red then green: a v1 gold passage that keeps no text and no overlapping chunk now stops the build (`test_a_v1_gold_passage_with_no_successor_stops_the_build`: DID NOT RAISE, then passed). Carry's test now uses a re-keyed pair. Checked offline, the guard passes on all 30 v1 pools and reproduces the 538 carried rows.
+    - Deferred, each in todo.md: the four pools' stale item hints; rows carried twice by a forced rebuild, which the freeze will catch by checking that every label's passage is in its pool; `with_v1` and a missing v1 id; a sample drawn before the labels are complete; the status filter in `FILING_CHUNKS`; two messages that say "v2" for "the next version"; untested `final_labels` order; `KEEP` repeated in `label.py`.
+- Files: evals/golden.py, evals/label.py, evals/harness.py, evals/tests/test_golden.py, evals/golden/v2/ (questions.jsonl, pools.jsonl, carried.jsonl, ai_labels.jsonl, audit.jsonl, the draft manifest.json), docs/todo.md, docs/activity-log.md, docs/memory.md, docs/context.md.
+- Validation:
+  - `uv run python` ran with no Application Control block, so no workaround was used.
+  - `make lint` clean (160 files) after `ruff format` wrapped test lines that a run flagged (E501); `make typecheck` 0 errors.
+  - `make test`: 549 tests, 548 passed, 1 failed: `test_the_ci_subset_holds_ten_should_refuse_dev_questions` stops on "Golden set v2 is not frozen: run python -m evals.golden freeze." (it loads the frozen set). Expected until the freeze.
+  - `make test-int` not run: no container go for Testcontainers, and no integration test or ingest code changed.
+  - GateGuard refused the session's first Bash call and the first write of each new or first-edited file; each passed once its facts were given.
+- Outstanding: the user's `make audit`; then the freeze (its manifest text is still v1's), the harness's v2 changes, corpus-v2, E8 and v2's dev floors. Until the freeze, `make eval` exits 3, the test above fails, and CI's eval fails, so the branch ships after E8.
+
 ### 2026-10-27: PR 4 and PR 5: calculation sources, the rounding rule and item labels (uncommitted, branch `calculations-item-labels`)
 
 - Changes, on `calculations-item-labels` from main at d05884a (#35). The user's go: PR 4 and PR 5 on one branch, tests first, reported once; E5 without asking within its estimate; `filinglens-postgres-1` and `filinglens-redis-1` by exact name; `make contracts-breaking` and `make test-int`. Each part went red, then green.
