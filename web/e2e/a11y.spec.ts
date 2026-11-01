@@ -1,5 +1,8 @@
-// axe on every page, live and demo: any WCAG 2.2 A or AA violation fails.
+// axe on every page, live and demo: any WCAG 2.2 A or AA violation fails. Reduced motion keeps the landing
+// on its still, so these checks never wait on the moving hero; landing.spec.ts runs axe on that one.
 import { ask, audit, expect, signedOut, signIn, test } from "./fixtures.ts";
+
+test.use({ reducedMotion: "reduce" });
 
 for (const path of ["/", "/ask", "/coverage", "/demo", "/demo/coverage", "/no-such-page"]) {
   test(`axe: ${path}`, async ({ page }) => {

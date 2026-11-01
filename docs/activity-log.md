@@ -15,6 +15,65 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-02: CI fix: no moving hero on a software WebGL renderer
+
+- Changes:
+  - **What CI showed** (the user's log): on branch `landing-round-1`, axe on `/` in light and dark timed out in `AxeBuilder.analyze`, and the WebGL test timed out clicking Pause, all at 30 s.
+  - **Cause, measured here:** a probe in Playwright's bundled headless shell reported "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)…), SwiftShader driver)" with no flags, with `--enable-unsafe-swiftshader`, with `--disable-gpu` and with both. `failIfMajorPerformanceCaveat: true` still returned a context. So the suite always ran the moving hero in software: fast enough on this PC, too slow on CI's runners.
+  - **App:** `hero-motion.tsx` probes WebGL with `failIfMajorPerformanceCaveat: true` and reads `WEBGL_debug_renderer_info`'s renderer. A software renderer (`lib/motion.ts`: SwiftShader, llvmpipe, softpipe, Windows' basic driver) keeps the still and loads neither the story nor three.js. The hero writes `data-motion="still"` or `"live"`. There is no CI flag in the app.
+  - **Tests:** `lib/motion.test.ts` (2, written first and red), with real renderer names, this PC's RTX 3070 among them. `a11y.spec.ts` runs with reduced motion. The landing's WebGL test reads the renderer and asserts its branch: on software, `data-motion="still"`, no three.js or membrane script, no canvas, the still visible; on a graphics card, the earlier checks (after the load event, from this site only, Pause, axe). `playwright.config.ts` takes `E2E_CHANNEL` (an installed browser; msedge draws on the GPU) and `E2E_ARGS` (Chromium flags). The landing spec's `--enable-unsafe-swiftshader` went.
+- Files: `web/lib/motion.ts`, `web/lib/motion.test.ts`, `web/components/hero-motion.tsx`, `web/e2e/a11y.spec.ts`, `web/e2e/landing.spec.ts`, `web/playwright.config.ts`, design.md, context.md, memory.md, todo.md.
+- Validation:
+  - `npm run typecheck` clean; `npm test` 114; `npm run build`.
+  - `E2E_CHANNEL=msedge npx playwright test`: 106 passed. Edge's renderer is the RTX 3070, so the WebGL test took the moving branch, in 2.3 s.
+  - `E2E_ARGS="--disable-gpu" npx playwright test`: 106 passed. The bundled shell is on SwiftShader, as on CI, so the WebGL test took the still branch, in 0.35 s.
+- Events: GateGuard refused the first edit of `a11y.spec.ts`, `playwright.config.ts` and each new file until its facts were stated. The CI note took the local passes for a real GPU; the probe showed the e2e browser was software all along, and round 1 had not checked that (memory.md, mistake).
+- Outstanding: CI's result on this push, for the user to report.
+
+### 2026-11-02: Landing round 1: header, hero and logo
+
+- Changes:
+  - **Inputs (stop, then the user's answer):** the first paste held hero4's code ("Bag\Ui") under the name Prompt Bond, and `_tmp/21st/h5-hero.png` and `_tmp/logos/fl-logo-sheet.png` did not exist. Prompt Bond's 21st.dev registry answered 403 without an API key, and its public page showed only the demo wrapper (fetched with curl into the scratchpad; the extracted code was the wrapper only). Work stopped and the user was asked. Answer: hero4 for the header only, Prompt Bond's full prompt, the logo from `filing-lens-logo.png`.
+  - **Baseline first,** on main at 58baddd (`npm run build`, `next start` on 3102 with the e2e keys, a Playwright script in the scratchpad: five runs per profile, cache off; desktop 1440×900 at 40 ms and 10 Mbit/s; phone 390×844 at 150 ms, 1.6 Mbit/s and 4× CPU; headless shell with `--enable-unsafe-swiftshader`, as later).
+  - **Mark:** variant #6 redrawn on one circle (`web/lib/logo.ts`): arcs of radius 12 ending 36° above the bar, the bar broken where the circle crosses it, stroke 4, gap 3 everywhere, round ends. A first draw with radius 10 ended the arcs 44° up and left wide openings; compared side by side with the original, radius 12 matched it. Light (navy, teal #0D9488 at 3.5:1 on paper), dark (paper, #2DD4BF) and one-colour SVGs in `docs/brand/`; `app/icon.svg` (dark in a dark browser) and `app/apple-icon.tsx` (180 px, dark mark on navy). A contact sheet rendered it at 16, 24, 32 and 48 px and enlarged 16 and 32 pixel for pixel: both read as two arcs, the teal bar and two pills. The CSS `--logo` (every header, the sign-in and error cards) is the light mark, and the dark one in dark.
+  - **Theme:** every token in `globals.css` became a `light-dark()` pair; `color-scheme` follows `data-theme` on `<html>`, which the root layout writes from the `fl-theme` cookie. A System/Light/Dark radio group in the landing header sets the cookie and the attribute.
+  - **Header** (`landing-header.tsx`): hero4's layout in FilingLens's tokens; sticky, see-through until scrolled; a menu below 64rem.
+  - **Hero** (`hero.tsx`, `story-panel.tsx`, `hero-motion.tsx`, `hero-live.tsx`, `hero-field.tsx`, `app/landing.css`, `hero-live.css`): the headline, the snapshot's scope, and x12's story as an HTML still. On a desktop with motion and WebGL, two frames after the load event and once idle, the moving story is imported. It is Prompt Bond's engine kept as is (membrane shader, steering, layout, timelines, frame loop), with x12's beats (ready, bond, ask, find, answer, done) in place of its four stories and its input. The ShaderGradient field comes after it; Replay and Pause.
+  - **Removed:** the old hero (the n01 card, its CSS and `SAMPLE`), the old landing header in `chrome.tsx`, `.button.quiet`, `.cta`, `.eyebrow` and `.lead`, none used elsewhere.
+  - **Docs:** `docs/third-party.md` (new), deploy.md step 28 and its env row (the Gemini key's own project since 2026-10-31), design.md, context.md, memory.md, todo.md.
+- Files: `web/app/{page.tsx,layout.tsx,globals.css,landing.css,icon.svg,apple-icon.tsx}`, `web/components/{landing-header,theme-toggle,hero,story-panel,hero-motion,hero-live,hero-field}.tsx`, `web/components/hero-live.css`, `web/components/chrome.tsx`, `web/lib/{theme,logo,story}.ts` and their tests, `web/lib/landing.ts`, `web/e2e/{landing.spec.ts,screens.ts}`, `web/package.json`, `web/package-lock.json`, `docs/brand/*.svg`, `docs/screenshots/ui/*.png` (66 changed), the docs above.
+- Validation:
+  - Tests first: the theme, mark and story unit tests red, then green (112 in all); the new landing spec red against the old build (8 of 10 failing on the old page), then green.
+  - Web: `npm run typecheck` clean, `npm test` 112, `npm run build`, `npx playwright test` 106 passed, `npm run screens` 67 passed, each through axe. Python: `make lint` clean, `make typecheck` 0 errors, `make test` 621.
+  - JavaScript and load time, medians of five runs:
+
+    | | Before | After |
+    | --- | --- | --- |
+    | JS before the load event, gzip (raw) | 142.3 KB (472 KB), 8 files | 147.8 KB (486 KB), 9 files |
+    | JS after the load event, desktop only | 0 | 334.6 KB (1.30 MB): the moving story, motion, three.js, React Three Fiber, ShaderGradient |
+    | JS after the load event, phone | 0 | 0 |
+    | Desktop first paint / load event | 236 ms / 293 ms | 312 ms / 363 ms (276 / 306 with reduced motion) |
+    | Phone first paint / load event | 1,012 ms / 1,291 ms | 1,148 ms / 1,333 ms |
+    | HTML, CSS before load (gzip) | 8.0 KB, 4.6 KB in one file | 9.8 KB, 6.7 KB in two files |
+
+  - Screenshots at 1280, 1440, 1920 and 390 px, light and dark, reduced motion on and off, plus two mid-story frames: `H:\Projects\projects\_tmp\fl-landing` (headless Edge on the GPU, scratchpad script).
+- Events, in order:
+  - GateGuard refused each new file's first write and the first edit of each existing one until its facts were stated (38 times).
+  - `python` was the Windows Store alias; the project's `.venv` Python ran the scratchpad extractor with `-I`.
+  - Playwright refused `launchOptions` inside a `describe` ("forces a new worker"); moved to the file's top.
+  - With software WebGL in four workers at once, unrelated landing tests timed out at 30 s; reduced motion became the spec's default.
+  - At 390 px the page was 476 px wide: the app headers' `.brand { flex: 1 1 100% }` stretched the landing's brand. Fixed with `flex: none` in the landing header.
+  - A test bug: x12 cites source 1 twice, so its link matched two elements; the test now checks each.
+  - TypeScript narrowed `window` to `never` after `"requestIdleCallback" in window`; rewritten with a `typeof` check.
+  - The first screenshots showed the dark field mostly teal, against the brief's navy with a teal glow, and Replay and Pause below the fold at 900 px. Darker shader colours; the controls moved to the hero's corner.
+  - The moving story never finished in headless Chromium (software WebGL, frames of seconds; the 40 ms frame clamp); headless Edge on the GPU finished it in about 20 s.
+  - Desktop first paint rose to 500 ms because software WebGL started before the first frame; the two-frame wait brought it to 312 ms.
+  - A GateGuard refusal left one of two `screens.ts` edits unapplied, so `next build` failed its type check once; the edit was retried.
+- Outstanding:
+  - The phone's first paint is 136 ms later, mostly from the second stylesheet (`landing.css`, 2.3 KB) sharing the slow link. Moving it into `globals.css` saves that request for 2.3 KB more on every page, if the user wants it.
+  - Not built (design.md): the hero's former calls to action, a `favicon.ico`, a web app manifest, a raster still of the field, the toggle in the app's own headers.
+  - The moving hero's frame cost was measured only in software WebGL (8.3 s of long tasks after the load event, headless); on this PC's GPU it ran smoothly.
+
 ### 2026-11-01: Recent questions on Ask, the corpus-v2 production runbook, and Grafana's first start (uncommitted, branch `recent-questions`)
 
 - Changes, on `recent-questions` from main at 0bfb840 (#41 merged). The plan was approved on 2026-11-01 with two defaults: degraded answers are not stored, and the question on screen is left out of the list. In the same PR the user added two extras: the corpus-v2 runbook and Grafana's hang.

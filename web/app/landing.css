@@ -1,0 +1,496 @@
+/* The landing page's header and hero (docs/design.md, landing round 1). Loaded on / only. The hero has its
+   own palette, after Prompt Bond's: warm paper, ink navy, soft grey-blue and a teal glow in light; ink navy
+   with the same teal glowing in dark. Text keeps 4.5:1 and the headline's large teal 3:1. */
+:root {
+  --head-h: 4rem;
+  --display: "Segoe UI Variable Display", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html:has(.landing-head) {
+  scroll-padding-top: calc(var(--head-h) + 1rem);
+}
+
+/* Header, after hero4's: the mark and the name, the sections in the middle, then the theme, Sign in and the
+   demo. See-through over the hero until the page scrolls, then paper with a hairline. */
+.landing-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: var(--head-h);
+  padding-inline: max(var(--gutter), (100% - var(--page)) / 2);
+  transition:
+    background-color 0.25s,
+    box-shadow 0.25s;
+}
+
+.landing-head[data-scrolled="true"],
+.landing-head[data-open="true"] {
+  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  box-shadow: 0 1px 0 var(--rule);
+  backdrop-filter: blur(12px);
+}
+
+/* The app headers' phone rule gives the name a row of its own; this header keeps one row. */
+.landing-head .brand {
+  flex: none;
+}
+
+.landing-menu {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.landing-menu nav {
+  display: flex;
+  gap: 0.25rem;
+  margin-inline: auto;
+}
+
+.landing-menu nav a,
+.landing-head .sign-in {
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.landing-head .sign-in {
+  color: var(--ink);
+}
+
+.landing-menu nav a:hover,
+.landing-head .sign-in:hover {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--ink);
+}
+
+.landing-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.landing-head > .button {
+  padding: 0.45rem 1rem;
+  font-size: 0.875rem;
+}
+
+.menu-toggle {
+  display: none;
+}
+
+/* The theme: three radios as one pill, the radio itself covering its icon, so clicks and arrow keys are
+   the browser's own. */
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sheet) 70%, transparent);
+}
+
+.theme-toggle label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.theme-toggle label:hover {
+  color: var(--ink);
+}
+
+.theme-toggle label:has(:checked) {
+  background: var(--sheet);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.12),
+    inset 0 0 0 1px var(--rule);
+  color: var(--ink);
+}
+
+.theme-toggle label:has(:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.theme-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.theme-toggle svg,
+.menu-toggle svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Below 64rem the sections, the theme and Sign in fold into a menu that drops over the page. */
+@media (width < 64rem) {
+  .landing-head {
+    gap: 0.5rem;
+  }
+
+  .landing-head > .button {
+    margin-left: auto;
+  }
+
+  .menu-toggle {
+    display: grid;
+    order: 3;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--sheet) 70%, transparent);
+    color: var(--ink);
+  }
+
+  .menu-toggle:hover {
+    background: var(--sheet);
+  }
+
+  .menu-toggle svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .landing-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    display: none;
+    padding: 0.5rem max(var(--gutter), (100% - var(--page)) / 2) 1.25rem;
+    background: var(--paper);
+    box-shadow:
+      0 1px 0 var(--rule),
+      0 1.5rem 2rem -1.5rem rgb(0 0 0 / 0.25);
+  }
+
+  .landing-head[data-open="true"] .landing-menu {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .landing-menu nav {
+    display: grid;
+    margin: 0;
+  }
+
+  .landing-menu nav a {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    font-size: 1rem;
+  }
+
+  .landing-actions {
+    justify-content: space-between;
+  }
+
+  .landing-head .sign-in {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    font-size: 1rem;
+  }
+
+  .theme-toggle label {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+}
+
+/* Hero, after Prompt Bond: the field, the headline in two voices, the scope, and the story's panel. It runs
+   under the see-through header, so its field fills the first screen. */
+.landing > .hero {
+  --hero-paper: light-dark(#faf8f3, #0f1b2d);
+  --hero-ink: light-dark(#0f1b2d, #f2f0ea);
+  --hero-ink-2: light-dark(#3a4a5e, #b8c4d2);
+  --hero-teal: light-dark(#0d9488, #2dd4bf);
+  --on-body: light-dark(#0f1b2d, #f2f0ea);
+  --on-body-2: light-dark(#33445a, #c9d3de);
+  --bubble: light-dark(rgb(250 248 243 / 0.86), rgb(15 27 45 / 0.8));
+  --row-bg: light-dark(rgb(250 248 243 / 0.62), rgb(15 27 45 / 0.6));
+  --glyph-bg: light-dark(#bdebe1, #1e6f6a);
+
+  position: relative;
+  isolation: isolate;
+  justify-items: center;
+  align-content: center;
+  gap: 1rem;
+  min-height: 100svh;
+  margin-top: calc(-1 * var(--head-h));
+  padding: calc(var(--head-h) + 2.5rem) var(--gutter) 2.5rem;
+  overflow: hidden;
+  background: var(--hero-paper);
+  color: var(--hero-ink);
+  text-align: center;
+}
+
+/* The still field: what the moving one looks like, with no script; the moving one fades in over it. */
+.hero-field {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(ellipse 60% 70% at 14% 30%, light-dark(#bdebe1, rgb(23 101 96 / 0.5)), transparent 70%),
+    radial-gradient(ellipse 65% 75% at 88% 78%, light-dark(#d6e0ec, #13283c), transparent 70%),
+    var(--hero-paper);
+}
+
+.hero-stage {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.hero-title {
+  font-family: var(--display);
+  font-size: clamp(2.5rem, 1.4rem + 3.4vw, 4.25rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+
+.hero-line {
+  display: block;
+}
+
+.hero-line-2 {
+  color: var(--hero-teal);
+  font-weight: 380;
+}
+
+.hero-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.hero-word > span {
+  transition: font-variation-settings 0.12s ease-out;
+}
+
+.hero-lead {
+  max-width: 40rem;
+  color: var(--hero-ink-2);
+  font-size: 1.125rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.hero-story {
+  display: grid;
+  width: min(44rem, 100%);
+  margin: 1.25rem 0 0;
+  text-align: left;
+}
+
+.hero-story > .story-still,
+.hero-story > .story-live {
+  grid-area: 1 / 1;
+}
+
+.hero-story > figcaption {
+  margin-top: 0.75rem;
+  color: var(--hero-ink-2);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* The story's panel, the same box in the still and the moving story, so one stands in for the other. */
+.story-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1.5rem 1.5rem 1.25rem;
+  color: var(--on-body);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.story-sent {
+  justify-self: end;
+  max-width: 85%;
+}
+
+.story-bubble {
+  display: inline-block;
+  padding: 0.45rem 0.85rem;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--bubble);
+  font-weight: 500;
+}
+
+.story-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.4rem 0.625rem;
+  border-radius: 10px;
+  background: var(--row-bg);
+}
+
+.story-row b {
+  font-weight: 650;
+}
+
+.story-glyph,
+.story-n {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+}
+
+.story-glyph {
+  background: var(--glyph-bg);
+}
+
+.story-glyph svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.story-n {
+  border: 1.5px solid var(--hero-teal);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.story-passages {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.story-passages li:target {
+  box-shadow: inset 0 0 0 1.5px var(--hero-teal);
+}
+
+.story-cite {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.story-cite q {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--on-body-2);
+  font-family: var(--serif);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.story-reply .story-bubble {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-radius: 14px 14px 14px 4px;
+  font-weight: 400;
+}
+
+.story-reply .answer-text {
+  color: var(--on-body);
+  font-family: var(--serif);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+}
+
+/* The still's body: the membrane, drawn in CSS, with its two heads at the top corners. */
+.story-still {
+  position: relative;
+  transition:
+    opacity 0.6s,
+    visibility 0s 0.6s;
+}
+
+.story-still .story-panel {
+  border-radius: 2rem;
+  background:
+    radial-gradient(120% 140% at 0% 0%, light-dark(#b5e6dc, rgb(45 212 191 / 0.35)), transparent 62%),
+    radial-gradient(120% 140% at 100% 100%, light-dark(#cbd7e7, rgb(90 122 155 / 0.45)), transparent 62%),
+    light-dark(#d4e7e6, #15344a);
+  box-shadow:
+    inset 0 0 0 1px light-dark(rgb(13 148 136 / 0.3), rgb(45 212 191 / 0.35)),
+    0 1.5rem 4rem -1.5rem rgb(45 212 191 / 0.45);
+}
+
+.story-still::before,
+.story-still::after {
+  content: "";
+  position: absolute;
+  top: -0.875rem;
+  width: 2.75rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.story-still::before {
+  left: 1.25rem;
+  /* The lead's eyes, looking down at the question. */
+  background:
+    radial-gradient(circle at 40% 58%, var(--hero-ink) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 60% 58%, var(--hero-ink) 0 2px, transparent 2.5px),
+    light-dark(#a6e6da, #1fa392);
+}
+
+.story-still::after {
+  right: 1.25rem;
+  width: 2.5rem;
+  background: light-dark(#c6d4e5, #46627f);
+}
+
+@media (width <= 40rem) {
+  .landing > .hero {
+    padding-block: calc(var(--head-h) + 1.5rem) 2rem;
+  }
+
+  .hero-lead {
+    font-size: 1rem;
+  }
+
+  .story-panel {
+    padding: 1.25rem 0.875rem 1rem;
+  }
+
+  .story-reply .answer-text {
+    font-size: 1rem;
+  }
+}

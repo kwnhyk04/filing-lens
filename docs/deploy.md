@@ -101,7 +101,7 @@ It prints 43 URL-safe characters with no `$`.
 | `ANTHROPIC_API_KEY` | FilingLens's Anthropic key; here only, never on Vercel |
 | `ANTHROPIC_CREDITS_EXPIRE` | `2026-11-10`: Claude is off for good from that day (UTC) |
 | `CLAUDE_DAILY_TOKEN_BUDGET` | `1500000`: at most $0.75 a day, FilingLens's $15 share over the days to 2026-11-10. It counts this stack's Redis only, routing and answers together; the dev api and the local `--claude-first` evals count apart |
-| `GEMINI_API_KEY` | a key from FilingLens's own Google project, billing off (step 28); empty until then, which AI off allows |
+| `GEMINI_API_KEY` | the key from FilingLens's own Google project, billing off (step 28, since 2026-10-31) |
 | `GROQ_API_KEY`, `NVIDIA_API_KEY` | the dev keys (same quotas) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` with `observability` (telemetry on: any value turns it on, and compose passes the collector's URL); empty with monitoring off. Set both or neither |
 | `ALERT_DISCORD_WEBHOOK_URL` | the channel's webhook (Discord → Server Settings → Integrations → Webhooks), starting `https://discord.com/api/webhooks/` |
@@ -212,7 +212,7 @@ Phone on cellular data, Wi-Fi off.
 
 ### Before AI on
 
-28. Create FilingLens's own Gemini key: Google AI Studio → Get API key → Create API key → in a new project for FilingLens, with no billing account linked, so the free tier applies. Put it in `.env.prod` as `GEMINI_API_KEY` yourself. The dev key shares Triage Copilot's project quota.
+28. Done (user, 2026-10-31): FilingLens's own Gemini key, in its own Google project with no billing account linked, so the free tier applies and its quota is FilingLens's alone, no longer Triage Copilot's. To make one again: Google AI Studio → Get API key → Create API key → in that project. Put it in `.env.prod` as `GEMINI_API_KEY` yourself.
 
 ### AI on: the first live test (your go)
 

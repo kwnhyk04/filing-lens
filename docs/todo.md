@@ -6,16 +6,27 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
+- [ ] (user, 2026-11-02) **Landing, round 1: header, hero and logo**, on branch `landing-round-1` from main at 58baddd (uncommitted). Round 2 (features, how it works) comes later; those sections stay as they are.
+  - [x] Baseline first: the landing's JavaScript and load time on the current main, desktop and phone profiles.
+  - [x] Logo: variant #6 redrawn as an SVG (two arcs, a teal bar inside the lens, ink pills outside, equal gaps, one stroke width, round ends); one-colour, light and dark versions; in every header, the sign-in and error pages, the favicon (read at 16 and 32 px) and the app icon.
+  - [x] Theme: System, Light and Dark, kept in an `fl-theme` cookie that the root layout reads, so a page never flashes the other theme.
+  - [x] Header in hero4's style: the mark and the name, the section links, the theme, Sign in and "Open the demo"; on a phone the links fold into a menu.
+  - [x] Hero from Prompt Bond (MIT) with its ShaderGradient field (MIT): "Every answer." then "Straight from the filing.", the subtitle with the corpus's real scope, and the story of x12 from the demo snapshot (the question, its two passages, the answer and its citations). Navy, teal and paper. A still first; three.js and WebGL only after the load and only on desktop; phones and reduced motion keep the still.
+  - [x] `docs/third-party.md`; deploy.md step 28 (FilingLens's own Gemini project since 2026-10-31).
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 621; web typecheck, `npm test` 112, build, Playwright 106, screens 67 (66 shots changed); screenshots in `H:\Projects\projects\_tmp\fl-landing`; JavaScript and load time before and after (activity-log.md).
+  - [ ] (user) ship. Optional: move `landing.css` into `globals.css` (one stylesheet; the phone's first paint is 136 ms later with two).
+  - [x] (user, 2026-11-02) CI fix on the same branch: 3 web e2e tests timed out on GitHub's GPU-less runners (axe on `/` in light and dark, and the WebGL test). The moving hero now needs WebGL on a graphics card (`failIfMajorPerformanceCaveat` and no software renderer), so CI gets the still; a11y runs with reduced motion; the WebGL test asserts what the renderer calls for. Local runs: 106 on Edge's GPU, 106 on the shell with `--disable-gpu`. Its own commit message.
 - [x] (user, 2026-11-01) **answer-log-privacy**, merged as #41 (0bfb840, git log) (branch from main at 104f3d5; bug-fix-first, found while planning Recent questions). The regenerate and router-retry log lines quoted draft sentences and the router's tickers; they now log counts, and redaction covers session ids.
   - [x] Tests first: two log-capture tests and a redaction test, red then green.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 576.
   - [x] (user) ship: merged as #41.
-- [ ] (user, 2026-11-01) **Recent questions** on Ask (plan approved 2026-11-01), on branch `recent-questions` from main at 0bfb840 (uncommitted), with two extras the user asked for in the same PR: the corpus-v2 production runbook and Grafana's first-start fix.
+- [ ] (user, 2026-11-01) **Recent questions** on Ask (plan approved 2026-11-01), merged as #42 (58baddd, git log), with two extras the user asked for in the same PR: the corpus-v2 production runbook and Grafana's first-start fix.
   - [x] This sign-in's last 10 questions, each with its stored answer, kept in Redis for `RECENT_ANSWERS_TTL_S` (default 30 min); a stored answer replays without a model call; "Ask again" asks fresh; cleared on sign-out; the cookie moves to v2, which carries a session id.
   - [x] Checks: `make lint`, `make typecheck` 0, `make test` 621, `make test-int` 53, codegen stable, `make contracts-breaking` no breaking change; web typecheck, `npm test` 99, build, Playwright 101, screens 67 (6 new shots).
   - [x] corpus-v2 runbook in deploy.md (steps 52 to 60, and its rollback), rehearsed on a scratch database: restore 11 s, rollback 11 s, every count, known answer and item label as expected.
   - [x] Grafana: background plugin installs off and production's limit 512M; four first starts on dev's Grafana showed the 256M thrash and the fix (deploy.md, steps 49 to 51).
-  - [ ] (user) confirm the `eval-calls-*` cache, then ship. Before the merge, deploy.md step 45 (Redis 8.0 or newer); right after it, step 46 (the api).
+  - [x] (user) confirm the `eval-calls-*` cache, then ship: merged as #42.
+  - [ ] (user) Before the merge, deploy.md step 45 (Redis 8.0 or newer); right after it, step 46 (the api). Not reported back yet.
   - [ ] (user, after the merge) Grafana's recreate (step 49), and corpus-v2 in production when you pick (steps 52 to 60).
   - [ ] (user, optional) `docker volume rm filinglens_prometheus-data`: empty, made by the Grafana trial's compose `up`; the session's safety check refused to remove it.
 - [x] (user, 2026-11-01) **Scan fix on `golden-v2`**, merged with golden-v2 as #40 (104f3d5, git log) (the user's call: this branch, not its own PR from main). CI's security job: graphql-core 3.3.0 (CVE-2026-119286) and pyasn1 0.6.4 (CVE-2026-119194 to 119197), 5 HIGH in `uv.lock`. Fixed by upgrading, no ignore entries. Both releases were inside Dependabot's 7-day cooldown and were taken as a security exception (user).

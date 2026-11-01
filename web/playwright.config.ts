@@ -19,7 +19,14 @@ export default defineConfig({
   workers: 4, // more ran this PC out of socket buffers (net::ERR_NO_BUFFER_SPACE)
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
-  use: { ...devices["Desktop Chrome"], trace: "retain-on-failure" },
+  // E2E_CHANNEL picks an installed browser (msedge draws WebGL on the GPU, so the moving hero runs) and
+  // E2E_ARGS adds Chromium flags (--disable-gpu, as CI's runners have none); unset, the bundled shell.
+  use: {
+    ...devices["Desktop Chrome"],
+    trace: "retain-on-failure",
+    channel: process.env.E2E_CHANNEL || undefined,
+    launchOptions: { args: process.env.E2E_ARGS?.split(" ").filter(Boolean) ?? [] },
+  },
   webServer: [
     { command: "node e2e/mock-api.ts", url: `${MOCK}/healthz`, reuseExistingServer: false },
     next(LIVE, MOCK),

@@ -1,15 +1,19 @@
 // The public landing page: no session and no API call. Its figures come from the official eval report and
 // the demo snapshot, imported at build time; e2e/landing.spec.ts fails when the page and they drift apart.
-import Link from "next/link";
+import "./landing.css";
+
+import { cookies } from "next/headers";
 
 import claude from "../../evals/reports/2026-10-31-claude-first.json";
 import claudeTable from "../../evals/reports/2026-10-31-claude-first.md";
 import report from "../../evals/reports/2026-10-31.json";
 import table from "../../evals/reports/2026-10-31.md";
-import { AnswerText, sourceLabel } from "../components/answer-view.tsx";
-import { LandingHeader } from "../components/chrome.tsx";
+import { Hero } from "../components/hero.tsx";
+import { LandingHeader } from "../components/landing-header.tsx";
 import { demo } from "../lib/demo.ts";
-import { evalDate, type ResultRow, resultRows, SAMPLE } from "../lib/landing.ts";
+import { evalDate, type ResultRow, resultRows } from "../lib/landing.ts";
+import { heroStory } from "../lib/story.ts";
+import { THEME_COOKIE, themeOf } from "../lib/theme.ts";
 
 // The two official runs of golden v2's test split: Claude first, as the live site runs while its credits
 // last, and the free models alone, which CI's floors come from.
@@ -19,10 +23,7 @@ const RUNS = [
 ].map((item) => ({ ...item, rows: resultRows(item.table) }));
 const { config, judge_calibration: judge } = report;
 const labeler = judge.labeler.charAt(0).toUpperCase() + judge.labeler.slice(1);
-const sample = demo.answers.find((item) => item.id === SAMPLE);
-if (!sample) throw new Error(`The demo snapshot has no answer ${SAMPLE}`);
-const { question, answer } = sample;
-const citation = answer.citations[0];
+const story = heroStory(demo);
 
 const STACK = [
   "Python",
@@ -40,26 +41,6 @@ const STACK = [
   "Gemini",
   "Groq",
 ];
-
-/** The hero's saved answer, its first source, and what the check made sure of. */
-function Sample() {
-  return (
-    <figure className="sample">
-      <p className="sample-question">{question}</p>
-      <AnswerText answer={answer} sources={demo.sources} prefix="sample-" />
-      <div className="sample-source" id="sample-source-1">
-        <p className="sample-name">1 · {sourceLabel(citation, demo.sources)}</p>
-        <p className="sample-quote">{citation.quote}</p>
-        <p className="sample-check">
-          {citation.fact_id
-            ? "Checked: the amount matches this XBRL fact"
-            : "Checked: the quote is in the filing, word for word"}
-        </p>
-      </div>
-      <figcaption>A saved answer from golden v1&apos;s test run, as the demo shows it.</figcaption>
-    </figure>
-  );
-}
 
 /** One run's results: each metric's target, its result, and whether it met the target. */
 function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] }) {
@@ -100,35 +81,13 @@ function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] })
   );
 }
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const theme = themeOf((await cookies()).get(THEME_COOKIE)?.value);
   return (
     <>
-      <LandingHeader />
+      <LandingHeader theme={theme} />
       <main id="main" className="landing">
-        <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-text">
-            <p className="eyebrow">Questions on SEC filings</p>
-            <h1 id="hero-title">Ask a company&apos;s annual report. Get an answer you can check.</h1>
-            <p className="lead">
-              FilingLens answers questions about {demo.companies.length} companies&apos; 10-K filings. Every
-              sentence cites a passage or an XBRL fact from the filing, every amount must match the source it
-              cites, and when the filings don&apos;t say, it tells you so.
-            </p>
-            <p className="cta">
-              {/* A plain link: signed out, the sign-in gate sends it to sign-in first, then back to Ask. */}
-              <a href="/ask" className="button">
-                Try the live demo
-              </a>
-              <Link href="/demo" className="button quiet">
-                Read sample answers, no sign-in
-              </Link>
-            </p>
-            <p className="small">
-              When the live backend is offline, the site serves {demo.answers.length} saved sample answers.
-            </p>
-          </div>
-          <Sample />
-        </section>
+        <Hero story={story} companies={demo.companies.length} />
 
         <section id="how" className="band" aria-labelledby="how-title">
           <h2 id="how-title">How an answer is made</h2>
