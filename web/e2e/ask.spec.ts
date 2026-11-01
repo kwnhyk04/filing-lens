@@ -114,7 +114,7 @@ test("New question while the sources still load stops their lookup, and the next
   await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD");
   await page.getByRole("button", { name: "New question" }).click();
   await page.getByLabel("Your question").fill(question("x04"));
-  await page.getByRole("button", { name: "Ask" }).click();
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page.getByTestId("answer")).toContainText("three reportable segments");
 });
 

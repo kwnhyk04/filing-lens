@@ -24,7 +24,7 @@ test("a session that ends while asking signs in again and returns to Ask", async
   await page.goto("/ask");
   await context.clearCookies();
   await page.getByLabel("Your question").fill(question("n01"));
-  await page.getByRole("button", { name: "Ask" }).click();
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page).toHaveURL("/login?next=%2Fask");
   await signIn(page);
   await expect(page).toHaveURL("/ask");

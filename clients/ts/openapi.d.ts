@@ -150,9 +150,40 @@ export interface paths {
          *     and then the completed answer has warnings and replaces the streamed text. An error after the
          *     stream has started arrives as a `failed` event with a problem, and so does a stream still
          *     running after 30 s.
+         *
+         *     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
+         *     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
+         *     closing punctuation, over the same companies and years) gets it back at once as one
+         *     `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
          */
         post: operations["stream_answer"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/answers/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Recent Answers
+         * @description This sign-in's questions with their completed answers, newest first. Either key.
+         *
+         *     At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+         */
+        get: operations["list_recent_answers"];
+        put?: never;
+        post?: never;
+        /**
+         * Clear Recent Answers
+         * @description Forget this sign-in's answers; the web does at sign-out. Either key.
+         */
+        delete: operations["clear_recent_answers"];
         options?: never;
         head?: never;
         patch?: never;
@@ -241,6 +272,11 @@ export interface components {
              */
             type: "completed";
             answer: components["schemas"]["Answer"];
+            /**
+             * Stored At
+             * @description When this sign-in got this answer earlier, for an answer from earlier (no model call made); null for a new answer.
+             */
+            stored_at: string | null;
         };
         /** AnswerDelta */
         AnswerDelta: {
@@ -588,6 +624,38 @@ export interface components {
              */
             metric: string | null;
         };
+        /**
+         * RecentAnswer
+         * @description A question this sign-in asked, with the completed answer it got.
+         */
+        RecentAnswer: {
+            /**
+             * Id
+             * @description Stands for the question; the same question keeps its id.
+             */
+            id: string;
+            /**
+             * Question
+             * @description As asked.
+             */
+            question: string;
+            /**
+             * Answered At
+             * Format: date-time
+             */
+            answered_at: string;
+            answer: components["schemas"]["Answer"];
+        };
+        /** RecentAnswerPage */
+        RecentAnswerPage: {
+            /** Items */
+            items: components["schemas"]["RecentAnswer"][];
+            /**
+             * Next Cursor
+             * @description Send as `cursor` to get the next page; null on the last page.
+             */
+            next_cursor: string | null;
+        };
         /** SearchHit */
         SearchHit: {
             /** Chunk Id */
@@ -716,7 +784,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
@@ -816,7 +884,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
@@ -896,7 +964,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
@@ -979,7 +1047,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
@@ -1073,7 +1141,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
@@ -1161,7 +1229,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
@@ -1176,8 +1244,14 @@ export interface operations {
     };
     stream_answer: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Answer again, even when this sign-in has the answer already. */
+                fresh?: boolean;
+            };
+            header?: {
+                /** @description The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes). */
+                "X-Session-ID"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1249,7 +1323,157 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_recent_answers: {
+        parameters: {
+            query?: {
+                /** @description Page size (at most 100). */
+                limit?: number;
+                /** @description `next_cursor` from the previous page. */
+                cursor?: string | null;
+            };
+            header: {
+                /** @description The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes). */
+                "X-Session-ID": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecentAnswerPage"];
+                };
+            };
+            /** @description Unusable cursor (invalid_input). Start again without one. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clear_recent_answers: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes). */
+                "X-Session-ID": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forgotten. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or unknown API key (unauthorized). */
+            401: {
+                headers: {
+                    /** @description Always APIKey. */
+                    "WWW-Authenticate"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid request (validation_failed); `errors` lists each input. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Rate limit exhausted (rate_limited). */
+            429: {
+                headers: {
+                    /** @description Requests allowed per window. */
+                    "RateLimit-Limit"?: number;
+                    /** @description Requests left in this window (0). */
+                    "RateLimit-Remaining"?: number;
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired. */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired. */

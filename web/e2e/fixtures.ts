@@ -1,8 +1,10 @@
-// The suite's `test`: any CSP violation on a page fails the test that opened it.
+// The suite's `test`: any CSP violation on a page fails the test that opened it, and each signed-in
+// test runs as a sign-in of its own, so no test sees another's recent questions.
 import AxeBuilder from "@axe-core/playwright";
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 
-import { PASSWORD } from "./env.ts";
+import { signSession } from "../lib/session.ts";
+import { PASSWORD, SESSION_COOKIE, SESSION_SECRET } from "./env.ts";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
 
@@ -17,7 +19,27 @@ export async function noSidewaysScroll(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 }
 
-export const test = base.extend<{ cspGuard: void }>({
+/**
+ * A new sign-in (a new session id) in place of the stored cookie, as signing in would make it; it skips
+ * the sign-in form, whose limiter allows 5 tries in 15 minutes. Returns the new cookie's value.
+ */
+export async function newSignIn(context: BrowserContext): Promise<string> {
+  const stored = (await context.cookies()).find((cookie) => cookie.name === SESSION_COOKIE);
+  if (!stored) throw new Error("newSignIn needs a signed-in context");
+  const value = signSession(SESSION_SECRET, Date.now());
+  await context.addCookies([{ ...stored, value }]);
+  return value;
+}
+
+export const test = base.extend<{ cspGuard: void; freshSession: void }>({
+  freshSession: [
+    async ({ context }, use) => {
+      const signedIn = (await context.cookies()).some((cookie) => cookie.name === SESSION_COOKIE);
+      if (signedIn) await newSignIn(context);
+      await use();
+    },
+    { auto: true },
+  ],
   cspGuard: [
     async ({ page }, use) => {
       const violations: string[] = [];
@@ -48,5 +70,5 @@ export async function signIn(page: Page, password = PASSWORD) {
 export async function ask(page: Page, question: string) {
   await page.goto("/ask");
   await page.getByLabel("Your question").fill(question);
-  await page.getByRole("button", { name: "Ask" }).click();
+  await page.getByRole("button", { name: "Ask", exact: true }).click(); // not "Ask again"
 }

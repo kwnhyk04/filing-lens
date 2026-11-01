@@ -6,14 +6,18 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-01) **answer-log-privacy** (branch from main at 104f3d5; bug-fix-first, found while planning Recent questions). The regenerate and router-retry log lines quoted draft sentences and the router's tickers; they now log counts, and redaction covers session ids.
+- [x] (user, 2026-11-01) **answer-log-privacy**, merged as #41 (0bfb840, git log) (branch from main at 104f3d5; bug-fix-first, found while planning Recent questions). The regenerate and router-retry log lines quoted draft sentences and the router's tickers; they now log counts, and redaction covers session ids.
   - [x] Tests first: two log-capture tests and a redaction test, red then green.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 576.
-  - [ ] (user) confirm the `eval-calls-*` cache, then ship.
-- [ ] (after answer-log-privacy ships) **Recent questions** on Ask (plan approved 2026-11-01), on branch `recent-questions` from the updated main.
-  - This sign-in's last 10 questions, each with its stored answer, kept in Redis for `RECENT_ANSWERS_TTL_S` (default 30 min).
-  - A stored answer replays without a model call; "Ask again" asks fresh.
-  - The list is cleared on sign-out. The cookie moves to v2, which carries a session id.
+  - [x] (user) ship: merged as #41.
+- [ ] (user, 2026-11-01) **Recent questions** on Ask (plan approved 2026-11-01), on branch `recent-questions` from main at 0bfb840 (uncommitted), with two extras the user asked for in the same PR: the corpus-v2 production runbook and Grafana's first-start fix.
+  - [x] This sign-in's last 10 questions, each with its stored answer, kept in Redis for `RECENT_ANSWERS_TTL_S` (default 30 min); a stored answer replays without a model call; "Ask again" asks fresh; cleared on sign-out; the cookie moves to v2, which carries a session id.
+  - [x] Checks: `make lint`, `make typecheck` 0, `make test` 621, `make test-int` 53, codegen stable, `make contracts-breaking` no breaking change; web typecheck, `npm test` 99, build, Playwright 101, screens 67 (6 new shots).
+  - [x] corpus-v2 runbook in deploy.md (steps 52 to 60, and its rollback), rehearsed on a scratch database: restore 11 s, rollback 11 s, every count, known answer and item label as expected.
+  - [x] Grafana: background plugin installs off and production's limit 512M; four first starts on dev's Grafana showed the 256M thrash and the fix (deploy.md, steps 49 to 51).
+  - [ ] (user) confirm the `eval-calls-*` cache, then ship. Before the merge, deploy.md step 45 (Redis 8.0 or newer); right after it, step 46 (the api).
+  - [ ] (user, after the merge) Grafana's recreate (step 49), and corpus-v2 in production when you pick (steps 52 to 60).
+  - [ ] (user, optional) `docker volume rm filinglens_prometheus-data`: empty, made by the Grafana trial's compose `up`; the session's safety check refused to remove it.
 - [x] (user, 2026-11-01) **Scan fix on `golden-v2`**, merged with golden-v2 as #40 (104f3d5, git log) (the user's call: this branch, not its own PR from main). CI's security job: graphql-core 3.3.0 (CVE-2026-119286) and pyasn1 0.6.4 (CVE-2026-119194 to 119197), 5 HIGH in `uv.lock`. Fixed by upgrading, no ignore entries. Both releases were inside Dependabot's 7-day cooldown and were taken as a security exception (user).
   - [x] `uv lock --upgrade-package graphql-core --upgrade-package pyasn1`, header back to `revision = 3`; `uv lock --check` exits 0; `uv sync` changed only the two.
   - [x] Checks: `make vuln-scan` 0 on all three lockfiles (the pre-fix lock showed the 5 HIGH); `make test` 573; `make typecheck` 0.

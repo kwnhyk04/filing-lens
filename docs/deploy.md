@@ -8,7 +8,7 @@ How FilingLens runs in production: the web on Vercel, the API on this PC behind 
 - **API:** the compose project `filinglens-prod` on this PC: `infra/docker-compose.yml` with `infra/docker-compose.prod.yml` on top, settings in `.env.prod`. It runs CI's GHCR images by `sha-<7>` tag, never `latest`, and publishes no host port but Grafana's, on 127.0.0.1:3111.
 - **Public path:** `https://filinglens.<tailnet>.ts.net` (443), then the `tailscale` container's Funnel, then `http://api:4100` (`infra/tailscale/serve.json`). Nothing else is reachable from outside.
 - **Networks:** Postgres, Redis and RabbitMQ sit on `data`, which has no route out, and `edge` joins the api to the tailscale container alone. The api and the tailscale container reach the internet only through the egress proxy (below), and so do Alertmanager and its mail relay, from their own `alerting` network (Alert delivery). Monitoring talks on the internal `monitoring`, the collector and Prometheus also on `data`; Grafana alone joins `default`, for its port. The workers (`ingest` and `embed`) sit behind the `ingest` profile and stay off: serving needs only the api. When they run, `ingest` keeps `default`, a direct route, for SEC (todo.md).
-- **Database:** `corpus-v1`, restored once: revision 0008, 30 companies, 30 indexed 10-Ks, 11,263 chunks with model A vectors in `embedding`, 856,438 facts. Never upgrade it past 0008: the head (0006) runs the embedding swap.
+- **Database:** `corpus-v1`, restored once: revision 0008, 30 companies, 30 indexed 10-Ks, 11,263 chunks with model A vectors in `embedding`, 856,438 facts. Never upgrade it past 0008: the head (0006) runs the embedding swap. Moving to `corpus-v2`, with its backup and rollback: Steps, corpus-v2 in production.
 - **Models:** Claude Haiku 5.5 writes answers first, on prepaid credits, within its limits: 1,052 tokens out per call, no prompt that could pass 100,000 tokens, `CLAUDE_DAILY_TOKEN_BUDGET` a day. Then Gemini 3.5 Flash-Lite, then NVIDIA gpt-oss-20b. Groq gpt-oss-20b routes.
   - Claude is off for good once its credits are gone, after a rejected key or model, and from `ANTHROPIC_CREDITS_EXPIRE` (2026-11-10).
   - It sits out a single answer on a 429, and while its day's budget is used up.
@@ -97,7 +97,7 @@ It prints 43 URL-safe characters with no `$`.
 | `LLM_ANSWER_FALLBACK` | `gemini:gemini-3.5-flash-lite`: the free chain behind Claude |
 | `LLM_ROUTER` | `anthropic:claude-haiku-5-5`: Claude routes first (since 2026-10-31) |
 | `LLM_ROUTER_FALLBACK` | `groq:openai/gpt-oss-20b`: the free router behind Claude |
-| `LLM_FALLBACK`, `LLM_MAX_INFLIGHT`, `LOG_LEVEL` | leave out for the defaults: NVIDIA last in both chains, 4 answers at once, `INFO` |
+| `LLM_FALLBACK`, `LLM_MAX_INFLIGHT`, `RECENT_ANSWERS_TTL_S`, `LOG_LEVEL` | leave out for the defaults: NVIDIA last in both chains, 4 answers at once, each sign-in's answers kept 30 minutes (60 to 28800 s), `INFO` |
 | `ANTHROPIC_API_KEY` | FilingLens's Anthropic key; here only, never on Vercel |
 | `ANTHROPIC_CREDITS_EXPIRE` | `2026-11-10`: Claude is off for good from that day (UTC) |
 | `CLAUDE_DAILY_TOKEN_BUDGET` | `1500000`: at most $0.75 a day, FilingLens's $15 share over the days to 2026-11-10. It counts this stack's Redis only, routing and answers together; the dev api and the local `--claude-first` evals count apart |
@@ -311,6 +311,87 @@ Run these in the same session as steps 30 to 35, with `IMAGE_TAG` at the alert d
 43. Roll back (Rollback, Monitoring and alert delivery) if the api stays unhealthy after its recreate, Ask is not live within 10 minutes, or a container sits on a network that step 41 does not list.
 44. A day later: `docker stats --no-stream` keeps each monitoring container well under its limit, Discord and the inbox hold nothing but real alerts, and the denial check is clean. The result goes to the activity log.
 
+### Recent questions: the deploy after its PR merges
+
+Ask lists a sign-in's recent questions, and the same question again answers from earlier, from the api's Redis (`docs/context.md`). Vercel deploys the web at the merge, before the api, so do steps 45 and 46 together.
+
+45. **Before you merge:** production's Redis must be 8.0 or newer, since the store's `HSETEX` needs it. Run `docker exec filinglens-prod-redis-1 redis-server --version`; it must print `v=8.0` or higher (compose pins 8.8.3). On an older Redis the api still answers, but keeps nothing and logs `recent answers unavailable`.
+46. **Right after the merge,** since Vercel deploys the web first: `git switch main` and `git pull --ff-only`, set `IMAGE_TAG` in `.env.prod` to the merge commit's `sha-<7>`, then `docker compose --env-file .env.prod up -d api` (it pulls the new image). Until then the new web works with the old api: the list stays hidden, every answer is new, and the old api ignores the sign-in id.
+47. Everyone signs in once more: the new web reads only the new session cookie (`v2`, which carries a sign-in id), so an older cookie lands on `/login` once.
+48. Check, at the cost of one model call (skip the asking to spend none). Signed in on the phone, ask n01, then ask it again: the second answer comes at once, with no draft, and its header says "From earlier in this session". Then:
+    - `docker exec filinglens-prod-redis-1 redis-cli --scan --pattern "recent:*"`: one key, `recent:` and 32 hex characters, never the sign-in id;
+    - `docker compose --env-file .env.prod logs api --since 15m | Select-String "recent answers unavailable"`: nothing;
+    - Sign out, then the scan again: nothing.
+
+**At rest** (your decision, 2026-11-01: accepted and documented): a stored question and its answer stay in Redis's memory until their TTL (`RECENT_ANSWERS_TTL_S`, 30 minutes) or the sign-out, whichever comes first. Redis's default snapshot rules (`save 3600 1 300 100 60 10000`) also write the live keys to `dump.rdb` inside its container, at least hourly while anything changes, so an expired answer can sit in the last snapshot for up to about an hour more, and goes with the container. Memory: at most 10 answers a sign-in, and in all at most the answer rate limit (10 a minute) times the TTL: about 300 answers at the default and 4,800 at the 8-hour maximum, well inside Redis's 256 MB.
+
+### Grafana's first start: after its fix merges
+
+Production's Grafana hung on its first start: `/apis/...` and `/api/folders` took over 5 minutes and logged "failed to resolve user: context canceled", right after it installed plugins in the background.
+
+**Cause**, from the config, measured on dev's Grafana 13.2.4, each run a fresh first start (activity log, 2026-11-01):
+- Production gave Grafana 256 MB, and Grafana 13.2 needs more. Without a limit it holds about 260 MB of its own memory and about 400 MB in all once started. At 256M, even with no plugin install, it hit its limit 9,968 times in 3.5 minutes and read 516,177 evicted pages back (61,337 major faults): the kernel kept dropping the code of Grafana and of its 13 datasource processes, and reading it back. Light requests still came back on dev; production's browser, loading dashboards with real queries, waited until it gave up ("context canceled").
+- On every first start Grafana 13.2 also installs 17 plugins from grafana.com in the background: the Drilldown and Advisor apps, and newer copies of 13 bundled datasources, Prometheus and Jaeger included, whose processes it restarts. Production's Grafana reaches grafana.com through `default` and keeps no data volume, so every recreate is a first start. On dev at 256M, memory reached 255.1 of 256 MiB during the installs.
+- Usage reporting, update checks and feedback links were already off (`infra/docker-compose.yml`).
+
+**Fix** (configuration only): `GF_PLUGINS_PREINSTALL_DISABLED=true` for both stacks (`infra/docker-compose.yml`), and production's limit at 512M (`infra/docker-compose.prod.yml`). On dev with both: no install, 252 to 261 MiB, never at the limit (`max 0`), 12 major faults, every request under 0.07 s.
+
+49. With `main` checked out and pulled (step 46 does it): `docker compose --env-file .env.prod up -d --wait grafana`. This recreates Grafana alone: a first start without installs, at 512M.
+50. Checks:
+    - `docker logs filinglens-prod-grafana-1 2>&1 | Select-String "Installing plugin"`: nothing.
+    - `docker exec filinglens-prod-grafana-1 grep max /sys/fs/cgroup/memory.events`: `max 0`. Run it again a day later: a count that grows means the limit is still too low; report it.
+    - Sign in at `http://127.0.0.1:3111` and open "FilingLens: service health": it opens within seconds.
+51. "Consumers per work queue" stays No data while RabbitMQ holds no work queue (monitoring.md, Dashboards): production runs no worker and took its corpus from a dump. `docker exec filinglens-prod-rabbitmq-1 rabbitmqctl list_queues name consumers` lists no work queue, and "Scrape targets up" shows `rabbitmq` at 1. The panel fills with the first ingest.
+
+### corpus-v2 in production: when you pick
+
+Production runs `corpus-v1`. `corpus-v2` (the release `corpus-v2`, made 2026-10-31 from the re-parsed dev database) files JPM's, CVX's, NVDA's and PLD's financial sections under Items 7 and 8: the 1,373 chunks that corpus-v1 has under Items 14, 15 and 16 (README, Known issues). It stands at the same revision 0008 with model A vectors in `embedding`, so `RETRIEVAL_EMBEDDING_COLUMN=embedding` and the api's image stay as they are.
+
+Rehearsed on 2026-11-01 on a scratch database in dev's Postgres, with corpus-v1 standing in for production; production was not touched. The backup took 3 s, the restore 11 s and the rollback 11 s, and every check below matched.
+
+| Check | corpus-v1 (now) | corpus-v2 |
+| --- | --- | --- |
+| Revision | `0008` | `0008` |
+| Companies, filings indexed | 30, 30 | 30, 30 |
+| Sections | 677 | 677 |
+| Chunks; chunks without a vector | 11,263; 0 | 11,257; 0 |
+| Facts | 856,438 | 856,438 |
+| Item labels (chunks) | JPM 15: 813, CVX 14: 275, NVDA 15: 84, PLD 16: 201 | JPM 7: 309 and 8: 484, CVX 7: 74 and 8: 199, NVDA 8: 83, PLD 8: 200 |
+
+52. The dump: if `.cache\corpus\corpus-v2.dump` is missing, `curl.exe -L --fail -o .cache\corpus\corpus-v2.dump https://github.com/kwnhyk04/filing-lens/releases/download/corpus-v2/corpus-v2.dump`. Then `(Get-FileHash .cache\corpus\corpus-v2.dump -Algorithm SHA256).Hash` must print `34B9ABEB0BAE2FED8E6430F63CAFC1B789ED570B48ADBAD100B25E00F8DBCEA2` (46,503,292 bytes).
+53. Silence the api's alert for the window, then stop the api. The web serves the demo until step 58.
+    ```powershell
+    docker exec filinglens-prod-alertmanager-1 amtool silence add alertname=ApiNotReady --duration=30m --comment="corpus-v2 restore" --alertmanager.url=http://127.0.0.1:9093
+    docker compose --env-file .env.prod stop api
+    ```
+54. Back up the production database, copy the backup out, and note its hash in the activity log. Leave `/tmp/backup.dump` in the container until step 59; the rollback reads it there.
+    ```powershell
+    docker exec filinglens-prod-postgres-1 pg_dump --format=custom --compress=zstd --no-owner --no-privileges --file=/tmp/backup.dump postgresql:///
+    docker cp filinglens-prod-postgres-1:/tmp/backup.dump .cache\corpus\prod-backup-<UTC date>.dump
+    (Get-FileHash .cache\corpus\prod-backup-<UTC date>.dump -Algorithm SHA256).Hash
+    ```
+55. Restore corpus-v2 over it. It runs as one transaction that drops and recreates every table the dump holds, so a failure changes nothing.
+    ```powershell
+    docker cp .cache\corpus\corpus-v2.dump filinglens-prod-postgres-1:/tmp/corpus.dump
+    docker exec filinglens-prod-postgres-1 pg_restore --exit-on-error --single-transaction --clean --if-exists --no-owner --no-privileges --dbname=postgresql:/// /tmp/corpus.dump
+    ```
+56. Counts; expect `0008`, `30`, `30`, `677`, `11257`, `0` and `856438`:
+    ```powershell
+    docker exec filinglens-prod-postgres-1 psql -At -c "select version_num from alembic_version" -c "select count(*) from companies" -c "select count(*) from filings where status = 'indexed'" -c "select count(*) from sections" -c "select count(*) from chunks" -c "select count(*) from chunks where embedding is null" -c "select count(*) from financial_facts"
+    ```
+57. Known answers, then the item labels. The first command should print `1`, `1`, `1` and `4`: n01's revenue fact, c02's two, and x04's passage on Amazon's three segments. The second prints one `ticker|item|chunks` line each, and should print exactly, in this order: `CVX|14|2 CVX|15|2 CVX|16|12 CVX|7|74 CVX|8|199 JPM|14|1 JPM|15|20 JPM|7|309 JPM|8|484 NVDA|14|1 NVDA|15|1 NVDA|16|2 NVDA|7|25 NVDA|8|83 PLD|14|1 PLD|15|1 PLD|16|1 PLD|7|43 PLD|8|200`. If any number differs, roll back (Rollback, Data: back to the backup) before the api starts.
+    ```powershell
+    docker exec filinglens-prod-postgres-1 psql -At -c "select count(*) from financial_facts where cik = 320193 and value = 416161000000" -c "select count(*) from financial_facts where cik = 1652044 and value = 402836000000" -c "select count(*) from financial_facts where cik = 1326801 and value = 200966000000" -c "select count(*) from chunks c join sections s on s.id = c.section_id join filings f on f.id = s.filing_id join companies co on co.cik = f.cik where co.ticker = 'AMZN' and c.text like '%organized our operations into three segments%'"
+    docker exec filinglens-prod-postgres-1 psql -At -c "select co.ticker, s.item, count(*) from chunks c join sections s on s.id = c.section_id join filings f on f.id = s.filing_id join companies co on co.cik = f.cik where co.ticker in ('JPM', 'CVX', 'NVDA', 'PLD') and s.item in ('7', '8', '14', '15', '16') group by 1, 2 order by 1, 2"
+    ```
+58. Once recent questions run in production, forget the stored answers first, since they cite corpus-v1's chunks. Then start the api, and search once as in step 15 (expect `200`).
+    ```powershell
+    docker exec filinglens-prod-redis-1 sh -c 'redis-cli --scan --pattern "recent:*" | xargs -r redis-cli del'
+    docker compose --env-file .env.prod up -d --wait api
+    ```
+59. Clean up. Run `docker exec filinglens-prod-postgres-1 rm -f /tmp/corpus.dump /tmp/backup.dump`. Expire the silence with `amtool silence query`, then `amtool silence expire <id>`, both with `--alertmanager.url=http://127.0.0.1:9093`. Keep the backup in `.cache\corpus` until corpus-v2 has run for a week.
+60. The docs then say corpus-v2: this file's Database line, `docs/context.md` and the README's Known issues, in a docs PR, with the backup's hash and the step times in the activity log.
+
 ## Rollback
 
 - **Public kill switch** (seconds): `docker compose --env-file .env.prod stop tailscale`. The web serves the demo; `start tailscale` undoes it.
@@ -329,10 +410,17 @@ Run these in the same session as steps 30 to 35, with `IMAGE_TAG` at the alert d
   3. `docker compose --env-file .env.prod up -d --wait api tailscale`: both are back on `data` and `default`.
   4. By exact name: `docker stop filinglens-prod-egress-proxy-1`, `docker rm filinglens-prod-egress-proxy-1`, then `docker network rm filinglens-prod_edge filinglens-prod_outbound filinglens-prod_alerting filinglens-prod_egress`.
   5. Check `ps`, Funnel's `/healthz` and one question.
+- **Recent questions:** roll the backend image back as above; an older api ignores the sign-in id and has no list, which the web then hides. A web rolled back past recent questions reads only the older cookie, so everyone signs in once more.
 - **Web:** Vercel → the project → Instant Rollback.
   - Hobby rolls back only to the previous production deployment.
   - After a rollback, Vercel stops putting new main deploys on the domain until you Undo Rollback.
   - A rollback keeps the current variables; a variable change needs a Redeploy.
+- **Data: back to the backup** made in step 54, after a corpus-v2 restore (rehearsed: 11 s):
+  1. Step 53: silence `ApiNotReady`, stop the api.
+  2. If `/tmp/backup.dump` is gone from the container: `docker cp .cache\corpus\prod-backup-<UTC date>.dump filinglens-prod-postgres-1:/tmp/backup.dump`.
+  3. `docker exec filinglens-prod-postgres-1 pg_restore --exit-on-error --single-transaction --clean --if-exists --no-owner --no-privileges --dbname=postgresql:/// /tmp/backup.dump`
+  4. Steps 56 and 57 then print corpus-v1's numbers: `11263` chunks, the same known answers, and the labels `CVX|14|275 CVX|15|2 CVX|16|12 CVX|7|1 CVX|8|1 JPM|14|1 JPM|15|813 JPM|7|1 JPM|8|1 NVDA|14|1 NVDA|15|84 NVDA|16|2 NVDA|7|25 NVDA|8|1 PLD|14|1 PLD|15|1 PLD|16|201 PLD|7|43 PLD|8|1`.
+  5. Steps 58 and 59.
 - **Data:** the database rebuilds from `corpus-v1`:
   1. `docker compose --env-file .env.prod down` (never `-v`).
   2. `docker volume rm filinglens-prod_postgres-data` (that volume only, by name).

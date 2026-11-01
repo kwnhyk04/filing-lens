@@ -15,6 +15,72 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-01: Recent questions on Ask, the corpus-v2 production runbook, and Grafana's first start (uncommitted, branch `recent-questions`)
+
+- Changes, on `recent-questions` from main at 0bfb840 (#41 merged). The plan was approved on 2026-11-01 with two defaults: degraded answers are not stored, and the question on screen is left out of the list. In the same PR the user added two extras: the corpus-v2 runbook and Grafana's hang.
+  - **API:**
+    - New `filinglens_api/recent.py`: `normalized`, `question_key`, and `RecentAnswers` (one Redis hash per sign-in, `HSETEX` per field, the 10 newest kept, `get` and `put` failing open, `page` and `clear` raising 503 `transient`).
+    - The stream takes `X-Session-ID` and `fresh`; a hit replays one `completed` event with `stored_at` and calls no backend.
+    - New `GET` and `DELETE /v1/answers/recent`, and the setting `RECENT_ANSWERS_TTL_S` (1800, from 60 to 28800).
+    - The API description and the 503 doc name `transient`.
+  - **Contract (expand only):** `AnswerCompleted.stored_at`, `RecentAnswer`, `RecentAnswerPage`, the two operations, and the stream's two optional parameters. Clients regenerated.
+  - **Web:**
+    - The session cookie moves to v2 with a random sid (`readSession`); v1 is refused.
+    - `guardApi` returns the sign-in, `/api/answers` passes `fresh` and the sid, `/api/recent` (GET) is new, and `/logout` clears the list first (best effort, 2 s).
+    - New `components/recent-questions.tsx`. In `ask.tsx`: `run(question, fresh)`, `pick`, the "From earlier in this session" line, and Ask again. The `.recent` styles.
+  - **e2e:**
+    - An auto `freshSession` fixture gives each signed-in test its own sid, and `newSignIn` is shared; `ask()` matches "Ask" exactly.
+    - The mock API keeps a store per session, matches on path, and adds `stored_at` and the two routes.
+    - New `recent.spec.ts` (12 tests); `gate.spec.ts` checks the 401 for `/api/recent`; screens `ask-recent` and `ask-stored`.
+  - **Grafana:** `GF_PLUGINS_PREINSTALL_DISABLED=true` in the base compose, and production's limit 512M (from 256M).
+  - **Docs:** deploy.md:
+    - the env row;
+    - steps 45 to 48: Redis 8.0 or newer before the merge, the api right after it (the user's two notes), one more sign-in, and the checks; plus Redis at rest with its memory bound;
+    - Grafana's steps 49 to 51 and the corpus-v2 runbook, steps 52 to 60;
+    - two rollbacks.
+  - Other docs: context, design, monitoring, memory, README and todo.
+- Decisions I made (memory.md lists them):
+  - the 503 `transient` with `Retry-After: 5`;
+  - reusing `STRAIGHT_QUOTES`;
+  - "2:02 PM" for times, not "14:02";
+  - leaving out a repeat asked in other words, by its stored time;
+  - a clock passed to `RecentAnswers`;
+  - the status line "Answer from earlier in this session, with N sources.";
+  - the Grafana fix in the base compose, so dev gets it too;
+  - the consumers panel documented, not changed;
+  - refreshing the stale `offline` light and dark shots, which predated #31's demo.
+- Events, in order:
+  1. Codegen rewrote 66 unchanged generated files with CRLF. They were restored to HEAD's bytes and checked with `cmp` (memory.md's 2026-10-19 lesson). The same happened after `make contracts-check`.
+  2. pyright: `_replay`, annotated `AsyncIterator`, lacked `aclose`. Now `AsyncGenerator`.
+  3. ruff:
+     - RUF001 on curly quotes, because the file tools turn a `‘` escape into the character. The store now reuses `STRAIGHT_QUOTES`, and the tests use `noqa`.
+     - S603 on the guard's subprocess, given `noqa` as the codebase does.
+  4. One e2e test failed at first: Playwright waits out `aria-disabled`, so the click is forced. 98 passed in that run; the next full run passed 101.
+  5. `make contracts-check` exits 2 by design while generated files are unstaged, and I stage nothing. Instead, the normalized diff and file list after it were compared with those before: identical, so codegen is stable.
+  6. My mistake: the store's code came before its tests. Mutation checks made up for it (memory.md).
+  7. Screenshots went to the scratchpad and were compared pixel by pixel:
+     - 48 were identical and 6 new.
+     - `offline` light and dark were stale since #31 and were copied in.
+     - `ask-draft`, `config-error`, `error` (its reference number) and `ask-textual-phone` (its timing) change on every run and were left as they were.
+  8. Grafana, on dev's container, run by exact name with `--no-deps`; a fresh first start each time:
+     - **A** (today's config at 256M): 17 installs, memory peak 255.1 MiB, requests under 0.21 s.
+     - **B** (installs off, 256M; stopped at 213 s): the limit hit 9,968 times, 516,177 refaults, 61,337 major faults.
+     - **C** (installs off, no limit): about 400 MiB, 259 MB of it anonymous.
+     - **D** (installs off, 512M): 252 to 261 MiB, `max 0`, 12 major faults.
+     - The container was then removed (it did not exist before).
+     - The empty `filinglens_prometheus-data` volume that compose created was not removed: the safety check refused it.
+  9. The corpus drill's first try failed: Git Bash rewrote the container's `/tmp` path. It changed nothing; the empty scratch database was dropped by the second, successful run (memory.md). Dev Postgres was started by exact name and stopped again.
+- Validation:
+  - **Python:** `make lint` clean, `make typecheck` 0, `make test` 621 passed (576 before; 45 new), `make test-int` 53 passed (the new Redis test included; no container left).
+  - **Contracts:** codegen stable; `make contracts-breaking`: "No breaking changes to report".
+  - **Web:** `npm run typecheck` clean; `npm test` 99; `npm run build`; `npx playwright test` 101 passed, lockout included; `npm run screens` 67 passed, each screen through axe.
+  - **Drill:** corpus-v2's restore and its rollback on a scratch database, each matching the release's numbers.
+  - No live smoke (user). Production untouched. No commit.
+- Outstanding (user):
+  - Confirm the `eval-calls-*` cache. CI's eval runs, since `services/api/src` and `packages/core/src` changed, but no prompt or answer path did.
+  - Ship. Then deploy.md steps 45 and 46 around the merge, step 49 for Grafana, and corpus-v2 when you pick.
+  - Optionally `docker volume rm filinglens_prometheus-data`.
+
 ### 2026-11-01: Answer-path logs leave out draft sentences and the router's tickers (uncommitted, branch `answer-log-privacy`)
 
 - Changes, on `answer-log-privacy` from main at 104f3d5. This follows the bug-fix-first rule: the weakness was found while planning Recent questions, and the fix was approved with that plan.

@@ -11,6 +11,17 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Recent questions (2026-11-01)
+
+The session part of the mockup's History: this sign-in's last 10 answered questions, kept in the API's Redis for 30 minutes each (memory.md, 2026-11-01).
+
+- **The list:** under the answer card in Ask's column, "Recent questions" in secondary text over one quiet outlined button per question, newest first, each a full row with the question and, at the right, the time it was answered in muted text (`2:02 PM`, the browser's time zone). It leaves out the question on screen and hides itself when it is empty or cannot be loaded. On a phone each row is at least 44 px tall and a long question wraps.
+- **A click** shows that question's stored answer at once, with its reading, number checks and sources, and asks nothing: the question fills the box, the status line says "Answer from earlier in this session, with 1 source.", and the focus moves to the answer's text.
+- **An answer from earlier,** picked from the list or asked again in other letter case or spacing, says so in the answer's header strip, "From earlier in this session · 2:02 PM", where a new answer shows its timings. Its actions add "Ask again" between Copy and New question, which answers anew with a model call and replaces the stored one.
+- **While an answer is on its way** the list's buttons are `aria-disabled` and do nothing, as the Ask button is.
+- **Refusals and failed answers** are never listed; nor are answers given after the reranker timed out (degraded).
+- Light and dark use the existing tokens (`--field`, `--sheet`, `--ink-3`), so every text pair keeps its measured contrast.
+
 ## Mockup features, second set (2026-10-25)
 
 Five more of the mockup's Ask features, each from real data (memory.md, mockup features 2).
@@ -168,7 +179,7 @@ Styles still live only in `web/app/globals.css`, with no inline style, so the CS
 
 `npm run build`, then `npm run screens` in `web/`, writes `docs/screenshots/ui/<screen>-<light|dark|phone>.png` against the mock API: light and dark at 1280 by 800, phone at 390 by 844 in light. Every screen passes axe before its screenshot. Each shot is a full page, except `offline`, which shows the top of the page: below its banner it is the demo page, shot in full as `demo`. The panel sticks, so a full-page shot shows it where it stands at the top of the page, its own scroll at the start. The screenshots come from Windows, so they show its fonts.
 
-Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric`, `ask-textual`, `ask-comparison`, `ask-calculation` (after the [3] marker's jump, so the panel shows the calculation card), `ask-warnings`, `ask-refusal`, `ask-error`, `ask-sources-failed`, `coverage`, `demo`, `demo-coverage`, `offline`, `not-found`, `error`, `config-error`.
+Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric`, `ask-textual`, `ask-comparison`, `ask-calculation` (after the [3] marker's jump, so the panel shows the calculation card), `ask-warnings`, `ask-recent` (x04's answer, n01 in the list), `ask-stored` (n01 picked from the list), `ask-refusal`, `ask-error`, `ask-sources-failed`, `coverage`, `demo`, `demo-coverage`, `offline`, `not-found`, `error`, `config-error`.
 
 ## Known limits
 
@@ -177,6 +188,7 @@ Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric
 - Fonts differ from system to system, by choice: no web font is downloaded.
 - From 641 px to about 690 px wide (measured with Windows fonts), the demo header's coverage line and its button wrap together below the tabs, so the header looks cramped there. Nothing overlaps.
 - The screenshots' timings come from the mock API, which streams at once, so they read "First words in 0.0 s". The demo shows no timings, since the snapshot records none.
+- Recent questions load in the browser after the page, so the list appears a moment after Ask opens, and its times are the browser's clock time with no date: a sign-in lasts 8 hours at most. `ask-recent` and `ask-stored` show the time of their run.
 
 ## Earlier direction: paper and ink (design round, 2026-10-19, merged as #15)
 

@@ -94,6 +94,7 @@ services:
       DAILY_AI_TOKEN_BUDGET: ${DAILY_AI_TOKEN_BUDGET:-1000000}
       CLAUDE_DAILY_TOKEN_BUDGET: ${CLAUDE_DAILY_TOKEN_BUDGET:-1500000}
       LLM_MAX_INFLIGHT: ${LLM_MAX_INFLIGHT:-4}
+      RECENT_ANSWERS_TTL_S: ${RECENT_ANSWERS_TTL_S:-1800}
       LLM_PRIMARY: ${LLM_PRIMARY:-gemini:gemini-3.5-flash-lite}
       LLM_ROUTER: ${LLM_ROUTER:-groq:openai/gpt-oss-20b}
       LLM_FALLBACK: ${LLM_FALLBACK:-nvidia:openai/gpt-oss-20b}
@@ -210,6 +211,9 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      # No background plugin installs: each first start of 13.2 otherwise fetches 17 from grafana.com
+      # (apps, and newer copies of the bundled datasources); the dashboards use none of them.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/filinglens.yaml:ro
       - ./grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/filinglens.yaml:ro

@@ -18,7 +18,12 @@ from uuid import uuid4
 import httpx2
 import pytest
 from filing_lens_api_client import AuthenticatedClient, errors
-from filing_lens_api_client.api.answers import create_answer, stream_answer
+from filing_lens_api_client.api.answers import (
+    clear_recent_answers,
+    create_answer,
+    list_recent_answers,
+    stream_answer,
+)
 from filing_lens_api_client.api.catalog import list_companies, list_filings
 from filing_lens_api_client.api.health import healthz, readyz
 from filing_lens_api_client.api.ingest import create_ingest_job, get_ingest_job
@@ -33,6 +38,7 @@ from filing_lens_api_client.models import (
     IngestJobAccepted,
     IngestJobRequest,
     Problem,
+    RecentAnswerPage,
     SearchPage,
 )
 from filing_lens_api_client.types import UNSET, Response, Unset
@@ -47,6 +53,7 @@ from filinglens_api.answering import Answerer, _final
 from filinglens_api.backend import LiveBackend, SearchKey, encode_cursor
 from filinglens_api.limits import answer_limits_for
 from filinglens_api.main import app, graphql_router
+from filinglens_api.recent import RecentAnswers
 from filinglens_core.errors import (
     FilingLensError,
     OverloadedError,
@@ -58,6 +65,7 @@ from filinglens_llm.providers import failure
 
 JOB = IngestJobRequest(ciks=[320193], form_types=["10-K", "10-Q"], since=date(2024, 1, 1))
 QUESTION = AnswerRequest(question="What was revenue in fiscal 2025?", company_ids=[320193])
+SESSION = "Zr4cC9cQ0vB5o2kq7nJ1xw"  # the web's sign-in id
 
 OPERATIONS: dict[str, Callable[[AuthenticatedClient], Response[Any]]] = {
     "create_ingest_job": lambda c: create_ingest_job.sync_detailed(
@@ -69,6 +77,12 @@ OPERATIONS: dict[str, Callable[[AuthenticatedClient], Response[Any]]] = {
     "search": lambda c: search.sync_detailed(client=c, q="revenue"),
     "create_answer": lambda c: create_answer.sync_detailed(client=c, body=QUESTION),
     "stream_answer": lambda c: stream_answer.sync_detailed(client=c, body=QUESTION),
+    "list_recent_answers": lambda c: list_recent_answers.sync_detailed(
+        client=c, x_session_id=SESSION
+    ),
+    "clear_recent_answers": lambda c: clear_recent_answers.sync_detailed(
+        client=c, x_session_id=SESSION
+    ),
 }
 ADMIN_ONLY = ["create_ingest_job", "get_ingest_job"]
 EITHER_KEY = [name for name in OPERATIONS if name not in ADMIN_ONLY]
@@ -119,7 +133,8 @@ def test_the_normal_key_is_forbidden_on_admin_routes(
 def test_the_admin_key_opens_the_other_routes_too(
     admin: AuthenticatedClient, operation: str
 ) -> None:
-    assert OPERATIONS[operation](admin).status_code == 200
+    expected = 204 if operation == "clear_recent_answers" else 200
+    assert OPERATIONS[operation](admin).status_code == expected
 
 
 def test_ingest_job_is_idempotent_and_pages_its_failures(admin: AuthenticatedClient) -> None:
@@ -265,7 +280,31 @@ def test_streamed_answer_ends_with_the_whole_answer(user: AuthenticatedClient) -
     *deltas, last = _events(response)
     assert {event["type"] for event in deltas} == {"delta"}
     assert "".join(event["text"] for event in deltas) == plain.answer
-    assert last == {"type": "completed", "answer": plain.to_dict()}
+    assert last == {"type": "completed", "answer": plain.to_dict(), "stored_at": None}
+
+
+def test_a_repeat_question_comes_back_from_earlier_through_the_generated_client(
+    user: AuthenticatedClient, fake: Any
+) -> None:
+    first = _events(stream_answer.sync_detailed(client=user, body=QUESTION, x_session_id=SESSION))
+    again = stream_answer.sync_detailed(client=user, body=QUESTION, x_session_id=SESSION)
+    [replayed] = _events(again)
+    assert replayed["answer"] == first[-1]["answer"]
+    assert replayed["stored_at"] is not None
+    fresh = stream_answer.sync_detailed(
+        client=user, body=QUESTION, x_session_id=SESSION, fresh=True
+    )
+    assert _events(fresh)[-1]["stored_at"] is None
+    assert fake.answered == 2
+    page = list_recent_answers.sync(client=user, x_session_id=SESSION, limit=5)
+    assert isinstance(page, RecentAnswerPage)
+    assert [item.question for item in page.items] == [QUESTION.question]
+    assert page.next_cursor is None
+    cleared = clear_recent_answers.sync_detailed(client=user, x_session_id=SESSION)
+    assert (cleared.status_code, cleared.content) == (204, b"")
+    after = list_recent_answers.sync(client=user, x_session_id=SESSION)
+    assert isinstance(after, RecentAnswerPage)
+    assert after.items == []
 
 
 def test_a_failure_mid_stream_arrives_as_a_failed_event(
@@ -363,6 +402,20 @@ async def _next_page_while_the_reranker_is_busy(monkeypatch: pytest.MonkeyPatch)
     await live.search("revenue", 10, cursor)
 
 
+class _Down:
+    """Redis that answers every command with an error."""
+
+    def __getattr__(self, command: str) -> Callable[..., Coroutine[Any, Any, None]]:
+        async def refuse(*args: Any, **kwargs: Any) -> None:
+            raise RedisError("Redis is down.")
+
+        return refuse
+
+
+async def _recent_answers_while_redis_is_down(_: pytest.MonkeyPatch) -> None:
+    await RecentAnswers(cast(Any, _Down()), 60).page(SESSION, 10, None)
+
+
 async def _job_the_broker_refused(_: pytest.MonkeyPatch) -> None:
     request = schemas.IngestJobRequest(
         ciks=[320193], form_types=[schemas.FormType.FORM_10K], since=date(2024, 1, 1)
@@ -404,6 +457,7 @@ UNAVAILABLE: list[tuple[str, Raise, str | None]] = [
     ("too many answers in progress", _admitted_past_the_cap, "2"),
     ("reranker busy on a later page", _next_page_while_the_reranker_is_busy, "1"),
     ("broker refused or unreachable", _job_the_broker_refused, "5"),
+    ("recent questions unreachable", _recent_answers_while_redis_is_down, "5"),
 ]
 
 

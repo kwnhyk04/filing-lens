@@ -15,6 +15,9 @@ test("the BFF routes answer 401 in JSON without a session", async ({ request }) 
     expect(response.status()).toBe(401);
     expect(await response.json()).toMatchObject({ code: "unauthorized" });
   }
+  const recent = await request.get("/api/recent");
+  expect(recent.status()).toBe(401);
+  expect(await recent.json()).toMatchObject({ code: "unauthorized" });
 });
 
 test("the demo needs no session", async ({ page }) => {

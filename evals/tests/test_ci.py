@@ -3,6 +3,7 @@ or rate limit stop saying to rerun after the quota resets. No model or database 
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,17 @@ def floors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path.write_text(json.dumps(floors))
     monkeypatch.setattr(harness, "THRESHOLDS", path)
     return path
+
+
+def test_the_harness_never_loads_the_session_answer_store() -> None:
+    # A fresh interpreter: this pytest run already imported the app (services/api/tests).
+    code = "import sys, evals.harness; print('filinglens_api.recent' in sys.modules)"
+    root = Path(__file__).parents[2]
+    found = subprocess.run(  # noqa: S603 - this interpreter and a fixed line of code
+        [sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=120
+    )
+    assert found.returncode == 0, found.stderr
+    assert found.stdout.strip() == "False"  # evals measure real model calls, never a replay
 
 
 def test_a_reports_notes_describe_its_golden_versions_labels() -> None:

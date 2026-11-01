@@ -30,6 +30,8 @@ from .read_company import ReadCompany
 from .reading import Reading
 from .reading_fiscal_period_type_0 import ReadingFiscalPeriodType0
 from .reading_route import ReadingRoute
+from .recent_answer import RecentAnswer
+from .recent_answer_page import RecentAnswerPage
 from .search_hit import SearchHit
 from .search_page import SearchPage
 from .usage import Usage
@@ -65,6 +67,8 @@ __all__ = (
     "Reading",
     "ReadingFiscalPeriodType0",
     "ReadingRoute",
+    "RecentAnswer",
+    "RecentAnswerPage",
     "SearchHit",
     "SearchPage",
     "Usage",

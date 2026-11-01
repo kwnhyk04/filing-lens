@@ -5,8 +5,10 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from itertools import count
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,6 +19,8 @@ from fastapi.testclient import TestClient
 from filing_lens_api_client import AuthenticatedClient
 from filing_lens_graphql_client import Client as GraphqlClient
 from pydantic import BaseModel
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from filinglens_api.backend import (
     AnswerEvents,
@@ -35,6 +39,7 @@ from filinglens_api.backend import (
 )
 from filinglens_api.limits import answer_limits, answer_limits_for, rate_limit
 from filinglens_api.main import app
+from filinglens_api.recent import RecentAnswers, get_recent
 from filinglens_api.schemas import (
     Answer,
     AnswerCompleted,
@@ -462,31 +467,94 @@ def fake() -> FakeBackend:
     return FakeBackend()
 
 
+class FakeRedis:
+    """The hash commands RecentAnswers sends, in memory, with each field's TTL recorded (never
+    run). With fail set, every command raises the RedisError a real reply could carry: one that
+    quotes the command's arguments."""
+
+    def __init__(self) -> None:
+        self.hashes: dict[str, dict[bytes, bytes]] = {}
+        self.ttls: dict[tuple[str, bytes], int] = {}
+        self.fail = False
+
+    def _reply(self, *args: object) -> None:
+        if self.fail:
+            raise RedisError(f"ERR unknown command, with args beginning with: {args}")
+
+    async def hget(self, name: str, key: str) -> bytes | None:
+        self._reply(name, key)
+        return self.hashes.get(name, {}).get(key.encode())
+
+    async def hsetex(self, name: str, key: str, value: str, ex: int) -> int:
+        self._reply(name, key, value)
+        self.hashes.setdefault(name, {})[key.encode()] = value.encode()
+        self.ttls[name, key.encode()] = ex
+        return 1
+
+    async def hgetall(self, name: str) -> dict[bytes, bytes]:
+        self._reply(name)
+        return dict(self.hashes.get(name, {}))
+
+    async def hdel(self, name: str, *keys: bytes) -> int:
+        self._reply(name, *keys)
+        fields = self.hashes.get(name, {})
+        return sum(fields.pop(key, None) is not None for key in keys)
+
+    async def delete(self, name: str) -> int:
+        self._reply(name)
+        return int(self.hashes.pop(name, None) is not None)
+
+
+def ticking(start: datetime = datetime(2026, 11, 1, 14, 2, tzinfo=UTC)) -> Callable[[], datetime]:
+    """A clock one second further on at each reading, so stored answers never tie."""
+    readings = (start + timedelta(seconds=n) for n in count())
+    return lambda: next(readings)
+
+
+@pytest.fixture
+def fake_redis() -> FakeRedis:
+    return FakeRedis()
+
+
+@pytest.fixture
+def recent(fake_redis: FakeRedis) -> RecentAnswers:
+    """The real store over the in-memory Redis, keeping answers 30 minutes."""
+    return RecentAnswers(cast(Redis, fake_redis), 1800, now=ticking())
+
+
 @pytest.fixture(scope="module")
-def _served() -> Iterator[tuple[str, dict[str, Backend]]]:
+def _served() -> Iterator[tuple[str, dict[str, Backend], dict[str, RecentAnswers]]]:
     """The app served once per test module, without the Redis-backed limits; each test plugs in
-    its own backend. Starting and stopping uvicorn for every test took 0.3 s each.
+    its own backend and recent-answers store. Starting and stopping uvicorn for every test took
+    0.3 s each.
 
     The fixtures that run the app themselves (client, live, postgres_user, serve) share the one
     app object, so a module must not use them after a test that used this one.
     """
     current: dict[str, Backend] = {}
+    stores: dict[str, RecentAnswers] = {}
     with pytest.MonkeyPatch.context() as monkeypatch:
         _set_env(monkeypatch)
         app.dependency_overrides[get_backend] = lambda: current["backend"]
+        app.dependency_overrides[get_recent] = lambda: stores["recent"]
         app.dependency_overrides.update(UNLIMITED)
         try:
             with _serve() as url:
-                yield url, current
+                yield url, current, stores
         finally:
             app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def server_url(_served: tuple[str, dict[str, Backend]], fake: FakeBackend) -> str:
-    """The app over this test's in-memory backend, served over HTTP."""
-    url, current = _served
+def server_url(
+    _served: tuple[str, dict[str, Backend], dict[str, RecentAnswers]],
+    fake: FakeBackend,
+    recent: RecentAnswers,
+) -> str:
+    """The app over this test's in-memory backend and recent answers, served over HTTP."""
+    url, current, stores = _served
     current["backend"] = fake  # pyright checks that the fake matches the protocol
+    stores["recent"] = recent
     return url
 
 

@@ -7,18 +7,29 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.answer_request import AnswerRequest
 from ...models.problem import Problem
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: AnswerRequest,
+    fresh: bool | Unset = False,
+    x_session_id: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_session_id, Unset):
+        headers["X-Session-ID"] = x_session_id
+
+    params: dict[str, Any] = {}
+
+    params["fresh"] = fresh
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/v1/answers/stream",
+        "params": params,
     }
 
     _kwargs["json"] = body.to_dict()
@@ -83,6 +94,8 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: AnswerRequest,
+    fresh: bool | Unset = False,
+    x_session_id: None | str | Unset = UNSET,
 ) -> Response[Any | Problem]:
     """Stream Answer
 
@@ -94,7 +107,16 @@ def sync_detailed(
     stream has started arrives as a `failed` event with a problem, and so does a stream still
     running after 30 s.
 
+    With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
+    sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
+    closing punctuation, over the same companies and years) gets it back at once as one
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+
     Args:
+        fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
+            Default: False.
+        x_session_id (None | str | Unset): The web's sign-in id. Answers are kept for that sign-in
+            alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).
         body (AnswerRequest):
 
     Raises:
@@ -107,6 +129,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        fresh=fresh,
+        x_session_id=x_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -120,6 +144,8 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: AnswerRequest,
+    fresh: bool | Unset = False,
+    x_session_id: None | str | Unset = UNSET,
 ) -> Any | Problem | None:
     """Stream Answer
 
@@ -131,7 +157,16 @@ def sync(
     stream has started arrives as a `failed` event with a problem, and so does a stream still
     running after 30 s.
 
+    With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
+    sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
+    closing punctuation, over the same companies and years) gets it back at once as one
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+
     Args:
+        fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
+            Default: False.
+        x_session_id (None | str | Unset): The web's sign-in id. Answers are kept for that sign-in
+            alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).
         body (AnswerRequest):
 
     Raises:
@@ -145,6 +180,8 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        fresh=fresh,
+        x_session_id=x_session_id,
     ).parsed
 
 
@@ -152,6 +189,8 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: AnswerRequest,
+    fresh: bool | Unset = False,
+    x_session_id: None | str | Unset = UNSET,
 ) -> Response[Any | Problem]:
     """Stream Answer
 
@@ -163,7 +202,16 @@ async def asyncio_detailed(
     stream has started arrives as a `failed` event with a problem, and so does a stream still
     running after 30 s.
 
+    With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
+    sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
+    closing punctuation, over the same companies and years) gets it back at once as one
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+
     Args:
+        fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
+            Default: False.
+        x_session_id (None | str | Unset): The web's sign-in id. Answers are kept for that sign-in
+            alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).
         body (AnswerRequest):
 
     Raises:
@@ -176,6 +224,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        fresh=fresh,
+        x_session_id=x_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -187,6 +237,8 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: AnswerRequest,
+    fresh: bool | Unset = False,
+    x_session_id: None | str | Unset = UNSET,
 ) -> Any | Problem | None:
     """Stream Answer
 
@@ -198,7 +250,16 @@ async def asyncio(
     stream has started arrives as a `failed` event with a problem, and so does a stream still
     running after 30 s.
 
+    With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
+    sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
+    closing punctuation, over the same companies and years) gets it back at once as one
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+
     Args:
+        fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
+            Default: False.
+        x_session_id (None | str | Unset): The web's sign-in id. Answers are kept for that sign-in
+            alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).
         body (AnswerRequest):
 
     Raises:
@@ -213,5 +274,7 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            fresh=fresh,
+            x_session_id=x_session_id,
         )
     ).parsed
