@@ -270,6 +270,13 @@ class AnswerDelta(Schema):
 class AnswerCompleted(Schema):
     type: Literal["completed"] = "completed"
     answer: Answer
+    stored_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When this sign-in got this answer earlier, for an answer from earlier (no model call"
+            " made); null for a new answer."
+        ),
+    )
 
 
 class AnswerFailed(Schema):
@@ -278,6 +285,19 @@ class AnswerFailed(Schema):
 
 
 AnswerEvent = Annotated[AnswerDelta | AnswerCompleted | AnswerFailed, Field(discriminator="type")]
+
+
+class RecentAnswer(Schema):
+    """A question this sign-in asked, with the completed answer it got."""
+
+    id: str = Field(description="Stands for the question; the same question keeps its id.")
+    question: str = Field(description="As asked.")
+    answered_at: datetime
+    answer: Answer
+
+
+class RecentAnswerPage(Page[RecentAnswer]):
+    pass
 
 
 # GraphQL-only shapes: no REST route returns them yet, so they stay out of openapi.json.

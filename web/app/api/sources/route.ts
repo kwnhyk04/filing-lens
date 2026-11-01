@@ -14,8 +14,8 @@ function ids(value: unknown): string[] | null {
 }
 
 export async function POST(request: NextRequest) {
-  const refused = await guardApi(request);
-  if (refused) return refused;
+  const signedIn = await guardApi(request);
+  if (signedIn instanceof Response) return signedIn;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const chunkIds = ids(body?.chunkIds);
   const factIds = ids(body?.factIds);

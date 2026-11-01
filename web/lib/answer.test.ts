@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   answerWithSources,
   checksTitle,
+  clockTime,
   createSseParser,
   figureRows,
   formLabel,
@@ -14,6 +15,7 @@ import {
   sourceLabel,
   splitFigures,
   splitMarkers,
+  storedLine,
   timingLine,
   type Answer,
   type Reading,
@@ -95,6 +97,12 @@ test("figures: amounts with a currency, a unit or a scale split out; years, date
 test("timings: first words, completion and the source count, in seconds to one decimal", () => {
   assert.equal(timingLine(940, 2610, 2), "First words in 0.9 s · complete in 2.6 s · 2 sources");
   assert.equal(timingLine(30, 310, 1), "First words in 0.0 s · complete in 0.3 s · 1 source");
+});
+
+test("an answer from earlier says so, with the time it was given in the browser's time zone", () => {
+  assert.equal(storedLine("2026-11-01T14:02:09Z", "UTC"), "From earlier in this session · 2:02 PM");
+  assert.equal(storedLine("2026-11-01T14:02:09Z", "Asia/Taipei"), "From earlier in this session · 10:02 PM");
+  assert.equal(clockTime("2026-11-01T09:05:00Z", "UTC"), "9:05 AM");
 });
 
 test("timings: no draft text means no first words, and a refusal counts no sources", () => {

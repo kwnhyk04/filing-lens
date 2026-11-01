@@ -50,6 +50,18 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
     await expect(page.locator("#source-3")).toBeInViewport();
   },
   "ask-warnings": (page) => answered(page, "e2e: rewritten", 2, "NVDA"),
+  "ask-recent": async (page) => {
+    await answered(page, question("n01"), 1, "AAPL");
+    await answered(page, question("x04"), 1, "AMZN");
+    await expect(page.getByTestId("recent").getByRole("button")).toHaveCount(1);
+  },
+  "ask-stored": async (page) => {
+    await answered(page, question("n01"), 1, "AAPL");
+    await answered(page, question("x04"), 1, "AMZN");
+    await page.getByTestId("recent").getByRole("button").click();
+    await expect(page.getByTestId("stored")).toBeVisible();
+    await expect(page.locator("#source-1 h4")).toContainText("AAPL");
+  },
   "ask-refusal": async (page) => {
     await ask(page, question("o02"));
     await expect(page.getByTestId("answer")).toContainText("Not answered");

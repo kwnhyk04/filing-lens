@@ -143,3 +143,19 @@ def test_an_empty_otel_endpoint_and_answer_fallback_read_as_off(
     assert settings.otel_exporter_otlp_endpoint is None
     if isinstance(settings, ApiSettings):  # ingest has no answer fallback
         assert settings.llm_answer_fallback is None
+
+
+@pytest.mark.parametrize(
+    ("ttl", "accepted"), [("59", False), ("60", True), ("28800", True), ("28801", False)]
+)
+def test_recent_answers_last_30_minutes_by_default_and_at_most_a_sign_in(
+    monkeypatch: pytest.MonkeyPatch, ttl: str, accepted: bool
+) -> None:
+    set_env(monkeypatch)
+    assert load_settings(ApiSettings).recent_answers_ttl_s == 1800
+    set_env(monkeypatch, RECENT_ANSWERS_TTL_S=ttl)  # a sign-in lasts 8 hours (28,800 s)
+    if accepted:
+        assert load_settings(ApiSettings).recent_answers_ttl_s == int(ttl)
+    else:
+        with pytest.raises(SystemExit, match="RECENT_ANSWERS_TTL_S"):
+            load_settings(ApiSettings)

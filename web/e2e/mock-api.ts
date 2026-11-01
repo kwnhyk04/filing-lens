@@ -1,4 +1,6 @@
-// The e2e stand-in for the FilingLens API: it checks X-API-Key and replays web/demo/snapshot.json.
+// The e2e stand-in for the FilingLens API: it checks X-API-Key, replays web/demo/snapshot.json, and keeps
+// each sign-in's recent answers by X-Session-ID, as the API does.
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import type { components } from "../../clients/ts/index.ts";
@@ -7,9 +9,25 @@ import { API_KEY, MOCK, snapshot } from "./env.ts";
 type Schemas = components["schemas"];
 type AnswerEvent = Schemas["AnswerDelta"] | Schemas["AnswerCompleted"] | Schemas["AnswerFailed"];
 type Answer = Schemas["Answer"];
+type Recent = Schemas["RecentAnswer"];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const cut = new Set<string>(); // questions whose stream the web closed before it finished
+const recent = new Map<string, Map<string, Recent>>(); // by session id, then by normalized question
+const SESSION_ID = /^[A-Za-z0-9_-]{22,64}$/;
+// The API's same-question rule, near enough for the specs: letter case, spacing and a closing ?, ! or . aside.
+const normalized = (question: string) => question.toLowerCase().split(/\s+/).filter(Boolean).join(" ").replace(/[?!. ]+$/, "");
+
+/** Keep a completed answer for its sign-in, the 10 newest at most, as the API does. */
+function keep(sid: string, question: string, answer: Answer) {
+  const key = normalized(question);
+  const id = createHash("sha256").update(key).digest("hex").slice(0, 32);
+  const kept = recent.get(sid) ?? new Map<string, Recent>();
+  kept.delete(key);
+  kept.set(key, { id, question, answered_at: new Date().toISOString(), answer });
+  while (kept.size > 10) kept.delete(kept.keys().next().value as string); // the oldest first
+  recent.set(sid, kept);
+}
 const cursor = (index: number) => Buffer.from(String(index)).toString("base64url");
 const answerOf = (id: string) => snapshot.answers.find((item) => item.id === id)?.answer as Answer;
 
@@ -61,7 +79,7 @@ function rejected(res: ServerResponse) {
   send(res, 401, problem(401, "unauthorized", "Missing or unknown API key."), { "WWW-Authenticate": "APIKey" });
 }
 
-async function stream(res: ServerResponse, question: string) {
+async function stream(res: ServerResponse, question: string, sid: string | undefined, fresh: boolean) {
   if (question === "e2e: rejected") return rejected(res);
   const admission = ADMISSION[question];
   if (admission) {
@@ -73,6 +91,11 @@ async function stream(res: ServerResponse, question: string) {
     if (!res.writableFinished) cut.add(question);
   });
   const emit = (event: AnswerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  const earlier = sid && !fresh ? recent.get(sid)?.get(normalized(question)) : undefined;
+  if (earlier) {
+    emit({ type: "completed", answer: earlier.answer, stored_at: earlier.answered_at }); // no draft
+    return res.end();
+  }
   if (question === "e2e: failed") {
     emit({ type: "delta", text: "A draft that never finishes" });
     await sleep(200);
@@ -89,8 +112,22 @@ async function stream(res: ServerResponse, question: string) {
     res.write(": ping\n\n");
     await sleep(150);
   }
-  emit({ type: "completed", answer });
+  if (sid && !answer.refused && !answer.degraded) keep(sid, question, answer); // before the event, as the API
+  emit({ type: "completed", answer, stored_at: null });
   res.end();
+}
+
+/** GET and DELETE /v1/answers/recent: a sign-in's answers, newest first, and forgetting them. */
+function recentAnswers(req: IncomingMessage, res: ServerResponse) {
+  const sid = String(req.headers["x-session-id"] ?? "");
+  if (!SESSION_ID.test(sid)) return send(res, 422, problem(422, "validation_failed", "The request is not valid."));
+  if (req.method === "DELETE") {
+    recent.delete(sid);
+    res.writeHead(204);
+    return res.end();
+  }
+  const items = [...(recent.get(sid)?.values() ?? [])].reverse(); // kept oldest first
+  send(res, 200, { items, next_cursor: null });
 }
 
 // The API's totals, counted from the snapshot: its companies, and the filings each lists.
@@ -140,8 +177,13 @@ const server = createServer(async (req, res) => {
     return send(res, 200, { cut: cut.has(url.searchParams.get("question") ?? "") });
   }
   const body = await readJson(req);
-  if (req.method === "POST" && req.url === "/graphql") return graphql(res, body);
-  if (req.method === "POST" && req.url === "/v1/answers/stream") return stream(res, String(body.question ?? ""));
+  if (req.method === "POST" && url.pathname === "/graphql") return graphql(res, body);
+  if (req.method === "POST" && url.pathname === "/v1/answers/stream") {
+    const sid = req.headers["x-session-id"];
+    const fresh = url.searchParams.get("fresh") === "true";
+    return stream(res, String(body.question ?? ""), typeof sid === "string" ? sid : undefined, fresh);
+  }
+  if (["GET", "DELETE"].includes(req.method ?? "") && url.pathname === "/v1/answers/recent") return recentAnswers(req, res);
   send(res, 404, problem(404, "not_found", "The mock has no such route."));
 });
 

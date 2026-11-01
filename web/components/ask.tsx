@@ -1,12 +1,22 @@
 "use client";
-// Ask: streams a draft through the BFF, then shows the validated answer and its sources.
+// Ask: streams a draft through the BFF, then shows the validated answer and its sources, and this
+// sign-in's recent questions, whose stored answers come back without a model call.
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { answerWithSources, createSseParser, timingLine, type Answer, type AnswerEvent } from "../lib/answer.ts";
+import {
+  answerWithSources,
+  createSseParser,
+  storedLine,
+  timingLine,
+  type Answer,
+  type AnswerEvent,
+  type RecentAnswer,
+} from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
 import { AnswerMain, ReadAs, SourceList, sourceLabel } from "./answer-view.tsx";
 import { QuoteInView } from "./quote-in-view.tsx";
+import { RecentQuestions } from "./recent-questions.tsx";
 
 interface Problem {
   code?: string;
@@ -39,14 +49,16 @@ function notice(status: number, problem: Problem): Notice {
   return { text: problem.detail ?? `The answer failed (HTTP ${status}).` };
 }
 
-/** Reads the event stream; deltas go to `onDelta` as they arrive. */
+/** Reads the event stream; deltas go to `onDelta` as they arrive. `storedAt` marks an answer from earlier. */
 async function readEvents(body: ReadableStream<Uint8Array>, onDelta: (text: string) => void) {
-  const result: { answer?: Answer; failed?: string } = {};
+  const result: { answer?: Answer; storedAt?: string | null; failed?: string } = {};
   const push = createSseParser((data) => {
     const event = JSON.parse(data) as AnswerEvent;
     if (event.type === "delta") onDelta(event.text);
-    else if (event.type === "completed") result.answer = event.answer;
-    else result.failed = event.problem.detail ?? "The answer failed.";
+    else if (event.type === "completed") {
+      result.answer = event.answer;
+      result.storedAt = event.stored_at ?? null; // an API from before recent questions sends none
+    } else result.failed = event.problem.detail ?? "The answer failed.";
   });
   const decoder = new TextDecoder();
   const reader = body.getReader();
@@ -56,27 +68,60 @@ async function readEvents(body: ReadableStream<Uint8Array>, onDelta: (text: stri
   return result;
 }
 
+const sourceCount = (count: number) => `${count} source${count === 1 ? "" : "s"}`;
+
 /** `samples`: questions the filings can answer, offered under the empty box; a click only fills it. */
 export function Ask({ samples }: { samples: string[] }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
+  const [asked, setAsked] = useState<string | null>(null); // the question whose answer is on screen
+  const [storedAt, setStoredAt] = useState<string | null>(null); // when that answer is from earlier
+  const [recent, setRecent] = useState<RecentAnswer[]>([]);
   const [sources, setSources] = useState<Sources>();
   const [sourcesFailed, setSourcesFailed] = useState(false);
   const [problem, setProblem] = useState<Notice | null>(null);
   const [status, setStatus] = useState("");
   const [timing, setTiming] = useState<Timing | null>(null);
   const running = useRef<AbortController | null>(null);
+  const focusAnswer = useRef(false);
   const form = useRef<HTMLFormElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
   // Leaving Ask, through a header link, stops its answer stream and its sources lookup.
   useEffect(() => () => running.current?.abort(), []);
+  // In the browser only, so the times read in its time zone and the server renders no list.
+  useEffect(() => void loadRecent(), []);
+  // A recent question's answer takes the focus once it is on screen, as Back to the answer does.
+  useEffect(() => {
+    if (!answer || !focusAnswer.current) return;
+    focusAnswer.current = false;
+    document.getElementById("answer-text")?.focus();
+  }, [answer]);
+
+  /** This sign-in's recent questions. Any failure hides the list, an API without them included. */
+  async function loadRecent() {
+    try {
+      const found = await fetch("/api/recent");
+      setRecent(found.ok ? ((await found.json()) as { items: RecentAnswer[] }).items : []);
+    } catch {
+      setRecent([]);
+    }
+  }
 
   function fail(failure: Notice) {
     setDraft(null);
     setProblem(failure);
     setStatus(failure.text);
+  }
+
+  /** An answer on screen: a new one, or one from earlier (stored), whose header then says when it was given. */
+  function show(done: Answer, stored: string | null) {
+    setDraft(null);
+    setAnswer(done);
+    setStoredAt(stored);
+    const ready = stored ? "Answer from earlier in this session" : "Answer ready";
+    setStatus(done.refused ? "Not answered; the reason is below." : `${ready}, with ${sourceCount(done.citations.length)}.`);
   }
 
   /** The cited chunks and facts. A failure keeps the answer and adds a note; it never throws. */
@@ -99,17 +144,17 @@ export function Ask({ samples }: { samples: string[] }) {
     setStatus((ready) => `${ready} Sources could not be loaded.`);
   }
 
-  async function ask(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    const question = String(new FormData(event.currentTarget).get("question") ?? "").trim();
+  /** Asks through the BFF; `fresh` (Ask again) answers anew instead of giving back the earlier answer. */
+  async function run(question: string, fresh = false) {
     running.current?.abort(); // a new question stops the one before
     const controller = new AbortController();
     running.current = controller;
     const { signal } = controller;
     setBusy(true);
+    setAsked(question);
     setDraft("");
     setAnswer(null);
+    setStoredAt(null);
     setSources(undefined);
     setSourcesFailed(false);
     setProblem(null);
@@ -121,7 +166,7 @@ export function Ask({ samples }: { samples: string[] }) {
       const response = await fetch("/api/answers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, fresh }),
         signal,
       });
       if (response.status === 401) return window.location.assign("/login?next=%2Fask");
@@ -134,11 +179,9 @@ export function Ask({ samples }: { samples: string[] }) {
       });
       if (!result.answer) return fail({ text: result.failed ?? "The answer stopped before it finished." });
       const done = result.answer;
-      setDraft(null);
-      setAnswer(done);
-      setTiming({ firstWordsMs, completeMs: performance.now() - started });
-      const count = done.citations.length;
-      setStatus(done.refused ? "Not answered; the reason is below." : `Answer ready, with ${count} source${count === 1 ? "" : "s"}.`);
+      show(done, result.storedAt ?? null);
+      if (!result.storedAt) setTiming({ firstWordsMs, completeMs: performance.now() - started });
+      if (!result.storedAt && !done.refused) void loadRecent(); // the API has just kept it
       await showSources(done, signal);
     } catch {
       // Only the stream lands here, since showSources keeps its own failures; an abort shows nothing.
@@ -146,6 +189,28 @@ export function Ask({ samples }: { samples: string[] }) {
     } finally {
       if (!signal.aborted) setBusy(false);
     }
+  }
+
+  async function ask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    await run(String(new FormData(event.currentTarget).get("question") ?? "").trim());
+  }
+
+  /** A recent question: its stored answer with its reading, number checks and sources, and no model call. */
+  function pick(item: RecentAnswer) {
+    running.current?.abort(); // a sources lookup still running stops
+    const controller = new AbortController();
+    running.current = controller;
+    if (box.current) box.current.value = item.question;
+    setAsked(item.question);
+    setProblem(null);
+    setTiming(null);
+    setSources(undefined);
+    setSourcesFailed(false);
+    show(item.answer, item.answered_at);
+    focusAnswer.current = true;
+    void showSources(item.answer, controller.signal);
   }
 
   /** The answer and its sources on the clipboard, as plain text; the status line says how it went. */
@@ -164,6 +229,8 @@ export function Ask({ samples }: { samples: string[] }) {
     running.current?.abort();
     setBusy(false); // an aborted question leaves busy alone, so it is cleared here
     setAnswer(null);
+    setAsked(null);
+    setStoredAt(null);
     setSources(undefined);
     setSourcesFailed(false);
     setTiming(null);
@@ -171,6 +238,9 @@ export function Ask({ samples }: { samples: string[] }) {
     form.current?.reset();
     box.current?.focus();
   }
+
+  // The question on screen is left out of the list: by its words, or by its stored time for a repeat.
+  const others = recent.filter((item) => item.question !== asked && item.answered_at !== storedAt);
 
   // From 64rem the sources panel sits beside the whole column; the DOM order is the reading order.
   return (
@@ -235,10 +305,16 @@ export function Ask({ samples }: { samples: string[] }) {
           <section className="result" aria-labelledby="answer-title" data-testid="answer">
             <div className="result-head">
               <h2 id="answer-title">Answer</h2>
-              {timing && (
-                <p className="timings" data-testid="timings">
-                  {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length, answer.checks.length > 0)}
+              {storedAt ? (
+                <p className="timings" data-testid="stored">
+                  {storedLine(storedAt)}
                 </p>
+              ) : (
+                timing && (
+                  <p className="timings" data-testid="timings">
+                    {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length, answer.checks.length > 0)}
+                  </p>
+                )
               )}
             </div>
             <AnswerMain answer={answer} sources={sources} />
@@ -248,12 +324,18 @@ export function Ask({ samples }: { samples: string[] }) {
                   Copy answer with sources
                 </button>
               )}
+              {storedAt && asked && (
+                <button type="button" aria-disabled={busy || undefined} onClick={() => !busy && run(asked, true)}>
+                  Ask again
+                </button>
+              )}
               <button type="button" onClick={startOver}>
                 New question
               </button>
             </div>
           </section>
         )}
+        <RecentQuestions items={others} busy={busy} onPick={pick} />
       </div>
       {answer && <SourceList answer={answer} sources={sources} sourcesFailed={sourcesFailed} />}
       <QuoteInView />

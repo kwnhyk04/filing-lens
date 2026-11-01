@@ -24,6 +24,7 @@ from filinglens_api.backend import DiscoverQueue, LiveBackend
 from filinglens_api.graph import get_context, schema
 from filinglens_api.limits import BodyLimit, rate_limit
 from filinglens_api.problems import add_problem_handlers, internal_error
+from filinglens_api.recent import RecentAnswers
 from filinglens_api.schemas import Health, Problem
 from filinglens_core.ratelimit import BUCKET_SCRIPT
 from filinglens_core.settings import ApiSettings, load_settings
@@ -46,7 +47,8 @@ Only servers call this API: any request with an `Origin` header gets 403, on eve
 **Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.
 429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`
 only when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker
-that refused a job or could not be reached), and `ai_unavailable` when today's AI budget is used
+that refused a job or could not be reached), `transient` when a sign-in's recent questions cannot
+be read or cleared, and `ai_unavailable` when today's AI budget is used
 up (until 00:00 UTC), the budget cannot be checked, or the model providers are rate limited. An
 `ai_unavailable` without `Retry-After` does not clear by waiting: AI is switched off on this
 server, or the last model refused the key, has no credits left or was retired. GraphQL's `answer`
@@ -95,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     discover = DiscoverQueue(str(settings.broker_url.get_secret_value()))
     app.state.backend = LiveBackend(app.state.engine, discover, settings, answerer)
+    app.state.recent = RecentAnswers(app.state.redis, settings.recent_answers_ttl_s)
     yield
     await http.aclose()
     await app.state.redis.aclose()

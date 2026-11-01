@@ -18,20 +18,26 @@ import {
 import { classify, failureLabel, type Failure } from "./errors.ts";
 import { createLimiter, isSameOrigin } from "./guards.ts";
 import { log } from "./log.ts";
-import { SESSION_COOKIE, verifySession } from "./session.ts";
+import { readSession, SESSION_COOKIE } from "./session.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 
 const PAGE_TIMEOUT_MS = 5_000;
 const ANSWER_TIMEOUT_MS = 35_000; // the API's own `failed` event at 30 s arrives first
+const CLEAR_TIMEOUT_MS = 2_000; // sign-out waits no longer for the API to forget the answers
 const MAX_IDS = 20; // per kind in one Sources query
 
 let settings: Settings | undefined;
 export const config = (): Settings => (settings ??= loadSettings(process.env));
 export const signInLimiter = createLimiter();
 
-export async function hasSession(): Promise<boolean> {
+/** This sign-in, read from its signed cookie only (never from the browser's own say), or null. */
+export async function session(): Promise<{ sid: string } | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  return verifySession(token, config().sessionSecret, Date.now());
+  return readSession(token, config().sessionSecret, Date.now());
+}
+
+export async function hasSession(): Promise<boolean> {
+  return (await session()) !== null;
 }
 
 /** The second lock on every live page; proxy.ts is the first. */
@@ -42,13 +48,12 @@ export async function requireSession(): Promise<void> {
 export const json = (status: number, body: object) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
-/** A BFF route's guard: a same-origin request with a session, else the refusal to send. */
-export async function guardApi(request: NextRequest): Promise<Response | null> {
+/** A BFF route's guard: a same-origin request's sign-in, else the refusal to send. */
+export async function guardApi(request: NextRequest): Promise<{ sid: string } | Response> {
   if (!isSameOrigin(request.headers)) {
     return json(403, { code: "forbidden", detail: "Requests from other sites are refused." });
   }
-  if (!(await hasSession())) return json(401, { code: "unauthorized", detail: "Sign in first." });
-  return null;
+  return (await session()) ?? json(401, { code: "unauthorized", detail: "Sign in first." });
 }
 
 /** A failure as the BFF's JSON: `{code, detail, retryAfter, requestId}`. */
@@ -108,18 +113,47 @@ export function fetchSources(chunkIds: string[], factIds: string[], signal: Abor
   });
 }
 
-/** The API's answer stream, unchanged; admission errors (429, 503) come back as a failure. */
-export function openAnswerStream(question: string, signal: AbortSignal) {
+/**
+ * The API's answer stream, unchanged; admission errors (429, 503) come back as a failure. The sign-in's
+ * id lets the API give a repeat question its earlier answer; `fresh` asks again instead.
+ */
+export function openAnswerStream(question: string, fresh: boolean, sid: string, signal: AbortSignal) {
   return call("answers", async (id) => {
     const { apiUrl, apiKey } = config();
     const client = createApiClient(apiUrl, apiKey, ANSWER_TIMEOUT_MS);
     const { data } = await client.POST("/v1/answers/stream", {
       body: { question },
+      params: { query: { fresh }, header: { "X-Session-ID": sid } },
       parseAs: "stream",
       signal,
       headers: { "X-Request-ID": id },
     });
     if (!data) throw new TypeError("The answer stream had no body.");
     return data;
+  });
+}
+
+/** This sign-in's recent questions with their answers, newest first. */
+export function recentAnswers(sid: string, signal: AbortSignal) {
+  return call("recent", async (id) => {
+    const { apiUrl, apiKey } = config();
+    const { data } = await createApiClient(apiUrl, apiKey, PAGE_TIMEOUT_MS).GET("/v1/answers/recent", {
+      params: { header: { "X-Session-ID": sid } },
+      signal,
+      headers: { "X-Request-ID": id },
+    });
+    if (!data) throw new TypeError("The recent answers had no body.");
+    return data;
+  });
+}
+
+/** Has the API forget this sign-in's answers; sign-out calls it and goes on whatever happens. */
+export function clearRecent(sid: string) {
+  return call("recent_clear", async (id) => {
+    const { apiUrl, apiKey } = config();
+    await createApiClient(apiUrl, apiKey, CLEAR_TIMEOUT_MS).DELETE("/v1/answers/recent", {
+      params: { header: { "X-Session-ID": sid } },
+      headers: { "X-Request-ID": id },
+    });
   });
 }

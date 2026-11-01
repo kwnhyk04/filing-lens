@@ -277,8 +277,9 @@ class _Held:
         raise UpstreamError("A held answer ends here.")
 
 
+@pytest.mark.parametrize("session", [None, "Zr4cC9cQ0vB5o2kq7nJ1xw"], ids=["anonymous", "session"])
 def test_one_stream_past_the_in_flight_cap_is_refused(
-    server_url: str, fake: Any, api_key: str, monkeypatch: pytest.MonkeyPatch
+    server_url: str, fake: Any, api_key: str, monkeypatch: pytest.MonkeyPatch, session: str | None
 ) -> None:
     held = _Held()
     redis = AsyncRedis.from_url("redis://0.0.0.0:1/0")  # never reached: answers stop at tracked()
@@ -288,7 +289,9 @@ def test_one_stream_past_the_in_flight_cap_is_refused(
         return pipeline.admit(request)
 
     monkeypatch.setattr(fake, "stream_answer", admit)  # the real admission behind the real route
-    url, headers = f"{server_url}/v1/answers/stream", {"X-API-Key": api_key}
+    # With a session, the stream asks its recent answers first (a miss), then the backend.
+    url = f"{server_url}/v1/answers/stream"
+    headers = {"X-API-Key": api_key} | ({"X-Session-ID": session} if session else {})
     with httpx2.Client(timeout=10) as client, ExitStack() as streams:
 
         def open_stream() -> httpx2.Response:

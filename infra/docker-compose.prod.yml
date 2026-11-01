@@ -144,7 +144,9 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false" # sign in with GRAFANA_ADMIN_PASSWORD
     ports: !override ["127.0.0.1:3111:3000"]
     networks: [monitoring, default]
-    deploy: { resources: { limits: { memory: 256M } } }
+    # Grafana 13.2 holds about 260 MB of its own and 400 MB in all once started (dev, 2026-11-01);
+    # at 256M it hit its limit thousands of times a minute and stalled (docs/deploy.md).
+    deploy: { resources: { limits: { memory: 512M } } }
 
   # Sends the alerts to Discord and email (infra/alertmanager, docs/deploy.md), with no route out of
   # its own: Discord through egress-proxy, mail through smtp-relay. entrypoint.sh hands it the four

@@ -989,6 +989,62 @@ tbody th {
   background: var(--sunk);
 }
 
+/* Recent questions under the answer: the samples' quiet outlined buttons, one a row, each with its time. */
+.recent {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.recent h2 {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.recent ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-color: var(--field);
+  background: var(--sheet);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.recent button:hover {
+  background: var(--sunk);
+}
+
+.recent span {
+  overflow-wrap: anywhere;
+}
+
+.recent time {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (width <= 40rem) {
+  .recent button {
+    min-height: 2.75rem;
+  }
+}
+
 /* The landing page: full-width bands, pale and white in turn, each holding the page column. */
 main.landing {
   display: block;

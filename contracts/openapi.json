@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "FilingLens API",
-    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\nOnly servers call this API: any request with an `Origin` header gets 403, on every route.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`\nonly when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker\nthat refused a job or could not be reached), and `ai_unavailable` when today's AI budget is used\nup (until 00:00 UTC), the budget cannot be checked, or the model providers are rate limited. An\n`ai_unavailable` without `Retry-After` does not clear by waiting: AI is switched off on this\nserver, or the last model refused the key, has no credits left or was retired. GraphQL's `answer`\nreports its limits as errors with `extensions.code`, without headers. GraphQL takes POST only.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
+    "description": "Answers analyst questions over SEC filings with citations you can check.\n\n**Keys.** Send `X-API-Key` on every route except `/healthz` and `/readyz`. `API_KEY` opens the\nnormal routes. `ADMIN_API_KEY` opens every route, and it is the only key for the admin routes\nunder `/v1/ingest-jobs`. A missing or unknown key gets 401; `API_KEY` on an admin route gets 403.\nOnly servers call this API: any request with an `Origin` header gets 403, on every route.\n\n**Errors.** Every error is an RFC 9457 problem (`application/problem+json`) with a stable `code`.\n429 carries `Retry-After`, `RateLimit-Limit` and `RateLimit-Remaining`. 503 carries `Retry-After`\nonly when waiting helps: `overloaded` (too many answers in progress, a busy reranker, or a broker\nthat refused a job or could not be reached), `transient` when a sign-in's recent questions cannot\nbe read or cleared, and `ai_unavailable` when today's AI budget is used\nup (until 00:00 UTC), the budget cannot be checked, or the model providers are rate limited. An\n`ai_unavailable` without `Retry-After` does not clear by waiting: AI is switched off on this\nserver, or the last model refused the key, has no credits left or was retired. GraphQL's `answer`\nreports its limits as errors with `extensions.code`, without headers. GraphQL takes POST only.\n\n**Pages.** List routes take `limit` (at most 100) and an opaque `cursor`. Send back `next_cursor`\nuntil it is null.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -122,7 +122,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -290,7 +290,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -461,7 +461,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -664,7 +664,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -866,7 +866,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -994,7 +994,7 @@
             }
           },
           "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "headers": {
               "Retry-After": {
                 "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
@@ -1048,17 +1048,58 @@
           "answers"
         ],
         "summary": "Stream Answer",
-        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry the answer's text as the model writes it, then one `completed` event\ncarries the whole answer after validation. The two agree unless validation rewrote the draft,\nand then the completed answer has warnings and replaces the streamed text. An error after the\nstream has started arrives as a `failed` event with a problem, and so does a stream still\nrunning after 30 s.",
+        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry the answer's text as the model writes it, then one `completed` event\ncarries the whole answer after validation. The two agree unless validation rewrote the draft,\nand then the completed answer has warnings and replaces the streamed text. An error after the\nstream has started arrives as a `failed` event with a problem, and so does a stream still\nrunning after 30 s.\n\nWith `X-Session-ID`, a completed answer that is not refused or degraded is kept for that\nsign-in, and the same question again (same words, ignoring case, spacing, curly quotes and\nclosing punctuation, over the same companies and years) gets it back at once as one\n`completed` event with `stored_at`, without a model call. `fresh=true` answers again.",
         "operationId": "stream_answer",
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Answer again, even when this sign-in has the answer already.",
+              "default": false,
+              "title": "Fresh"
+            },
+            "description": "Answer again, even when this sign-in has the answer already."
+          },
+          {
+            "name": "X-Session-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{22,64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).",
+              "title": "X-Session-Id"
+            },
+            "description": "The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes)."
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AnswerRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -1114,18 +1155,18 @@
           },
           "401": {
             "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
             "headers": {
               "WWW-Authenticate": {
                 "description": "Always APIKey.",
                 "schema": {
                   "type": "string"
-                }
-              }
-            },
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -1142,6 +1183,13 @@
           },
           "429": {
             "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
             "headers": {
               "RateLimit-Limit": {
                 "description": "Requests allowed per window.",
@@ -1161,29 +1209,22 @@
                   "type": "integer"
                 }
               }
-            },
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
             "content": {
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
                 }
               }
-            }
-          },
-          "503": {
-            "description": "Overloaded (overloaded), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            },
             "headers": {
               "Retry-After": {
                 "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
                 "schema": {
                   "type": "integer"
-                }
-              }
-            },
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
@@ -1208,7 +1249,17 @@
               }
             }
           }
-        },
+        }
+      }
+    },
+    "/v1/answers/recent": {
+      "get": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "List Recent Answers",
+        "description": "This sign-in's questions with their completed answers, newest first. Either key.\n\nAt most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.",
+        "operationId": "list_recent_answers",
         "security": [
           {
             "ApiKey": []
@@ -1216,7 +1267,263 @@
           {
             "AdminApiKey": []
           }
-        ]
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size (at most 100).",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "Page size (at most 100)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` from the previous page.",
+              "title": "Cursor"
+            },
+            "description": "`next_cursor` from the previous page."
+          },
+          {
+            "name": "X-Session-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22,64}$",
+              "description": "The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).",
+              "title": "X-Session-Id"
+            },
+            "description": "The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentAnswerPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable cursor (invalid_input). Start again without one.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "Clear Recent Answers",
+        "description": "Forget this sign-in's answers; the web does at sign-out. Either key.",
+        "operationId": "clear_recent_answers",
+        "security": [
+          {
+            "ApiKey": []
+          },
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Session-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22,64}$",
+              "description": "The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes).",
+              "title": "X-Session-Id"
+            },
+            "description": "The web's sign-in id. Answers are kept for that sign-in alone, and only for RECENT_ANSWERS_TTL_S (default 30 minutes)."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Forgotten."
+          },
+          "401": {
+            "description": "Missing or unknown API key (unauthorized).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always APIKey.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request (validation_failed); `errors` lists each input.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exhausted (rate_limited).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "description": "Requests allowed per window.",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "RateLimit-Remaining": {
+                "description": "Requests left in this window (0).",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Overloaded (overloaded), recent questions unreachable (transient), or no model call can be made (ai_unavailable): AI_ENABLED=false, today's AI token budget used up or not checkable, rate-limited providers, or a last model that refused the key, has no credits or was retired.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Absent when waiting will not help: AI is switched off, or the last model refused the key, has no credits or was retired.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/healthz": {
@@ -1354,12 +1661,26 @@
           },
           "answer": {
             "$ref": "#/components/schemas/Answer"
+          },
+          "stored_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored At",
+            "description": "When this sign-in got this answer earlier, for an answer from earlier (no model call made); null for a new answer."
           }
         },
         "type": "object",
         "required": [
           "type",
-          "answer"
+          "answer",
+          "stored_at"
         ],
         "title": "AnswerCompleted"
       },
@@ -2120,6 +2441,66 @@
         ],
         "title": "Reading",
         "description": "How the router read the question; the answer used this reading."
+      },
+      "RecentAnswer": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Stands for the question; the same question keeps its id."
+          },
+          "question": {
+            "type": "string",
+            "title": "Question",
+            "description": "As asked."
+          },
+          "answered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Answered At"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "answered_at",
+          "answer"
+        ],
+        "title": "RecentAnswer",
+        "description": "A question this sign-in asked, with the completed answer it got."
+      },
+      "RecentAnswerPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecentAnswer"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Send as `cursor` to get the next page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "RecentAnswerPage"
       },
       "SearchHit": {
         "properties": {

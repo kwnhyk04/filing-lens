@@ -2,21 +2,24 @@
 
 import asyncio
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, Security
 from fastapi.security import APIKeyHeader
 from fastapi.sse import EventSourceResponse
+from opentelemetry import trace
 from pydantic import SecretStr
 
 from filinglens_api import limits
 from filinglens_api.backend import AnswerEvents, BackendDep
 from filinglens_api.limits import answer_limits, rate_limit, timed_answer
 from filinglens_api.problems import problem_doc, problem_for, problems
+from filinglens_api.recent import RecentDep, Stored
 from filinglens_api.schemas import (
     Answer,
+    AnswerCompleted,
     AnswerEvent,
     AnswerFailed,
     AnswerRequest,
@@ -27,6 +30,7 @@ from filinglens_api.schemas import (
     IngestJobAccepted,
     IngestJobRequest,
     NoNul,
+    RecentAnswerPage,
     SearchPage,
 )
 from filinglens_core.errors import (
@@ -97,6 +101,16 @@ Limit = Annotated[int, Query(ge=1, le=100, description="Page size (at most 100).
 Cursor = Annotated[
     str | None, Query(max_length=1000, description="`next_cursor` from the previous page.")
 ]
+SESSION = Header(
+    alias="X-Session-ID",
+    pattern=r"^[A-Za-z0-9_-]{22,64}$",
+    description=(
+        "The web's sign-in id. Answers are kept for that sign-in alone, and only for"
+        " RECENT_ANSWERS_TTL_S (default 30 minutes)."
+    ),
+)
+SessionId = Annotated[str, SESSION]
+OptionalSessionId = Annotated[str | None, SESSION]
 
 
 @admin.post(
@@ -206,11 +220,28 @@ async def create_answer(body: AnswerRequest, backend: BackendDep) -> Answer:
     return await timed_answer(backend, body)
 
 
-async def _answer_events(body: AnswerRequest, backend: BackendDep) -> AsyncIterator[AnswerEvents]:
+async def _replay(stored: Stored) -> AsyncGenerator[AnswerCompleted, None]:
+    yield AnswerCompleted(answer=stored.answer, stored_at=stored.answered_at)
+
+
+async def _answer_events(
+    body: AnswerRequest,
+    backend: BackendDep,
+    recent: RecentDep,
+    session_id: OptionalSessionId = None,
+    fresh: Annotated[
+        bool, Query(description="Answer again, even when this sign-in has the answer already.")
+    ] = False,
+) -> AsyncIterator[AnswerEvents]:
     # A dependency runs before the response starts, so admission errors keep their status code.
     # Its teardown runs after the response, so the answer's in-flight slot comes back even when
     # the client leaves before the first event.
-    events = await backend.stream_answer(body)
+    stored = await recent.get(session_id, body) if session_id is not None and not fresh else None
+    if stored is not None:  # no in-flight slot and no model call
+        trace.get_current_span().set_attribute("filinglens.answer.stored", True)
+        events: AnswerEvents = _replay(stored)
+    else:
+        events = await backend.stream_answer(body)
     try:
         yield events
     finally:
@@ -227,7 +258,10 @@ async def _answer_events(body: AnswerRequest, backend: BackendDep) -> AsyncItera
     responses=problems(413, 502),
 )
 async def stream_answer(
+    body: AnswerRequest,  # this name, as in _answer_events, keeps the body unembedded
     events: Annotated[AnswerEvents, Depends(_answer_events, scope="request")],
+    recent: RecentDep,
+    session_id: OptionalSessionId = None,
 ) -> AsyncIterator[AnswerEvent]:
     """POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.
 
@@ -236,12 +270,24 @@ async def stream_answer(
     and then the completed answer has warnings and replaces the streamed text. An error after the
     stream has started arrives as a `failed` event with a problem, and so does a stream still
     running after 30 s.
+
+    With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
+    sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
+    closing punctuation, over the same companies and years) gets it back at once as one
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
     """
     deadline = asyncio.get_running_loop().time() + limits.ANSWER_TIMEOUT_S
     try:
         while True:
             async with asyncio.timeout_at(deadline):  # never around a yield
                 event = await anext(events)
+            if (
+                session_id is not None
+                and isinstance(event, AnswerCompleted)
+                and event.stored_at is None  # a new answer, not one from earlier
+                and not (event.answer.refused or event.answer.degraded)
+            ):
+                await recent.put(session_id, body, event.answer)  # past the deadline's reach
             yield event
     except StopAsyncIteration:
         return
@@ -250,3 +296,28 @@ async def stream_answer(
         yield AnswerFailed(problem=problem_for(timeout))
     except FilingLensError as exc:
         yield AnswerFailed(problem=problem_for(exc))
+
+
+@router.get(
+    "/answers/recent", tags=["answers"], response_model=RecentAnswerPage, responses=problems(400)
+)
+async def list_recent_answers(
+    session_id: SessionId, recent: RecentDep, limit: Limit = 10, cursor: Cursor = None
+) -> RecentAnswerPage:
+    """This sign-in's questions with their completed answers, newest first. Either key.
+
+    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+    """
+    return await recent.page(session_id, limit, cursor)
+
+
+@router.delete(
+    "/answers/recent",
+    tags=["answers"],
+    status_code=204,
+    response_class=Response,
+    response_description="Forgotten.",
+)
+async def clear_recent_answers(session_id: SessionId, recent: RecentDep) -> None:
+    """Forget this sign-in's answers; the web does at sign-out. Either key."""
+    await recent.clear(session_id)

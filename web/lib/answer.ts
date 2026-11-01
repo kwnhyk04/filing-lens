@@ -7,6 +7,7 @@ type Schemas = components["schemas"];
 export type Answer = Schemas["Answer"];
 export type AnswerEvent = Schemas["AnswerDelta"] | Schemas["AnswerCompleted"] | Schemas["AnswerFailed"];
 export type Reading = Schemas["Reading"];
+export type RecentAnswer = Schemas["RecentAnswer"];
 type Citation = Answer["citations"][number];
 
 /** The chunk or the fact a citation names, once the sources have loaded. */
@@ -171,6 +172,13 @@ export function timingLine(firstWordsMs: number | undefined, completeMs: number,
   const line = parts.join(" · ");
   return line[0].toUpperCase() + line.slice(1);
 }
+
+/** "2:02 PM": the clock time of an ISO instant, in the browser's time zone unless one is given. */
+export const clockTime = (iso: string, timeZone?: string) =>
+  new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone }).format(new Date(iso));
+
+/** "From earlier in this session · 2:02 PM": an answer given again, without a model call. */
+export const storedLine = (storedAt: string, timeZone?: string) => `From earlier in this session · ${clockTime(storedAt, timeZone)}`;
 
 /** The answer as copied: its text with the markers, then each source's name (once its card loaded), quote and link. */
 export function answerWithSources(answer: Answer, labels: (string | undefined)[]): string {
