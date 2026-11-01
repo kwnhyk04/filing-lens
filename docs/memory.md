@@ -972,6 +972,24 @@ From Recent questions (2026-11-01, branch `recent-questions` from main at 0bfb84
 - 2026-11-01: Pitfall: Git Bash rewrites a `/tmp/...` argument of `docker exec` into `H:/.tmp/...` (MSYS path conversion), so the drill's first `pg_restore` could not open its file and nothing changed. `MSYS_NO_PATHCONV=1`, with host paths written `H:/...`, fixed it. PowerShell, which the runbook uses, has no such rewrite.
 - 2026-11-01: Compose's `up -d --no-deps grafana` also created the project's empty `prometheus-data` volume. Its removal by name was refused by the session's safety check; it stays, empty, for the user to remove or for monitoring's next start to use.
 
+From landing round 1 (2026-11-02, branch `landing-round-1` from main at 58baddd, uncommitted):
+
+- 2026-11-02: Landing round 1: header, hero and logo (user: "FL landing, round 1 of 2"). The first paste held 21st.dev's hero4 ("Bag\Ui") code under the name Prompt Bond, and two files it named were missing (`_tmp/21st/h5-hero.png`, `_tmp/logos/fl-logo-sheet.png`). Prompt Bond's source sits behind a 21st API key (its registry answered 403; the public page shows only the demo wrapper), so work stopped there and the user was asked. Their answer: hero4 is for the header only, Prompt Bond's prompt pasted in full, and the logo comes from `filing-lens-logo.png` (variant #6, cropped).
+- 2026-11-02: Decisions taken without the user, listed in the report:
+  - No Tailwind, shadcn, clsx, tailwind-merge or lucide-react, and no `components/ui/`: FilingLens styles with plain CSS tokens and keeps components in `web/components/`, so Prompt Bond's Tailwind classes became CSS and its icons inline Lucide's geometry.
+  - Packages pinned at releases at least two weeks old: motion 14.3.0 (14.9.0 was three days old), three 0.186.1 (0.187.0 likewise), @react-three/fiber 9.8.2, @shadergradient/react 2.4.20.
+  - The story is x12, two cited passages; n01, the old hero, cites an XBRL fact and has no passage to slide in.
+  - System fonts stay (design.md): Prompt Bond's fonts come from cdn.21st.dev, which `font-src 'self'` blocks. The headline uses Segoe UI Variable Display, a variable system face on Windows 11, so the pointer's weights still work there.
+  - The still is the story's end, in HTML; the moving story starts from the question after the load. Phones get no WebGL at all, the membrane included.
+  - The hero's two calls to action and its offline note went; the header has Sign in and "Open the demo".
+- 2026-11-02: Pitfall: `--mark` is already the highlighter's colour token, so the logo keeps `--logo` (the `.result` lesson again: search a name before using it).
+- 2026-11-02: Pitfall: the CSP's `style-src` has a nonce and no `'unsafe-inline'`, so a style attribute in server HTML or an injected `<style>` is blocked. Prompt Bond relies on both (a hoisted `<style>`, inline font weights). Its CSS moved to `hero-live.css`, the still carries no style attribute, and only scripts set styles (CSSOM, which the CSP allows). The e2e CSP guard catches a regression.
+- 2026-11-02: Pitfall: the app headers' phone rule `.brand { flex: 1 1 100% }` (the name on its own row) made the landing header 476 px wide at 390. The e2e phone check caught it; `.landing-head .brand { flex: none }` fixed it.
+- 2026-11-02: Pitfall: headless Chromium has WebGL only with `--enable-unsafe-swiftshader`, and only in software. The moving story then crawled (each frame counts at most 40 ms of story time), and four workers running it starved the machine, so unrelated tests timed out. The landing spec now runs with reduced motion except its one moving-story test; Playwright takes `launchOptions` only at a file's top level. Screenshots of the moving hero use headless Edge (`channel: "msedge"`), which draws on the GPU; the story then ran in about 20 s.
+- 2026-11-02: Pitfall: WebGL work starting right after the load event held the first paint past it (desktop FCP 500 ms, in software WebGL). Prompt Bond's own field waits two frames before mounting, so the loader now waits two frames after the load event, then idle time (FCP 312 ms).
+- 2026-11-02: ShaderGradient fetches HDR maps from `ruucm.github.io` only for `lightType: "env"`; Prompt Bond's `"3d"` uses an ambient light, so nothing is fetched from another site. An e2e test checks every request's origin.
+- 2026-11-02: FilingLens's Gemini key has been in its own Google project since 2026-10-31 (user), so it no longer shares Triage Copilot's quota (deploy.md step 28).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

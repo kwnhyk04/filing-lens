@@ -1,28 +1,30 @@
 /* The mockup's look (docs/design.md): white cards on a pale green-grey page, one green accent, a serif
    answer with highlighted figures, and its sources in a panel beside it. Text pairs keep 4.5:1; field
-   borders and the focus ring keep 3:1. */
+   borders and the focus ring keep 3:1. Each colour is light-dark(light, dark), and `color-scheme` picks:
+   the system's, or Light or Dark from the landing header, which the root layout writes as `data-theme`
+   on <html> from the fl-theme cookie. */
 :root {
   color-scheme: light dark;
-  --paper: #f4f5f2;
-  --sheet: #ffffff;
-  --sunk: #f0f2ee;
-  --ink: #1b1f1d;
-  --ink-2: #444b47;
-  --ink-3: #5f6763;
-  --rule: #e2e5e0;
-  --field: #7b847f;
-  --accent: #0f5f4b;
-  --tint: #e3f1ec;
-  --on-accent: #ffffff;
-  --mark: #fcefc0;
-  --on-mark: #1b1f1d;
-  --mark-line: #9a6a00;
-  --note-bg: #fdf1dc;
-  --note-ink: #7a4d00;
-  --note-rule: #ecd3a0;
-  --bad-bg: #fbeceb;
-  --bad-ink: #9b1c1c;
-  --bad-rule: #f0c4c1;
+  --paper: light-dark(#f4f5f2, #121514);
+  --sheet: light-dark(#ffffff, #191d1b);
+  --sunk: light-dark(#f0f2ee, #1f2422);
+  --ink: light-dark(#1b1f1d, #e6e9e7);
+  --ink-2: light-dark(#444b47, #c3c9c5);
+  --ink-3: light-dark(#5f6763, #9aa39e);
+  --rule: light-dark(#e2e5e0, #2b312e);
+  --field: light-dark(#7b847f, #7c8681);
+  --accent: light-dark(#0f5f4b, #5fcfae);
+  --tint: light-dark(#e3f1ec, #173129);
+  --on-accent: light-dark(#ffffff, #0b1f19);
+  --mark: light-dark(#fcefc0, #4a3f14);
+  --on-mark: light-dark(#1b1f1d, #fbefc6);
+  --mark-line: light-dark(#9a6a00, #e0b54f);
+  --note-bg: light-dark(#fdf1dc, #2d2413);
+  --note-ink: light-dark(#7a4d00, #f2c879);
+  --note-rule: light-dark(#ecd3a0, #5b4520);
+  --bad-bg: light-dark(#fbeceb, #36191a);
+  --bad-ink: light-dark(#9b1c1c, #ffb3ad);
+  --bad-rule: light-dark(#f0c4c1, #6b2a28);
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "Iowan Old Style", Charter, "Sitka Text", Cambria, Georgia, serif;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -30,32 +32,23 @@
   --gutter: 4rem;
   --radius: 6px;
   --radius-card: 8px;
-  /* The mark, a filing under a magnifier: a mask, so it takes the accent colour and adds no text. */
-  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 21H6.5A1.5 1.5 0 0 1 5 19.5v-15A1.5 1.5 0 0 1 6.5 3H14l5 5v3M14 3v5h5M8.5 12h4M8.5 15.5h2'/%3E%3Ccircle cx='16.5' cy='16.5' r='3'/%3E%3Cpath d='m18.7 18.7 2.3 2.3'/%3E%3C/svg%3E");
+  /* The mark (lib/logo.ts, docs/brand): ink arcs and pills round a teal bar. Light here, dark below; no
+     text, so it adds nothing to a link's name. */
+  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%230F1B2D' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%230D9488' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%23FAF8F3' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%232DD4BF' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #121514;
-    --sheet: #191d1b;
-    --sunk: #1f2422;
-    --ink: #e6e9e7;
-    --ink-2: #c3c9c5;
-    --ink-3: #9aa39e;
-    --rule: #2b312e;
-    --field: #7c8681;
-    --accent: #5fcfae;
-    --tint: #173129;
-    --on-accent: #0b1f19;
-    --mark: #4a3f14;
-    --on-mark: #fbefc6;
-    --mark-line: #e0b54f;
-    --note-bg: #2d2413;
-    --note-ink: #f2c879;
-    --note-rule: #5b4520;
-    --bad-bg: #36191a;
-    --bad-ink: #ffb3ad;
-    --bad-rule: #6b2a28;
+  :root:not([data-theme="light"]) {
+    --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%23FAF8F3' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%232DD4BF' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
   }
 }
 
@@ -176,10 +169,9 @@ code {
 .brand::before,
 main.narrow::before {
   content: "";
-  width: 1.375rem;
-  height: 1.375rem;
-  background: var(--accent);
-  mask: var(--logo) center / contain no-repeat;
+  width: 2rem;
+  aspect-ratio: 43 / 30;
+  background: var(--logo) center / contain no-repeat;
 }
 
 .site nav {
@@ -283,8 +275,7 @@ main.narrow {
 }
 
 main.narrow::before {
-  width: 2rem;
-  height: 2rem;
+  width: 3rem;
 }
 
 .stack {
@@ -1065,20 +1056,11 @@ main.landing {
   border-block: 1px solid var(--rule);
 }
 
-.landing h1,
 .landing h2 {
   font-family: var(--serif);
+  font-size: 2.25rem;
   font-weight: 500;
   letter-spacing: -0.02em;
-}
-
-.landing h1 {
-  font-size: 3.25rem;
-  line-height: 1.1;
-}
-
-.landing h2 {
-  font-size: 2.25rem;
   line-height: 1.2;
 }
 
@@ -1088,109 +1070,6 @@ main.landing {
 }
 
 .landing .small {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
-}
-
-.hero {
-  align-items: center;
-  column-gap: 4rem;
-}
-
-.hero-text {
-  display: grid;
-  gap: 1.25rem;
-}
-
-.eyebrow {
-  color: var(--accent);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.lead {
-  max-width: 36rem;
-  color: var(--ink-2);
-  font-size: 1.0625rem;
-  line-height: 1.65;
-}
-
-.cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.cta .button {
-  padding: 0.625rem 1.125rem;
-}
-
-/* The second call to action: outlined, like Sign out. */
-.button.quiet {
-  border-color: var(--field);
-  background: var(--sheet);
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.button.quiet:hover {
-  background: var(--sunk);
-}
-
-/* The hero's saved answer: the answer card, lifted by a soft shadow as in the mockup. */
-.sample {
-  display: grid;
-  margin: 0;
-  background: var(--sheet);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-card);
-  box-shadow: 0 1.25rem 2.5rem -1.5rem rgb(0 0 0 / 0.3);
-}
-
-.sample-question {
-  padding: 0.875rem 1.25rem;
-  border-bottom: 1px solid var(--rule);
-  font-weight: 500;
-}
-
-.sample .answer-text {
-  padding: 1.25rem 1.25rem 0;
-}
-
-.sample-source {
-  display: grid;
-  gap: 0.375rem;
-  margin: 1rem 1.25rem 0;
-  padding: 0.75rem 1rem;
-  background: var(--sunk);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  font-size: 0.8125rem;
-}
-
-.sample-source:target {
-  background: var(--tint);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.sample-name {
-  font-weight: 600;
-}
-
-.sample-quote {
-  color: var(--ink-2);
-  font-family: var(--mono);
-}
-
-.sample-check {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.sample figcaption {
-  padding: 0.75rem 1.25rem 1rem;
   color: var(--ink-3);
   font-size: 0.8125rem;
 }
@@ -1278,10 +1157,6 @@ main.landing {
 }
 
 @media (width >= 64rem) {
-  .landing > .hero {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  }
-
   .steps {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -1294,10 +1169,6 @@ main.landing {
 @media (width <= 40rem) {
   .landing > section {
     padding-block: 2.5rem;
-  }
-
-  .landing h1 {
-    font-size: 2.375rem;
   }
 
   .landing h2 {

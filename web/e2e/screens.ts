@@ -10,10 +10,11 @@ import { ask, audit, expect, signIn, test } from "./fixtures.ts";
 const DIR = process.env.SCREENS_DIR ?? "../docs/screenshots/ui";
 const TOP_ONLY = new Set(["offline"]); // below its banner it is the demo page, shot in full as "demo"
 
+// Reduced motion: the landing's hero stays the still, so its shots come out the same every run.
 const VARIANTS = [
-  { name: "light", viewport: { width: 1280, height: 800 }, colorScheme: "light" },
-  { name: "dark", viewport: { width: 1280, height: 800 }, colorScheme: "dark" },
-  { name: "phone", viewport: { width: 390, height: 844 }, colorScheme: "light" },
+  { name: "light", viewport: { width: 1280, height: 800 }, colorScheme: "light", reducedMotion: "reduce" },
+  { name: "dark", viewport: { width: 1280, height: 800 }, colorScheme: "dark", reducedMotion: "reduce" },
+  { name: "phone", viewport: { width: 390, height: 844 }, colorScheme: "light", reducedMotion: "reduce" },
 ] as const;
 
 /** An answer whose card `n` has loaded its source, which names `ticker`. */
@@ -98,7 +99,7 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
 
 for (const variant of VARIANTS) {
   test.describe(variant.name, () => {
-    test.use({ viewport: variant.viewport, colorScheme: variant.colorScheme });
+    test.use({ viewport: variant.viewport, colorScheme: variant.colorScheme, reducedMotion: variant.reducedMotion });
     for (const [screen, open] of Object.entries(SCREENS)) {
       test(screen, async ({ page }) => {
         await open(page);

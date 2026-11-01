@@ -1,9 +1,6 @@
 // The landing page's results table, from the official eval report's Markdown: the report's own target,
 // result and pass or fail for each row, in the page's words and units.
 
-/** The demo answer the hero shows. */
-export const SAMPLE = "n01";
-
 type Unit = "share" | "ms" | "usd";
 
 // Each row's label in the report, its label here, its unit, and whether its target is a ceiling.
