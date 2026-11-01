@@ -6,10 +6,18 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-01) **Scan fix on `golden-v2`** (the user's call: this branch, not its own PR from main). CI's security job: graphql-core 3.3.0 (CVE-2026-119286) and pyasn1 0.6.4 (CVE-2026-119194 to 119197), 5 HIGH in `uv.lock`. Fixed by upgrading, no ignore entries. Both releases were inside Dependabot's 7-day cooldown and were taken as a security exception (user).
+- [ ] (user, 2026-11-01) **answer-log-privacy** (branch from main at 104f3d5; bug-fix-first, found while planning Recent questions). The regenerate and router-retry log lines quoted draft sentences and the router's tickers; they now log counts, and redaction covers session ids.
+  - [x] Tests first: two log-capture tests and a redaction test, red then green.
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 576.
+  - [ ] (user) confirm the `eval-calls-*` cache, then ship.
+- [ ] (after answer-log-privacy ships) **Recent questions** on Ask (plan approved 2026-11-01), on branch `recent-questions` from the updated main.
+  - This sign-in's last 10 questions, each with its stored answer, kept in Redis for `RECENT_ANSWERS_TTL_S` (default 30 min).
+  - A stored answer replays without a model call; "Ask again" asks fresh.
+  - The list is cleared on sign-out. The cookie moves to v2, which carries a session id.
+- [x] (user, 2026-11-01) **Scan fix on `golden-v2`**, merged with golden-v2 as #40 (104f3d5, git log) (the user's call: this branch, not its own PR from main). CI's security job: graphql-core 3.3.0 (CVE-2026-119286) and pyasn1 0.6.4 (CVE-2026-119194 to 119197), 5 HIGH in `uv.lock`. Fixed by upgrading, no ignore entries. Both releases were inside Dependabot's 7-day cooldown and were taken as a security exception (user).
   - [x] `uv lock --upgrade-package graphql-core --upgrade-package pyasn1`, header back to `revision = 3`; `uv lock --check` exits 0; `uv sync` changed only the two.
   - [x] Checks: `make vuln-scan` 0 on all three lockfiles (the pre-fix lock showed the 5 HIGH); `make test` 573; `make typecheck` 0.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged with golden-v2 as #40.
 - [x] (user, 2026-10-24) **next-security**, merged as #27 (5c62f7f, git log) (branch `next-security` from main at fe90d5f). CI's vuln-scan: next 16.3.8 (GHSA-2464-fhr4-w9xw and GHSA-673q-mjm6-r5xr CRITICAL, CVE-2026-94482 HIGH), filelock 4.1.1 and virtualenv 21.14.7 (HIGH, dev-only). Fixed by upgrading, no ignore entries.
   - [x] next 16.4.1; `uv lock --upgrade-package filelock --upgrade-package virtualenv`, header back to `revision = 3`.
   - [x] Checks: the three Trivy scans 0; `make lint` clean; `make test` 418; web typecheck, `npm test` 84, build, Playwright 72.

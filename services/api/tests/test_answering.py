@@ -51,6 +51,7 @@ from filinglens_llm.providers import (
 from filinglens_llm.validate import citation_error
 from filinglens_retrieval import Hit, Ranking, Scope
 from filinglens_retrieval.facts import Fact
+from filinglens_telemetry import configure_logging
 
 FIXTURES = Path(__file__).parent / "fixtures" / "answers"
 GEMINI = "generativelanguage.googleapis.com"
@@ -417,18 +418,23 @@ async def test_out_of_scope_and_time_traps_are_refused_without_an_answer_call(
     assert not gemini.called
 
 
-async def test_a_sentence_with_an_unsupported_number_is_removed_after_one_regeneration(
-    mocked: respx.MockRouter,
-) -> None:
-    recorded = fixture("textual")
-    replay(mocked, recorded["exchanges"][:1])  # the router's reply
+def with_unsupported_amount(mocked: respx.MockRouter) -> respx.Route:
+    """The textual draft plus a sentence whose amount no source holds, written again unchanged;
+    returns the regeneration's route."""
+    replay(mocked, fixture("textual")["exchanges"][:1])  # the router's reply
     text = reply_text(textual_exchanges()[1]["body"])
     answer_part, sources = text.split("Sources:", 1)
     bad = " Apple paid its suppliers $999.9 billion [C1]."
     doctored = f"{answer_part.rstrip()}{bad}\n\nSources:{sources}"
     mocked.post(host=GEMINI, path=STREAM).mock(return_value=gemini_stream(doctored))
     path = STREAM.replace("streamGenerateContent", "generateContent")
-    regenerate = mocked.post(host=GEMINI, path=path).mock(return_value=gemini_json(doctored))
+    return mocked.post(host=GEMINI, path=path).mock(return_value=gemini_json(doctored))
+
+
+async def test_a_sentence_with_an_unsupported_number_is_removed_after_one_regeneration(
+    mocked: respx.MockRouter,
+) -> None:
+    regenerate = with_unsupported_amount(mocked)
     answer, _, _ = await run("textual")
     assert regenerate.call_count == 1
     assert "999.9" not in answer.answer and answer.citations
@@ -437,6 +443,18 @@ async def test_a_sentence_with_an_unsupported_number_is_removed_after_one_regene
         "The draft failed validation, so the answer was written again.",
         "Removed 1 sentence(s) whose citations or amounts did not check out.",
     ]
+
+
+async def test_a_regeneration_logs_how_many_sentences_failed_but_not_the_question_or_draft(
+    mocked: respx.MockRouter, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with_unsupported_amount(mocked)
+    configure_logging("api")  # its handler writes to the captured stdout
+    await run("textual")
+    out = capsys.readouterr().out
+    assert fixture("textual")["question"] not in out and "999.9" not in out
+    regenerating = [json.loads(line) for line in out.splitlines() if "regenerating" in line]
+    assert [line["problems"] for line in regenerating] == [1]
 
 
 async def test_a_marker_naming_no_source_is_sent_back_and_never_shown(
@@ -821,6 +839,20 @@ async def test_an_untracked_ticker_gets_one_retry_with_the_reason(mocked: respx.
     assert "APPL are not on the list" in request["messages"][1]["content"]
     tickers = request["response_format"]["json_schema"]["schema"]["properties"]["tickers"]
     assert tickers["items"]["enum"] == sorted(TRACKED)
+
+
+async def test_a_router_retry_logs_how_many_rules_broke_but_not_the_tickers(
+    mocked: respx.MockRouter, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded = fixture("numeric")
+    mocked.post(host=GROQ).mock(side_effect=[router_reply(tickers=["APPL"]), router_reply()])
+    replay(mocked, recorded["exchanges"][1:])
+    configure_logging("api")  # its handler writes to the captured stdout
+    await run("numeric")
+    out = capsys.readouterr().out
+    assert "APPL" not in out and recorded["question"] not in out
+    retries = [json.loads(line) for line in out.splitlines() if "broke the rules" in line]
+    assert [line["problems"] for line in retries] == [1]
 
 
 async def test_a_ticker_still_untracked_after_the_retry_is_refused(

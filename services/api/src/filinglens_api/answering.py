@@ -310,7 +310,8 @@ class Answerer:
         async def route(provider: Provider) -> router.Routing:
             routing = router.resolve(await ask(provider, question), companies)
             if problems := router.problems(routing, companies):  # once; _plan refuses the rest
-                log.info("router reply broke the rules, asking again", problems=problems)
+                # A count only: the problems name the tickers the model chose.
+                log.info("router reply broke the rules, asking again", problems=len(problems))
                 retry = router.retry_prompt(question, problems)
                 routing = router.resolve(await ask(provider, retry), companies)
             if named := router.second_look(routing, question, companies):  # its reply stands
@@ -413,7 +414,8 @@ class Answerer:
         checked = drafting.check(reply, by_alias)
         warnings: list[str] = []
         if not reply.insufficient and checked.problems:
-            log.info("answer failed validation, regenerating", problems=checked.problems)
+            # A count only: each problem quotes the draft sentence it found.
+            log.info("answer failed validation, regenerating", problems=len(checked.problems))
 
             async def redo(provider: Provider) -> Completion:
                 completion = await provider.complete(

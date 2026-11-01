@@ -39,3 +39,23 @@ def test_json_lines_carry_context_and_redact_credentials(
     assert ours["headers"] == {"Authorization": REDACTED, "Accept": "*/*"}
     assert uvicorn["event"] == f"GET /graphql?key={REDACTED} 200"
     assert uvicorn["request_id"] == "req-1"
+
+
+def test_session_ids_are_redacted_like_credentials(capsys: pytest.CaptureFixture[str]) -> None:
+    session = "s" * 22
+    configure_logging("api")
+    try:
+        structlog.get_logger("filinglens").info(
+            "asked",
+            session_id=session,
+            headers={"X-Session-ID": session, "Accept": "*/*"},
+            sessions=3,  # a count, not an id: it stays
+        )
+    finally:
+        structlog.reset_defaults()
+        logging.getLogger().handlers.clear()
+    line = json.loads(capsys.readouterr().out)
+    assert session not in json.dumps(line)
+    assert line["session_id"] == REDACTED
+    assert line["headers"] == {"X-Session-ID": REDACTED, "Accept": "*/*"}
+    assert line["sessions"] == 3

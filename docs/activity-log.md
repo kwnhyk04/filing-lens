@@ -15,6 +15,30 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-01: Answer-path logs leave out draft sentences and the router's tickers (uncommitted, branch `answer-log-privacy`)
+
+- Changes, on `answer-log-privacy` from main at 104f3d5. This follows the bug-fix-first rule: the weakness was found while planning Recent questions, and the fix was approved with that plan.
+  - `services/api/src/filinglens_api/answering.py`: the router-retry and regenerate lines log `problems=len(...)` instead of the problems, which quote draft sentences and name tickers.
+  - `packages/telemetry/src/filinglens_telemetry/__init__.py`: `SENSITIVE_KEY` also matches `session`, `session_id` and `x-session-id`.
+  - Tests:
+    - two log-capture tests in `test_answering.py`, sharing a `with_unsupported_amount` helper that the existing regeneration test now uses too;
+    - one redaction test in `test_logging.py`.
+  - Docs: memory (Solved Problems), todo, this log.
+- Small events, in order:
+  1. **Base:** an anonymous `git fetch origin main` (credential helper off) showed GitHub's main at 104f3d5, the same as local main. The branch was made from it with `--no-track`.
+  2. **Gates:** GateGuard held the first edit of each test file, of `answering.py`, of the telemetry module and of these docs until their facts were given.
+     - In one parallel batch it held the first `answering.py` edit but let the second through.
+     - The held edit was retried on its own.
+  3. **Red first:** the regeneration test failed on the quoted draft sentence ("…$999.9 billion [C1]."), the router test on `APPL`, and the redaction test on the session id.
+  4. **My mistake, a filter:** the first red run used `-k` across both files, which deselected the redaction test. It was then run on its own.
+  5. **Nothing live:** no model, SEC or container call.
+- Files: `services/api/src/filinglens_api/answering.py`, `packages/telemetry/src/filinglens_telemetry/__init__.py`, `services/api/tests/test_answering.py`, `packages/telemetry/tests/test_logging.py`; `docs/{memory,todo,activity-log}.md`.
+- Validation: `make lint` clean (164 files formatted); `make typecheck` 0 errors; `make test` 576 passed (52 deselected).
+- Eval check:
+  - `answering.py` and `packages/telemetry/src` are in CI's `EVAL_INPUTS`, so CI's eval runs.
+  - Only log lines changed: no prompt, routing or answer. So every reply cache key is main's, and CI replays its cache.
+- Outstanding: the user confirms the `eval-calls-*` cache and ships. Then PR 2 (Recent questions) starts from the updated main.
+
 ### 2026-11-01: graphql-core 3.3.1 and pyasn1 0.6.5 for CI's security job, fixed at the source (uncommitted, branch `golden-v2`)
 
 - Changes, on `golden-v2` after 98b6f2d (the user's request: fix it on this branch; CI's security job failed on 5 HIGH in `uv.lock`):
