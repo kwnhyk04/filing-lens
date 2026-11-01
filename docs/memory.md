@@ -1026,6 +1026,20 @@ From PR 7, Claude first everywhere (2026-10-31, the same branch `golden-v2`, unc
 
 ## Solved Problems
 
+- 2026-11-01: Two answer-path log lines carried model-written text (found while planning Recent questions; fixed first on `answer-log-privacy`, under the bug-fix-first rule).
+  - **Problem:**
+    - `answering.py`'s "answer failed validation, regenerating" logged `problems=checked.problems`. Each problem quotes the draft sentence it found (`answer.py:160`), for example `"Apple paid its suppliers $999.9 billion [C1].": the amount … is not in the sources it cites`.
+    - "router reply broke the rules, asking again" logged the router's problems, which name the tickers the model chose.
+    - No test captured the answer path's logs, so nothing pinned that questions and answers stay out of them.
+  - **Fix:**
+    - Both lines log the count (`problems=len(...)`). The problems still go to the model in its retry prompt.
+    - The redaction regex also covers `session`, `session_id` and `X-Session-ID`, as defence in depth for Recent questions' header. `sessions=3`, a count, stays visible.
+  - **Tests:**
+    - `test_a_regeneration_logs_how_many_sentences_failed_but_not_the_question_or_draft` and `test_a_router_retry_logs_how_many_rules_broke_but_not_the_tickers` (capsys plus `configure_logging("api")`).
+    - `test_session_ids_are_redacted_like_credentials`.
+    - All three failed first, on the draft sentence, `APPL` and the session id in the output, then passed.
+  - **Lesson:** a problem list written for the model quotes user or model text. Log its length, never its items.
+
 - 2026-10-25: Ask sent a session that ended mid-question to `/login?next=/`, which became the landing page with #29 (found while planning mockup features 2; fixed first on `ask-sign-in-return`, under the bug-fix-first rule).
   - **Cause, my mistake in #29:** moving Ask to `/ask`, I searched for quoted `"/"` paths (`["'`]/["'`?]`). That missed `"/login?next=/"`, whose last slash follows `=`, not a quote. Ask still worked; only the return after signing in again was lost.
   - **Fix:** `ask.tsx` sends a 401 from `/api/answers` to `/login?next=%2Fask`, the proxy's own form.

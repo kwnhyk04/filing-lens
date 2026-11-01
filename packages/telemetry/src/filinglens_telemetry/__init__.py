@@ -15,9 +15,9 @@ from opentelemetry import trace
 from structlog.types import EventDict, Processor, WrappedLogger
 
 REDACTED = "[REDACTED]"
-# Credential-bearing field and header names; counters such as input_tokens stay visible.
+# Credential-bearing field and header names, and session ids; counters such as input_tokens stay.
 SENSITIVE_KEY = re.compile(
-    r"(^|[-_])(authorization|cookie|api[-_]?key|password|secret|token)$", re.I
+    r"(^|[-_])(authorization|cookie|api[-_]?key|password|secret|token|session([-_]?id)?)$", re.I
 )
 PARAMETER = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,23}")  # a query parameter's name
 
