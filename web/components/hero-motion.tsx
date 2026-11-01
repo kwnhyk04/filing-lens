@@ -1,15 +1,23 @@
 "use client";
 // Loads the hero's moving story once the page has loaded and the browser is idle, and only on a desktop:
-// a wide screen with a fine pointer, motion allowed, and WebGL. Everyone else keeps the still.
+// a wide screen with a fine pointer, motion allowed, and WebGL on a graphics card. Everyone else keeps the
+// still, and the hero says which it got in `data-motion` ("live" or "still").
 import { type ComponentType, useEffect, useState } from "react";
+
+import { softwareRenderer } from "../lib/motion.ts";
 
 const DESKTOP = "(min-width: 64rem) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
 
-function webgl(): boolean {
+/** WebGL that a graphics card draws: refused when the browser reports a major performance caveat, or when
+    the renderer is a software one (SwiftShader, llvmpipe, Windows' basic driver), which the flag lets by. */
+function fastWebgl(): boolean {
   try {
-    const gl = document.createElement("canvas").getContext("webgl");
-    gl?.getExtension("WEBGL_lose_context")?.loseContext(); // the probe gives its context back at once
-    return gl !== null;
+    const gl = document.createElement("canvas").getContext("webgl", { failIfMajorPerformanceCaveat: true });
+    if (!gl) return false;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    gl.getExtension("WEBGL_lose_context")?.loseContext(); // the probe gives its context back at once
+    return !softwareRenderer(renderer);
   } catch {
     return false;
   }
@@ -25,7 +33,10 @@ export function HeroMotion() {
     let timer = 0;
     let frame = 0;
     const load = () => {
-      if (cancelled || !webgl()) return;
+      if (cancelled) return;
+      const fast = fastWebgl();
+      document.querySelector<HTMLElement>(".hero")?.setAttribute("data-motion", fast ? "live" : "still");
+      if (!fast) return;
       import("./hero-live.tsx").then((module) => {
         if (!cancelled) setLive(() => module.HeroLive);
       });

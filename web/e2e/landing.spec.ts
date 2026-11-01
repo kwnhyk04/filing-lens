@@ -7,6 +7,7 @@ import type { Page } from "@playwright/test";
 
 import type { Snapshot } from "../lib/demo.ts";
 import { evalDate, resultRows } from "../lib/landing.ts";
+import { softwareRenderer } from "../lib/motion.ts";
 import { heroStory } from "../lib/story.ts";
 import { LIVE, OFFLINE, snapshot } from "./env.ts";
 import { audit, expect, noSidewaysScroll, signedOut, signIn, test } from "./fixtures.ts";
@@ -30,10 +31,9 @@ const RUNS = [
 const story = heroStory(JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as Snapshot);
 const REPO = "https://github.com/kwnhyk04/filing-lens";
 
-// The software WebGL headless Chromium has only with this flag, so the moving hero can run in this file.
-// Playwright takes launch options only at a file's top level. Reduced motion keeps every other test on the
-// still: software WebGL in four workers at once starves the machine.
-test.use({ ...signedOut, reducedMotion: "reduce", launchOptions: { args: ["--enable-unsafe-swiftshader"] } });
+// Reduced motion keeps every test on the still except the WebGL one, which asserts what this browser's
+// renderer calls for: the moving story on a graphics card, the still on a software renderer (CI's runners).
+test.use({ ...signedOut, reducedMotion: "reduce" });
 
 type Script = { three: boolean; membrane: boolean; afterLoad: boolean };
 
@@ -215,10 +215,10 @@ test.describe("with reduced motion", () => {
   });
 });
 
-test.describe("on a desktop with WebGL", () => {
+test.describe("on a desktop", () => {
   test.use({ reducedMotion: "no-preference" });
 
-  test("the moving story and three.js load only after the load event, from this site alone", async ({ page }) => {
+  test("WebGL on a graphics card plays the story after the load; a software renderer keeps the still", async ({ page }) => {
     const scripts = watchScripts(page);
     const elsewhere: string[] = [];
     page.on("request", (request) => {
@@ -226,6 +226,22 @@ test.describe("on a desktop with WebGL", () => {
     });
     await page.goto("/");
     const hero = page.locator(".hero");
+    // Which renderer draws this browser's WebGL: Playwright's bundled shell and CI's runners have SwiftShader
+    // only; headless Edge (E2E_CHANNEL=msedge) draws on this PC's graphics card.
+    const renderer = await page.evaluate(() => {
+      const gl = document.createElement("canvas").getContext("webgl");
+      const info = gl?.getExtension("WEBGL_debug_renderer_info");
+      return gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : "";
+    });
+    if (!renderer || softwareRenderer(renderer)) {
+      await expect(hero).toHaveAttribute("data-motion", "still", { timeout: 15_000 });
+      expect(scripts.filter((script) => script.three || script.membrane)).toEqual([]);
+      await expect(page.locator(".hero canvas")).toHaveCount(0);
+      await expect(page.getByTestId("story-still")).toBeVisible();
+      expect(elsewhere).toEqual([]);
+      return;
+    }
+    await expect(hero).toHaveAttribute("data-motion", "live", { timeout: 15_000 });
     await expect(hero).toHaveAttribute("data-live", "on", { timeout: 15_000 });
     await expect(page.locator(".hero-field canvas")).toHaveCount(1, { timeout: 15_000 });
     const heavy = scripts.filter((script) => script.three || script.membrane);

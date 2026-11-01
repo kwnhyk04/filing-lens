@@ -15,6 +15,21 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-02: CI fix: no moving hero on a software WebGL renderer
+
+- Changes:
+  - **What CI showed** (the user's log): on branch `landing-round-1`, axe on `/` in light and dark timed out in `AxeBuilder.analyze`, and the WebGL test timed out clicking Pause, all at 30 s.
+  - **Cause, measured here:** a probe in Playwright's bundled headless shell reported "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)…), SwiftShader driver)" with no flags, with `--enable-unsafe-swiftshader`, with `--disable-gpu` and with both. `failIfMajorPerformanceCaveat: true` still returned a context. So the suite always ran the moving hero in software: fast enough on this PC, too slow on CI's runners.
+  - **App:** `hero-motion.tsx` probes WebGL with `failIfMajorPerformanceCaveat: true` and reads `WEBGL_debug_renderer_info`'s renderer. A software renderer (`lib/motion.ts`: SwiftShader, llvmpipe, softpipe, Windows' basic driver) keeps the still and loads neither the story nor three.js. The hero writes `data-motion="still"` or `"live"`. There is no CI flag in the app.
+  - **Tests:** `lib/motion.test.ts` (2, written first and red), with real renderer names, this PC's RTX 3070 among them. `a11y.spec.ts` runs with reduced motion. The landing's WebGL test reads the renderer and asserts its branch: on software, `data-motion="still"`, no three.js or membrane script, no canvas, the still visible; on a graphics card, the earlier checks (after the load event, from this site only, Pause, axe). `playwright.config.ts` takes `E2E_CHANNEL` (an installed browser; msedge draws on the GPU) and `E2E_ARGS` (Chromium flags). The landing spec's `--enable-unsafe-swiftshader` went.
+- Files: `web/lib/motion.ts`, `web/lib/motion.test.ts`, `web/components/hero-motion.tsx`, `web/e2e/a11y.spec.ts`, `web/e2e/landing.spec.ts`, `web/playwright.config.ts`, design.md, context.md, memory.md, todo.md.
+- Validation:
+  - `npm run typecheck` clean; `npm test` 114; `npm run build`.
+  - `E2E_CHANNEL=msedge npx playwright test`: 106 passed. Edge's renderer is the RTX 3070, so the WebGL test took the moving branch, in 2.3 s.
+  - `E2E_ARGS="--disable-gpu" npx playwright test`: 106 passed. The bundled shell is on SwiftShader, as on CI, so the WebGL test took the still branch, in 0.35 s.
+- Events: GateGuard refused the first edit of `a11y.spec.ts`, `playwright.config.ts` and each new file until its facts were stated. The CI note took the local passes for a real GPU; the probe showed the e2e browser was software all along, and round 1 had not checked that (memory.md, mistake).
+- Outstanding: CI's result on this push, for the user to report.
+
 ### 2026-11-02: Landing round 1: header, hero and logo
 
 - Changes:

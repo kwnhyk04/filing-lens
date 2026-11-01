@@ -15,6 +15,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] `docs/third-party.md`; deploy.md step 28 (FilingLens's own Gemini project since 2026-10-31).
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 621; web typecheck, `npm test` 112, build, Playwright 106, screens 67 (66 shots changed); screenshots in `H:\Projects\projects\_tmp\fl-landing`; JavaScript and load time before and after (activity-log.md).
   - [ ] (user) ship. Optional: move `landing.css` into `globals.css` (one stylesheet; the phone's first paint is 136 ms later with two).
+  - [x] (user, 2026-11-02) CI fix on the same branch: 3 web e2e tests timed out on GitHub's GPU-less runners (axe on `/` in light and dark, and the WebGL test). The moving hero now needs WebGL on a graphics card (`failIfMajorPerformanceCaveat` and no software renderer), so CI gets the still; a11y runs with reduced motion; the WebGL test asserts what the renderer calls for. Local runs: 106 on Edge's GPU, 106 on the shell with `--disable-gpu`. Its own commit message.
 - [x] (user, 2026-11-01) **answer-log-privacy**, merged as #41 (0bfb840, git log) (branch from main at 104f3d5; bug-fix-first, found while planning Recent questions). The regenerate and router-retry log lines quoted draft sentences and the router's tickers; they now log counts, and redaction covers session ids.
   - [x] Tests first: two log-capture tests and a redaction test, red then green.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 576.
