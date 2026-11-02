@@ -30,7 +30,13 @@ from filinglens_llm.validate import (
 
 INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 MAX_TOKENS = 1024  # answers and regenerations: short, fast, cheap, no runaway (docs/context.md)
-SOURCES_HEADING = re.compile(r"^[ \t*#_]*sources[ \t*_]*:?[ \t*_]*$", re.IGNORECASE | re.MULTILINE)
+# The heading alone on its line, or with its first source after it (c13: "[K1]. Sources: [F1]").
+SOURCES_HEADING = re.compile(
+    r"^[ \t*#_]*sources[ \t*_]*:?[ \t*_]*$"
+    r"|(?:^|(?<=[.!?]))[ \t*_]*sources[ \t*_]*:[ \t*_]*(?=\[\s*[CFK]\d+\s*\])",
+    re.IGNORECASE | re.MULTILINE,
+)
+ENTRY_BREAK = re.compile(r"[ \t]*[;,][ \t]*(?=\[\s*[CFK]\d+\s*\])")  # sources on one line
 SOURCE_LINE = re.compile(
     r"^[ \t*-]*\[\s*(?P<alias>[CFK]\d+)\s*\][ \t:|\-]*(?P<quote>.*?)[ \t]*$", re.MULTILINE
 )
@@ -87,8 +93,9 @@ class Reply:
 def read_reply(reply: str) -> Reply:
     heading = SOURCES_HEADING.search(reply)
     text = (reply[: heading.start()] if heading else reply).strip()
+    block = ENTRY_BREAK.sub("\n", reply[heading.end() :]) if heading else ""
     quotes: dict[str, list[str]] = {}
-    for line in SOURCE_LINE.finditer(reply[heading.end() :] if heading else ""):
+    for line in SOURCE_LINE.finditer(block):
         quote = OWN_MARKER.sub("", line["quote"].strip())
         quotes.setdefault(line["alias"], []).append(quote.strip().strip(QUOTE_MARKS))
     return Reply(text, quotes, text.startswith(INSUFFICIENT))
@@ -117,7 +124,8 @@ class Visible:
     def feed(self, text: str = "", *, final: bool = False) -> str:
         self._reply += text
         heading = SOURCES_HEADING.search(self._reply)
-        if heading is not None:
+        # One that ends the text so far may go on as words or a source on its line (n13).
+        if heading is not None and (final or heading.end() < len(self._reply)):
             end = heading.start()
         else:
             end = len(self._reply) if final else max(0, len(self._reply) - HOLD)

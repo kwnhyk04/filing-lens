@@ -34,12 +34,8 @@ export function Overview() {
   return (
     <section id="overview" className="overview" aria-labelledby="overview-title">
       <div className="overview-head">
-        <p className="overview-label">Overview</p>
-        <h2 id="overview-title">Where FilingLens stands.</h2>
-        <p>
-          A saved answer with its passage, two figures from the index and the latest evaluation, the newest feature,
-          and the three jobs behind every answer.
-        </p>
+        <h2 id="overview-title">At a glance.</h2>
+        <p>A sourced answer, tested numbers, and the newest feature.</p>
       </div>
 
       <div className="overview-grid">

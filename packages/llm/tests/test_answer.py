@@ -138,6 +138,74 @@ def test_a_calculation_is_cited_like_a_fact_and_holds_the_difference() -> None:
     assert ("$25.1 billion", "K1") in [(f.text, f.alias) for f in checked.figures]
 
 
+LOWER = (
+    "Fiscal 2024: 14,405,000,000 USD. Fiscal 2025: 12,056,000,000 USD. Fiscal 2025 is lower by"
+    " 2,349,000,000 USD, 16.31% less than fiscal 2024."
+)
+UNITEDHEALTH = {  # c13 (dev): net income attributable to the parent, fiscal 2025 against 2024
+    "F1": Source("F1", None, "540257", "2025", "12,056,000,000 USD", Decimal(12_056_000_000), "u"),
+    "F2": Source("F2", None, "540203", "2024", "14,405,000,000 USD", Decimal(14_405_000_000), "u"),
+    "K1": Source(
+        "K1", None, None, "Calculated by FilingLens from F2 and F1", LOWER, None, "u",
+        Calculation(("F2", "F1"), Decimal(-2_349_000_000), Decimal("-16.31"), over_time=True),
+    ),
+}  # fmt: skip
+ANSWER = (
+    "UnitedHealth Group's net income attributable to the parent was $12.1 billion in fiscal 2025,"
+    " compared with $14.4 billion in fiscal 2024, a decrease of $2.3 billion or 16.31%"
+)
+LIST = (
+    'Sources: [F1] "12,056,000,000 USD"; [F2] "14,405,000,000 USD"; [K1] "Fiscal 2025 is lower by'
+    ' 2,349,000,000 USD, 16.31% less than fiscal 2024."'
+)
+INLINE = f"{ANSWER} [F1][F2][K1]. {LIST}"  # E5's draft of c13, as Haiku wrote it
+DRAFTS = pytest.mark.parametrize(
+    "draft", [INLINE, f"{ANSWER} [F1][F2][K1].\n{LIST}"], ids=["after the answer", "own line"]
+)
+
+
+@DRAFTS
+def test_a_sources_block_written_inline_is_read_as_the_sources_block(draft: str) -> None:
+    """c13 (dev, E5): the list stayed in the answer as one more sentence, and its amounts passed."""
+    reply = read_reply(draft)
+    assert reply.text == f"{ANSWER} [F1][F2][K1]."
+    assert reply.quotes == {
+        "F1": ["12,056,000,000 USD"],
+        "F2": ["14,405,000,000 USD"],
+        "K1": ["Fiscal 2025 is lower by 2,349,000,000 USD, 16.31% less than fiscal 2024."],
+    }
+    checked = check(reply, UNITEDHEALTH)
+    assert checked.text == f"{ANSWER} [1][2][3]."
+    assert (checked.problems, checked.removed) == ([], 0)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Sources: products and services, as the filing lists them [C1].",  # no source follows
+        "Services had three such sources: [C1].",  # not where a sentence starts
+    ],
+)
+def test_the_word_sources_in_the_answer_is_no_heading(sentence: str) -> None:
+    reply = read_reply(
+        f"Net sales were $416.2 billion [F1]. {sentence}\n\nSources:\n"
+        '[F1] "416,161,000,000 USD"\n[C1] "Services net sales increased"\n'
+    )
+    assert reply.text == f"Net sales were $416.2 billion [F1]. {sentence}"
+    assert reply.quotes == {"F1": ["416,161,000,000 USD"], "C1": ["Services net sales increased"]}
+
+
+@DRAFTS
+@pytest.mark.parametrize("size", range(1, 40))
+def test_a_stream_never_shows_a_sources_block_written_inline(draft: str, size: int) -> None:
+    """n13 (dev ci, 2026-10-16) at a few characters a chunk: a reply ending in "Sources:" read as
+    the heading, then not once its source followed, so the stream showed text twice."""
+    visible = Visible()
+    shown = [visible.feed(draft[start : start + size]) for start in range(0, len(draft), size)]
+    shown.append(visible.feed(final=True))
+    assert "".join(shown) == f"{ANSWER} [1][2][3]."
+
+
 def test_each_amount_a_kept_sentence_states_comes_with_the_source_that_holds_it() -> None:
     checked = check(read_reply(REPLY), SOURCES)
     assert [(f.text, f.alias, f.number) for f in checked.figures] == [

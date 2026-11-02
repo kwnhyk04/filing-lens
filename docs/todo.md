@@ -6,14 +6,21 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-02) **Landing, round 2: the features panel, and four hero fixes**, on branch `landing-round-2` from main at 6d273ef (uncommitted). Header and hero unchanged apart from the fixes.
+- [ ] (user, 2026-11-02) **Inline Sources blocks, and the overview's head**, one PR, on branch `inline-sources` from main at 99992d9 (uncommitted).
+  - [x] Tests first, red then green: c13's draft from E5 with its Sources block on the answer's line, and the same block starting its own line: the list leaves the answer, its three quotes are read, and the stream never shows it (1 to 39 characters a chunk); two rows the heading must leave alone; the overview's new head with no label.
+  - [x] Validation reads such a block as the Sources block (`answer.py`), and the stream waits on a heading that ends the text received so far.
+  - [x] Offline replay, no model call: 3 of the 875 cached drafts change (c13 and n14 from E5, n13 from 2026-10-16's dev ci run), each only losing its inline list; the other 872 keep their text, quotes and stream.
+  - [x] Overview head, the user's final copy: "At a glance.", then "A sourced answer, tested numbers, and the newest feature.", with no label (it replaced their earlier draft, "Proof, not promises.").
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; web typecheck, `npm test` 114, build, Playwright 107; the three landing screens.
+  - [ ] (user) Confirm the `eval-calls-*` Actions cache, then ship. CI's eval runs, since `packages/llm/src` changed.
+- [x] (user, 2026-11-02) **Landing, round 2: the features panel, and four hero fixes**, merged as #45 (99992d9, git log). Built on branch `landing-round-2` from main at 6d273ef. Header and hero unchanged apart from the fixes.
   - [x] Tests first (`e2e/landing.spec.ts`), red against the current build (3 failed, 9 passed), then green (12): the new subtitle, the hero's "Open the demo" and its offline note (also on the offline server), the panel's answer and citation, its two figures against the snapshot and both official reports, the Recent questions link, and Ask, Cite and Check.
   - [x] Features panel after Hirael's feature-10 (MIT): rebuilt in FilingLens's markup and CSS tokens in `web/components/overview.tsx`, with no Tailwind, shadcn or new package (as round 1). "Where FilingLens stands."; x04's saved answer (Amazon, not the hero's Eli Lilly) with AMZN 10-K FY2025, Item 1; filings indexed (30) and exact numbers (100%, 12 of 12), each with its source in a comment; Recent questions (#42); Ask, Cite and Check.
   - [x] How it works (Ask, Find the passages, Answer with citations): left out, since the hero's subtitle and story already show that flow. `_tmp/21st/steps-5.png` does not exist.
   - [x] Hero fixes: "Open the demo" under the subtitle; the subtitle the user wrote; the offline note back; the still's two Prompt Bond heads removed.
   - [x] `docs/third-party.md`: feature-10's MIT notice.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 621; web typecheck, `npm test` 114, build, Playwright 107 (bundled shell) and 107 (Edge on the GPU); the three landing screens; screenshots at 1280, 1440, 1920 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-landing-2`.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #45.
 - [x] (user, 2026-11-02) **Landing, round 1: header, hero and logo**, merged with its CI fix as #43 (6d273ef, git log). Built on branch `landing-round-1` from main at 58baddd. Round 2 (features, how it works) comes later; those sections stay as they are.
   - [x] Baseline first: the landing's JavaScript and load time on the current main, desktop and phone profiles.
   - [x] Logo: variant #6 redrawn as an SVG (two arcs, a teal bar inside the lens, ink pills outside, equal gaps, one stroke width, round ends); one-colour, light and dark versions; in every header, the sign-in and error pages, the favicon (read at 16 and 32 px) and the app icon.
@@ -288,7 +295,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
       - [x] No dev re-parse (PR 6, the user's go).
     - [x] Checks: lint, typecheck, unit tests, integration tests, web typecheck, unit tests and e2e (activity-log.md).
     - [ ] (user) The comparison drafts' second sentence (E5: 8 of 10 regenerated, E2 2): a prompt line "state the difference in the same sentence as both figures", which changes the answer prompt and needs a measured run (about $0.04 of credits, about 50K judge tokens), or leave it (memory.md).
-    - [ ] Weakness, its own PR (found in E5): a Sources block written inline ("... [K1]. Sources: [F1] ...") stays in the answer text and passes validation (c13).
+    - [x] Weakness, its own PR (found in E5): a Sources block written inline ("... [K1]. Sources: [F1] ...") stays in the answer text and passes validation (c13). Fixed on `inline-sources` (2026-11-02): read as the Sources block. The replay found it in n14 (E5) and n13 (2026-10-16) too.
     - [x] (user) ship as one PR: merged as #36.
     - [ ] (user, this PC) Application Control blocks the venv's `python.exe` since 2026-10-27, so `make` targets that run Python fail here (memory.md, the workaround). Later the same day (PR 6's session) it ran again: `uv run python`, `make lint`, `make typecheck` and `make test` worked with no workaround. Cause not confirmed; kept as a watch. 2026-10-28 (user): Windows Smart App Control is on. It blocks the unsigned launchers in `.venv\Scripts` (Triage Copilot's `alembic.exe` was blocked), while the venv's `python.exe` runs. Fixed at the source: every tool starts as `uv run python -m <tool>`, and only `docs/migrations.md` still had bare commands (memory.md). The watch stays for `python.exe` itself.
   - [ ] PR 6 `golden-v2` (branch `golden-v2` from main at a2b71ec, 2026-10-27, uncommitted): re-parse dev (the user's go), v2's pools and labels (estimate first), the user's spot check, freeze, corpus-v2 (the user uploads), E8 and v2's dev floors. First part done on 2026-10-27, stopped before the spot check as the user asked (activity-log.md):
