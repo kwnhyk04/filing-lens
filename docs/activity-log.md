@@ -15,6 +15,57 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-03: Ask's answer card in the hero's look, the app's look after FreightAudit's, the How section, and the hero's labels (uncommitted, branch `app-ui`)
+
+- Changes, on `app-ui` from main at 7812548 (#47 merged). The user's brief, pasted: "FL app UI and one landing section. Plan first and tell me the plan before building." The plan was approved with four answers: A (no API change), passages below the answer in the order they arrive, only the cited filings round the card, the landing's theme switch in the app header; also "Use the Lucide icons as inline SVGs, not a new package", and a go for the integration tests.
+  - **Found before the plan** (`answering.py`, `schemas.py`): the stream sends `delta`, `completed` and `failed` only. Routing, the fact lookup and retrieval run before the first delta and are never reported.
+  - **Ask's card** (`components/answer-card.tsx`, new):
+    - The question's bubble, then Read as on a line kept empty until the checked answer.
+    - The draft, dashed under "citations not checked yet", from its first piece.
+    - The checked answer under "Answer" and its timings, then the check line (`checkLine`, now taking an answer, in `lib/answer.ts`).
+    - When the sources lookup returns: the numbered passages, then the cited filings (`citedFilings`).
+    - A grey foot: the number checks, warnings, the reranker note, the usage and the actions. An error sits in the card.
+    - `ask.tsx` remounts the card for each question (`turn`); a stored answer is `still`. The demo shows its 8 answers in the card, at rest, their questions kept as visually hidden headings.
+  - **Motion** (`globals.css`): what arrives moves up 8 px over 0.45 s and the chips glow once, only with motion allowed and never on a card at rest; nothing fades.
+  - **The app's look** (`globals.css`, `chrome.tsx`, `coverage-table.tsx`, `recent-questions.tsx`, `ask.tsx`):
+    - The landing's theme switch in the live and demo headers, set by the server from `fl-theme`, beside the name on a phone.
+    - `.badge ok|warn` with a dot in place of `.pill` and `.tag`, and one button set (`.secondary`, `.small`).
+    - `.table-wrap` and `.list-table`, with Coverage's rows as cards below 45rem (`.cards`, `.card-label`), and the pager as quiet buttons with Lucide's chevrons.
+    - The theme switch's styles and the hero's shared `.story-*` rules moved from `landing.css` to `globals.css`. `AnswerMain`, `AnswerView` and `ReadAs` went; their parts are in the card.
+  - **How an answer is made** (`app/page.tsx`, `landing.css`): four steps after FreightAudit's How it works, with Lucide's route, search, message-square-text and shield-check inline; the old `.steps` rules removed.
+  - **The hero's labels** (`hero-live.tsx`): the find beat tugs a source sideways only.
+  - **Screens** (`e2e/screens.ts`, `playwright.screens.config.ts`): `SCREENS_WIDTHS` shoots each width in light and dark, on one worker; the sign-in error shot signs in first.
+  - **Docs:** design.md (the change, and the current-state sections), context.md, memory.md, third-party.md (the icons; FreightAudit as a design reference), todo.md.
+- Files: `web/components/{answer-card.tsx (new),answer-view.tsx,ask.tsx,chrome.tsx,coverage-table.tsx,recent-questions.tsx,story-panel.tsx,hero-live.tsx}`, `web/app/{page.tsx,demo/page.tsx,globals.css,landing.css}`, `web/lib/{answer.ts,answer.test.ts,story.ts,story.test.ts}`, `web/e2e/{card.spec.ts (new),landing.spec.ts,keyboard.spec.ts,coverage.spec.ts,screens.ts}`, `web/playwright.screens.config.ts`, `docs/screenshots/ui/` (57 of 66 changed), the docs above.
+- Validation:
+  - **Tests first, the hero's labels** (Edge's GPU): every visible label's box against every other's, each frame, round the whole loop. Red: "beat 3: Item 7 / WMT 10-K", "beat 3: 416,161,000,000 USD / WMT 10-K", "beat 3: 402,836,000,000 USD / UNP 10-K". Green after the sideways tug.
+  - **Tests first, the How section:** the four steps in order with their parts and facts; one row joined by lines at 1280 px, stacked with no line at 390 px. Red (no `ol.how-steps`). Then my assertion was wrong: a missing `::before` in a grid still computes `display: block`, so the test checks `content` and `display` together. Then green.
+  - **Tests first, units** (`lib/answer.test.ts`): the check line on an answer (x12, x04, n01, c02; none for o02), and the cited filings (one chip per filing, c12's four citations one TSLA chip, a quarter's fact a 10-Q's). Red (missing exports), then 120 passed. The check-line rows moved out of `story.test.ts`.
+  - **Tests first, Ask's card and the app** (`e2e/card.spec.ts`, 10 specs; the keyboard and coverage specs updated): red, 14 failing, then green.
+    - The card mid-stream holds only the question and the draft; the reading comes with the checked answer.
+    - The passages and the filing chip come only once a held sources lookup is released, below the check.
+    - An error sits in the card.
+    - Motion: what arrives moves when motion is allowed, nothing moves under reduced motion, and a stored answer appears whole.
+    - No canvas and no `getContext` call on Ask, Coverage or the demo.
+    - The demo's 8 cards, the theme switch on three pages, Coverage's phone cards, and the card at 390 px.
+  - Web: `npm run typecheck` clean, `npm test` 120, `npm run build`. Playwright without a GPU (`E2E_ARGS="--disable-gpu"`, as CI): 118 passed, 4 skipped (the GPU-only ones). On Edge's GPU (`E2E_CHANNEL=msedge`): 122 passed.
+  - Python: `make lint` clean, `make typecheck` 0 errors, `make test` 703 passed. `clients/ts`: typecheck clean, 18 tests. `make test-int`, with the user's go: 50 passed, 1 failed, 2 errors, none from this branch, which changes no Python.
+    - Failed: `test_twenty_workers_never_exceed_eight_sec_requests_a_second`, its nine fastest requests spanning 0.909 s against a 0.95 s floor. Rerun alone, it passed; a timing miss under load, cause not confirmed.
+    - Errors: both live egress tests, in setup. `docker network create --subnet 10.231.233.0/28` answered "invalid pool request: Pool overlaps with other one on this address space": Triage Copilot's production network `triagecopilot-prod_outbound` now holds that subnet (`docker network inspect`, read only). Rerun, the same. Not changed here: the test's subnet is its own small fix.
+    - Nothing was left behind (no test container or network), and no other project's container was touched.
+  - **The hero, unchanged by the style move:** the header and hero areas of the old and new landing shots, compared pixel by pixel (sharp, already installed), differ only in the still's check line, antialiased differently with the same words (one text node since #47).
+  - **Screens:** `npm run screens` 67 passed (66 shots, 57 changed); with `SCREENS_WIDTHS="1280,1440,1920,390"` and `SCREENS_DIR` at `H:\Projects\projects\_tmp\fl-app`, 177 passed (176 shots).
+- Events, in order:
+  - GateGuard refused the first Bash call, and the first edit or write of each file, until their facts were stated.
+  - Builds after small edits printed "Compiled successfully" in under a second (Turbopack's cache); the tests that followed showed the new code served.
+  - The landing's 390 px screen failed axe (`scrollable-region-focusable` on both results tables): the badge's dot widened the status column. The landing's badges drop the dot, as FreightAudit's landing does.
+  - The four-width run failed 3 shots on a text check, and a rerun of those 3 passed. The cause, found next: the sign-in error is shot 8 times against one limiter bucket (5 tries in 15 minutes), and the rerun had fresh servers. Signing in first still failed 3 of 8 with four workers, as the tries overlapped; with one worker for that mode, all 177 passed.
+  - The phone header first took four rows; the theme switch now sits beside the name by position.
+  - My mistake: three old screenshots were extracted into the scratchpad with `git show HEAD:… > file`, a shell redirect, which AGENTS.md rules out for writing files. Nothing in the repo was written that way.
+- Outstanding:
+  - (user) ship.
+  - The live egress tests need a test subnet no other project holds (10.231.233.0/28 is Triage Copilot's production's now); its own small PR.
+
 ### 2026-11-02: The hero's loop drops Amazon's answer, three saved answers in turn (uncommitted, branch `hero-loop`)
 
 - Changes, on `hero-loop`, the same uncommitted work as the entry below; the user: "Drop Amazon (x04) from the hero loop and keep three: Eli Lilly, Apple, Alphabet vs Meta. Update the tests."

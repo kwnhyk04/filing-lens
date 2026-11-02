@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import type { Snapshot } from "./demo.ts";
-import { checkLine, heroStories, heroStory, LOOP, QUOTE, STORY, storyBeats } from "./story.ts";
+import { heroStories, heroStory, LOOP, QUOTE, STORY, storyBeats } from "./story.ts";
 
 const snapshot = (): Snapshot =>
   JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as Snapshot;
@@ -115,9 +115,9 @@ test("every check of every story in the loop matches its cited quote or fact", (
   }
 });
 
-test("each story's caption and check line say what it cites: passages, or facts and their amounts", () => {
+test("each story's caption says what it cites: passages, or facts and their amounts", () => {
   const [x12, n01, c02] = heroStories(snapshot());
-  const x04 = heroStory(snapshot(), "x04"); // out of the loop, but still the passage answer with no amount to check
+  const x04 = heroStory(snapshot(), "x04"); // out of the loop, but still a one-passage story
   assert.deepEqual(
     storyBeats(x12).map((beat) => beat.cue),
     [
@@ -133,11 +133,4 @@ test("each story's caption and check line say what it cites: passages, or facts 
   assert.equal(storyBeats(n01)[3].cue, "One fact from AAPL 10-K FY2025 holds the answer.");
   assert.equal(storyBeats(n01)[4].cue, "Each sentence cites its fact, and a check matches every amount.");
   assert.equal(storyBeats(c02)[3].cue, "Two facts from GOOGL 10-K FY2025 and META 10-K FY2025 hold the answer.");
-  assert.equal(checkLine(x12), "Checked: 56 percent matches source 2, and every quote matches its passage word for word.");
-  assert.equal(checkLine(x04), "Checked: every quote matches its passage word for word.");
-  assert.equal(checkLine(n01), "Checked: 416,161,000,000 matches source 1.");
-  assert.equal(
-    checkLine(c02),
-    "Checked: $402,836,000,000 matches source 1 and $200,966,000,000 matches source 2.",
-  );
 });

@@ -92,11 +92,3 @@ export function storyBeats(story: HeroStory) {
     { cue: "An answer you can check.", label: "Done" },
   ];
 }
-
-/** "Checked: 56 percent matches source 2, and every quote matches its passage word for word.": each amount
-    with the source holding it, then the quotes, when the story cites a passage. */
-export function checkLine(story: HeroStory): string {
-  const amounts = listed(story.checks.map((check) => `${check.text} matches source ${check.n}`));
-  if (!story.passages.some((source) => source.kind === "passage")) return `Checked: ${amounts}.`;
-  return `Checked: ${amounts ? `${amounts}, and ` : ""}every quote matches its passage word for word.`;
-}

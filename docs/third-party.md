@@ -7,12 +7,13 @@ Code and designs FilingLens's web app takes from others, beyond what its npm pac
 | Prompt Bond, the hero's moving story: the membrane's shader and renderer, the organisms' steering, the layout and scatter, the beat timelines and the frame loop, adapted to FilingLens's saved answers, told in turn | `web/components/hero-live.tsx`, `web/components/hero-live.css` | Sanjay Kumar (Cojeev), from the 000h library, via 21st.dev: https://21st.dev/@luv-jeri_c92deb60/components/prompt-bond | MIT |
 | Feature 10, the landing's overview: a serif head, then one sheet split by hairlines into a quote, two figures, the latest feature and three jobs; its Tailwind and shadcn cards rewritten as FilingLens's CSS, with FilingLens's content | `web/components/overview.tsx`, `web/app/landing.css` | Mohammad Shehadeh, from the Hirael library (https://hirael.com/blocks/features/feature-10, https://github.com/MohammadShehadeh/hirael), via 21st.dev | MIT |
 | ShaderGradient, the hero's moving field | `web/components/hero-field.tsx`; npm `@shadergradient/react` 2.4.20 | ruucm | MIT |
-| Lucide's icon geometry: monitor, sun, moon, file, file-text, hash, check, play, pause, rotate-ccw, arrow-right, menu, x | `web/components/theme-toggle.tsx`, `landing-header.tsx`, `story-panel.tsx`, `hero-live.tsx`, `overview.tsx` | Lucide contributors | ISC; portions from Feather, MIT |
+| Lucide's icon geometry: monitor, sun, moon, file, file-text, hash, check, play, pause, rotate-ccw, arrow-right, menu, x, route, search, message-square-text, shield-check, chevrons-left, chevron-right, drawn inline | `web/components/theme-toggle.tsx`, `landing-header.tsx`, `story-panel.tsx` (shared with `answer-card.tsx`), `hero-live.tsx`, `overview.tsx`, `coverage-table.tsx`, `web/app/page.tsx` | Lucide contributors | ISC; portions from Feather, MIT |
 | three.js, React Three Fiber and Motion, bundled into the moving hero's chunks only | npm `three` 0.186.1, `@react-three/fiber` 9.8.2, `motion` 14.3.0 | the three.js authors, Poimandres, Motion | MIT |
 
 Design references, no code copied:
 
 - The landing header follows the header of 21st.dev's "hero4" (logo and name, links, theme toggle, Sign in, one main button, a phone menu), rebuilt in FilingLens's own markup, colours and tokens.
+- The landing's "How an answer is made" follows FreightAudit's How it works, and the app's badges, buttons, list table and pager follow FreightAudit's `ui.tsx` and styles (2026-11-03). FreightAudit is the same owner's project, read only; the structure is rebuilt here in FilingLens's own markup, colours and tokens.
 - The mark redraws variant #6 of the logo sheet the user made (`H:\Projects\projects\_tmp\logos\filing-lens-logo.png`, outside the repo); the redraw is FilingLens's own (`docs/brand/`, `web/lib/logo.ts`).
 
 ## Prompt Bond's licence

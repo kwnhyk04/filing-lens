@@ -201,39 +201,78 @@ main.narrow::before {
   font-weight: 650;
 }
 
-.site form,
-.site .button,
+/* The coverage line, the theme switch, then Sign out or the demo's Sign in: a group that wraps as one. */
 .site-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
   align-self: center;
   margin-left: auto;
 }
 
-/* Sign out, and Ask's Copy and New question, are quiet outlined buttons; the demo's Sign in stays the
-   page's green call to action. */
-.site button,
-.site .button,
-.actions button {
-  padding: 0.375rem 0.875rem;
-  font-size: 0.875rem;
+/* The theme: three radios as one pill, the radio itself covering its icon, so clicks and arrow keys are
+   the browser's own. The landing's header and the app's share it. */
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sheet) 70%, transparent);
 }
 
-.site button,
-.actions button {
-  border-color: var(--field);
-  background: var(--sheet);
+.theme-toggle label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.theme-toggle label:hover {
   color: var(--ink);
-  font-weight: 500;
 }
 
-.site button:hover {
-  background: var(--sunk);
+.theme-toggle label:has(:checked) {
+  background: var(--sheet);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.12),
+    inset 0 0 0 1px var(--rule);
+  color: var(--ink);
 }
 
-/* The demo's coverage line, then Sign in or Sign out: a pair that wraps as one, like the mockup's. */
-.site-end {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+.theme-toggle label:has(:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.theme-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.theme-toggle svg,
+.pager svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .site-end p {
@@ -333,6 +372,25 @@ button[aria-disabled="true"] {
   cursor: progress;
 }
 
+/* One set of buttons, after FreightAudit's: green for the page's one call to action, quiet and outlined for
+   everything beside it (Sign out, Copy, Ask again, New question, the samples, recent questions and paging), and
+   small in a row of them. */
+.secondary {
+  border-color: var(--field);
+  background: var(--sheet);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.secondary:hover {
+  background: var(--sunk);
+}
+
+.small {
+  padding: 0.375rem 0.875rem;
+  font-size: 0.875rem;
+}
+
 /* Ask's question box: a white card, its help text beside the button where there is room. */
 .ask-form {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -422,52 +480,44 @@ button[aria-disabled="true"] {
   padding-left: 1.25rem;
 }
 
-/* The draft: provisional, so dashed and muted until the checked answer replaces it. */
-.draft {
-  display: grid;
-  gap: 0.75rem;
-  padding: 1rem 1.25rem;
-  border: 1px dashed var(--field);
-  border-radius: var(--radius-card);
-}
-
-.draft p {
-  color: var(--ink-2);
-  font-family: var(--serif);
-  font-size: 1.25rem;
-  line-height: 1.6;
-}
-
-.draft h2,
-.result-head h2,
 .sources > h3 {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
   font-size: 0.9375rem;
   font-weight: 650;
 }
 
-/* Pills: amber for "Not answered" and the unchecked draft, as the mockup marks a refusal; green for an
-   indexed filing, as it marks one. */
-.tag,
-.pill {
-  display: inline-block;
+/* Badges, after FreightAudit's: a tinted pill with its word and a dot, never colour alone. Green for done (an
+   indexed filing, a target met); amber for not yet or not answered (the draft, a refusal, a target missed). */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   justify-self: start;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  background: var(--note-bg);
-  color: var(--note-ink);
   font-family: var(--sans);
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
-.pill {
+.badge::before {
+  content: "";
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge.ok {
   background: var(--tint);
   color: var(--accent);
+}
+
+.badge.warn {
+  background: var(--note-bg);
+  color: var(--note-ink);
 }
 
 /* Ask, and each saved answer: one column, or the answer and its sources panel side by side from 64rem. */
@@ -485,39 +535,213 @@ button[aria-disabled="true"] {
   gap: 1rem;
 }
 
-/* The answer card: a header strip, the answer in serif, the usage in a footer strip. */
-.result,
-.answer > .answer-main {
-  background: var(--sheet);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-card);
-}
-
-.result {
+/* The answer card, in the landing hero's look (docs/design.md): the question in a bubble on the right, how it
+   was read, the reply on the left, the check, then the numbered passages and the filings they come from, on one
+   sheet with a green glow in its corner. The parts are the hero's (.story-*, below), in the app's colours. */
+.answer-card {
+  --bubble: var(--sunk);
+  --row-bg: color-mix(in srgb, var(--sunk) 60%, transparent);
+  --glyph-bg: var(--tint);
+  --hero-teal: var(--accent);
+  --on-body: var(--ink);
+  --on-body-2: var(--ink-2);
   display: grid;
+  gap: 0.625rem;
+  padding: 1.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 1rem;
+  background:
+    radial-gradient(110% 80% at 0% 0%, var(--tint), transparent 55%),
+    var(--sheet);
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
-/* Its header strip: "Answer", and on the right what the browser timed. */
-.result-head {
+.card-reply {
+  display: grid;
+  gap: 0.625rem;
+}
+
+/* Over the reply: "Draft" and its badge, or "Answer" and what the browser timed. */
+.reply-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 1rem;
-  padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid var(--rule);
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.reply-head :is(h2, h3) {
+  font-size: inherit;
 }
 
 .timings {
   color: var(--ink-3);
   font-size: 0.8125rem;
+  font-weight: 400;
 }
 
-.answer-main {
+.answer-card .story-reply .story-bubble {
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+/* The draft: provisional, so dashed and muted until the checked answer takes its place. */
+.answer-card [data-state="draft"] .story-bubble {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px transparent;
+  outline: 1px dashed var(--field);
+  outline-offset: -1px;
+}
+
+.draft-text {
+  color: var(--ink-2);
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  line-height: 1.6;
+}
+
+/* Kept for the reading, empty and unseen, until the checked answer brings it, so nothing under it moves. */
+.read-as[data-pending] {
+  visibility: hidden;
+}
+
+/* The filings the answer's sources come from, lit along the card once the sources lookup reports them. */
+.card-filings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-filings li {
+  padding: 0.125rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: var(--tint);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* What arrives moves in, by its place and a passing glow, never by opacity, so text keeps its contrast while it
+   moves; only while motion is allowed, and never on a card at rest (a stored or saved answer). */
+@media (prefers-reduced-motion: no-preference) {
+  .answer-card:not([data-still]) :is(.read-as:not([data-pending]), .story-reply, [data-tone="check"], .story-passages li) {
+    animation: card-arrive 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .answer-card:not([data-still]) .card-filings li {
+    animation: card-light 1.4s ease-out both;
+  }
+}
+
+@keyframes card-arrive {
+  from {
+    transform: translateY(0.5rem);
+  }
+}
+
+@keyframes card-light {
+  from {
+    box-shadow: 0 0 0 0.375rem color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+
+/* The hero's parts, shared by its panel and the card: the question's bubble, a row with its glyph or number,
+   the passages, and the reply's bubble. Each place sets their colours (--bubble, --row-bg and the rest). */
+.story-sent {
+  justify-self: end;
+  max-width: 85%;
+}
+
+.story-bubble {
+  display: inline-block;
+  padding: 0.45rem 0.85rem;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--bubble);
+  font-weight: 500;
+}
+
+.story-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.4rem 0.625rem;
+  border-radius: 10px;
+  background: var(--row-bg);
+}
+
+.story-row b {
+  font-weight: 650;
+}
+
+.story-glyph,
+.story-n {
   display: grid;
-  align-content: start;
-  gap: 1rem;
-  padding: 1.25rem 1.25rem 0;
+  flex: none;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+}
+
+.story-glyph {
+  background: var(--glyph-bg);
+}
+
+.story-glyph svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.story-n {
+  border: 1.5px solid var(--hero-teal);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.story-passages {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.story-passages li:target {
+  box-shadow: inset 0 0 0 1.5px var(--hero-teal);
+}
+
+.story-cite {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.story-cite q {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--on-body-2);
+  font-family: var(--serif);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.story-reply .story-bubble {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-radius: 14px 14px 14px 4px;
+  font-weight: 400;
 }
 
 .answer-text {
@@ -564,34 +788,31 @@ button[aria-disabled="true"] {
   font-size: 0;
 }
 
-.usage {
-  margin: 0 -1.25rem;
-  padding: 0.625rem 1.25rem;
+/* The card's foot, a grey strip: the usage, then Copy, Ask again and New question. */
+.card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 0.375rem -1.25rem -1.25rem;
+  padding: 0.75rem 1.25rem;
   border-top: 1px solid var(--rule);
-  border-radius: 0 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px);
+  border-radius: 0 0 calc(1rem - 1px) calc(1rem - 1px);
   background: var(--sunk);
+}
+
+.usage {
   color: var(--ink-3);
   font-family: var(--mono);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
 }
 
-/* On Ask the footer strip goes on below the usage, with Copy and New question. */
-.result .usage {
-  border-radius: 0;
-}
-
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
-  padding: 0 1.25rem 0.875rem;
-  border-radius: 0 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px);
-  background: var(--sunk);
-}
-
-.actions button:hover {
-  background: var(--rule);
 }
 
 /* Something left incomplete, like the draft: a dashed outline. */
@@ -762,25 +983,17 @@ mark {
   content: " \2197" / "";
 }
 
-.pages {
+/* Paging, after FreightAudit's pager: quiet buttons, each with its arrow. */
+.pager {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
 }
 
-.pages a {
-  padding: 0.375rem 0.875rem;
-  border: 1px solid var(--field);
-  border-radius: var(--radius);
-  background: var(--sheet);
-  color: var(--ink);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.pages a:hover {
-  background: var(--sunk);
+.pager .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 /* Coverage: the mockup's filings table, a grey head row, identifiers in mono, figures that line up. */
@@ -823,6 +1036,68 @@ thead th {
 
 tbody th {
   font-weight: 600;
+}
+
+/* Lists, after FreightAudit's list table: a rounded frame, a plain head, roomy rows that tint on hover, figures
+   right-aligned. A `cards` table lays each row out as a card on a phone, where its cells' labels show. */
+.table-wrap {
+  overflow-x: auto;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-card);
+}
+
+.list-table thead th {
+  background: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.list-table :is(th, td) {
+  padding: 0.875rem 1rem;
+}
+
+.list-table tbody tr:hover {
+  background: color-mix(in srgb, var(--sunk) 70%, transparent);
+}
+
+.card-label {
+  display: none;
+}
+
+@media (width < 45rem) {
+  .cards {
+    min-width: 0;
+  }
+
+  .cards thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .cards tbody tr {
+    display: grid;
+    gap: 0.375rem;
+    padding: 0.875rem 1rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  .cards tbody :is(th, td) {
+    padding: 0;
+    border: 0;
+  }
+
+  .card-label {
+    display: inline;
+    margin-right: 0.375rem;
+    color: var(--ink-3);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
 }
 
 .ticker,
@@ -890,18 +1165,8 @@ tbody th {
 }
 
 .saved {
-  display: grid;
-  gap: 1.25rem;
   padding-top: 1.5rem;
   scroll-margin-top: 1rem;
-}
-
-.saved h2 {
-  font-family: var(--serif);
-  font-size: 1.75rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
 }
 
 /* "Read as": how the router read the question, quiet outlined chips above the answer, as in the mockup. */
@@ -967,17 +1232,7 @@ tbody th {
 }
 
 .samples button {
-  padding: 0.375rem 0.75rem;
-  border-color: var(--field);
-  background: var(--sheet);
-  color: var(--ink);
-  font-size: 0.875rem;
-  font-weight: 500;
   text-align: left;
-}
-
-.samples button:hover {
-  background: var(--sunk);
 }
 
 /* Recent questions under the answer: the samples' quiet outlined buttons, one a row, each with its time. */
@@ -1007,16 +1262,8 @@ tbody th {
   gap: 1rem;
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border-color: var(--field);
-  background: var(--sheet);
-  color: var(--ink);
   font-size: 0.875rem;
-  font-weight: 500;
   text-align: left;
-}
-
-.recent button:hover {
-  background: var(--sunk);
 }
 
 .recent span {
@@ -1074,33 +1321,6 @@ main.landing {
   font-size: 0.8125rem;
 }
 
-.steps {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.steps li {
-  display: grid;
-  align-content: start;
-  gap: 0.625rem;
-  padding: 1.25rem;
-  background: var(--sheet);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-card);
-}
-
-.steps h3 {
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.steps p,
 .features p {
   color: var(--ink-2);
 }
@@ -1150,17 +1370,12 @@ main.landing {
 }
 
 @media (width > 40rem) {
-  .steps,
   .features {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (width >= 64rem) {
-  .steps {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
   .features {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1199,7 +1414,7 @@ main.landing {
     column-gap: 1.5rem;
   }
 
-  .answer > .answer-main:only-child {
+  .answer > .answer-card:only-child {
     grid-column: 1 / -1;
   }
 
@@ -1241,10 +1456,22 @@ main.landing {
     padding-block: 0.625rem;
   }
 
-  .site > form,
-  .site > .button,
   .site-end {
+    justify-content: flex-start;
     margin-block: 0.25rem 0.75rem;
+    margin-left: 0;
+  }
+
+  /* The theme switch moves up beside the name, so the coverage line and Sign out keep one row; the DOM, and so
+     the keyboard's order, stays as on a desktop. */
+  .site {
+    position: relative;
+  }
+
+  .site .theme-toggle {
+    position: absolute;
+    top: 0.625rem;
+    right: var(--gutter);
   }
 
   main {
@@ -1269,7 +1496,12 @@ main.landing {
     font-size: 2rem;
   }
 
-  .saved h2 {
-    font-size: 1.375rem;
+  .answer-card {
+    padding: 1rem 0.875rem;
+  }
+
+  .card-foot {
+    margin: 0.375rem -0.875rem -1rem;
+    padding-inline: 0.875rem;
   }
 }

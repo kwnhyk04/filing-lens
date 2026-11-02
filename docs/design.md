@@ -11,6 +11,26 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Ask's answer card, the app's look and the How section (2026-11-03)
+
+The user's brief: Ask in the landing hero's answer-card style; FreightAudit's app look in FilingLens's colours, header and theme switch; and the landing's "How an answer is made" after FreightAudit's How it works. FreightAudit is the same owner's project, read only; its structure is followed here and nothing there changed. The user's answers to the plan: build on what the stream already reports, with no API change; passages below the answer, in the order they arrive; only the cited filings round the card; the landing's theme switch in the app header.
+
+- **What the stream reports, and so what the card shows:** the answer stream sends the draft in pieces (`delta`), the whole checked answer (`completed`: the reading, the citations with their quotes, the number checks) and a problem (`failed`). Routing and retrieval run before the first piece and are never reported. Then the web's sources lookup names each cited passage's filing and item. The card shows each part only when it arrives:
+  1. On send: the question in a bubble on the right, and "Answering." in the status line. No step is named.
+  2. The draft's first piece: the reply bubble on the left, dashed, under "Draft" and an amber "citations not checked yet" badge.
+  3. The checked answer: "Read as" fills the line kept empty for it, so nothing moves; the checked answer takes the draft's place under "Answer" and its timings; the check line lands ("Checked: 416,161,000,000 matches source 1."; each amount with its source, then "every quote matches its passage word for word" when a passage is cited; none for a refusal).
+  4. The sources lookup: the numbered passages move in below the check, together, since they were not found one by one. Each shows its filing and item ("AMZN 10-K FY2025, Item 1") or a fact's name, then its quote. The filings they come from light up as chips under them ("AAPL 10-K FY2025"; a fact's form follows its period, since FilingLens holds 10-Ks and 10-Qs only). A failed lookup keeps the quotes under "Source 1" and adds the note.
+  5. An error: in the card, under the question, in the red box, with the demo link where it was before.
+- **The rest of the card:** the number-check table, warnings, the reranker note, then a grey foot with the usage and Copy, Ask again and New question. The sources panel stays beside the card from 64rem, and each [n] still leads there.
+- **Motion:** what arrives moves up 8 px into place over 0.45 s, and each filing chip glows once. Nothing fades, so text keeps its contrast while it moves (axe can run mid-way). Nothing moves under reduced motion, nor for a stored answer or the demo's saved ones, which show whole. Plain CSS: no canvas, WebGL or animation library in the app.
+- **The demo:** each of its 8 saved answers in the same card, at rest, beside its sources. Its question stays the section's heading for screen readers and shows in the card's bubble.
+- **Badges,** after FreightAudit's `ui.tsx`: a tinted pill with its word and a dot, never colour alone. Green `ok` for done (an indexed filing, a target met); amber `warn` for not yet or not answered (the draft, "Not answered", a target missed). The landing's results keep the word and tint without the dot, as FreightAudit's landing does, so each table still fits 390 px.
+- **Buttons:** one set. Green for the page's one call to action (Ask, the demo's Sign in); `secondary`, quiet and outlined, for everything beside it; `small` in a row of them.
+- **Lists,** after FreightAudit's list table: a rounded frame, a plain head, roomier rows that tint on hover, figures right-aligned. Below 45rem Coverage's rows become cards: the company, "CIK 320193", then its filings with their Indexed badges, and nothing scrolls sideways. The number-check table takes the same look and still scrolls in its own region on a phone. Paging is quiet buttons with Lucide's chevrons.
+- **Header:** the landing's theme switch (System, Light, Dark) between the coverage line and Sign out, on Ask, Coverage and the demo, set by the server from the `fl-theme` cookie. It is one tab stop, its checked radio. On a phone it sits beside the name, so the header keeps three rows; the DOM, and so the keyboard's order, is the desktop's.
+- **How an answer is made:** four cards, their numbers in circles above them joined by a line. Each card holds an icon in a tinted square (Lucide's route, search, message-square-text and shield-check), a title, one line and two or three points: the old four boxes' facts, shortened, with the passage count and the reranker's 50 from the report. Four a row from 64rem; two a row between 40rem and 64rem, with no line from the second to the third; stacked on a phone, with no line.
+- **The hero's find beat:** a pulled source is tugged sideways only. The tug toward its point on the card (18% of the way) often went up or down into the next row, where its label crossed the neighbouring filing's (measured for x12, n01 and c02).
+
 ## Recent questions (2026-11-01)
 
 The session part of the mockup's History: this sign-in's last 10 answered questions, kept in the API's Redis for 30 minutes each (memory.md, 2026-11-01).
@@ -154,11 +174,11 @@ The user's change: the moving story played once (about 20 s) and stopped until R
 
 ## Layout
 
-- **Header:** the mark and the name, then tabs with the current one underlined in green on the header's edge, then Sign out as a quiet outlined button. The demo's Sign in is a green button, like the mockup's landing call to action. On a phone the header takes three rows, as in the mockup: the name, the tabs, then the button.
+- **Header:** the mark and the name, then tabs with the current one underlined in green on the header's edge, then the coverage line, the theme switch (since 2026-11-03) and Sign out as a quiet outlined button. The demo's Sign in is a green button, like the mockup's landing call to action. On a phone the header takes three rows, as in the mockup: the name with the theme switch, the tabs, then the line and the button.
 - **Page column:** 82rem (1,312 px) with 64 px gutters, 32 px below 64rem and 24 px on a phone. The header lines up with it.
 - **Ask:** as above. Before the first answer the right half stays empty, so the question box keeps its width when sources arrive.
-- **Coverage**, in the mockup's Filings look: one table card with a grey head row, company names in semibold, tickers and CIKs in mono, and the pager as outlined buttons. On a phone the table scrolls inside its own region, as before.
-- **Demo**, in the mockup's landing look: a serif title and lead, the saved questions as numbered cards on a full-width white band, then each saved question as a serif heading over its answer card and sources panel. The offline banner is the mockup's amber banner.
+- **Coverage**, in the app's list look since 2026-11-03: one rounded table with a plain head row, company names in semibold, tickers and CIKs in mono, and the pager as quiet buttons. On a phone each company is a card.
+- **Demo**, in the mockup's landing look: a serif title and lead, the saved questions as numbered cards on a full-width white band, then each saved answer in Ask's card beside its sources panel (since 2026-11-03). The offline banner is the mockup's amber banner.
 - **Sign-in and the error pages:** one white card under the mark.
 
 ## Type
@@ -166,7 +186,7 @@ The user's change: the moving story played once (about 20 s) and stopped until R
 System fonts only, as before: nothing downloads, nothing shifts while fonts load, and the CSP (`font-src 'self'`) needs no change.
 
 - **Sans**, the system UI font, for the interface at a 15 px base. Page titles are 22 px bold, like the mockup's "Filings".
-- **Serif** for reading: the answer at 20 px, passages at 17 px, the demo's title at 44 px (32 px on a phone) and its question headings at 28 px.
+- **Serif** for reading: the answer at 20 px, passages at 17 px, and the demo's title at 44 px (32 px on a phone).
 - **Mono** for identifiers and stacked figures: tickers, CIKs, accessions, a fact's value and token counts.
 - Labels are 13 px. Table heads are 14 px in the sans, not small capitals.
 
@@ -192,13 +212,13 @@ Every text pair in use reaches 4.5:1. The lowest is 5.01:1, labels on the tinted
 
 ## Spacing and shape
 
-A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius and controls 6 px; pills are fully round.
+A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius (Ask's answer card 16 px, as the hero's) and controls 6 px; badges are fully round.
 
 ## Answers, citations and sources
 
 - **Citations:** the number in a small green outlined box, filled on hover. It stays inline in its sentence, which the 24 px target rule exempts, and its name stays "Source 1: AMZN 10-K FY2025, Item 1". The brackets stay in the page at zero size, so copied text still reads "[1]".
 - **Figures:** amounts with a $, a %, "percent", a scale (thousand to trillion) or USD sit under the highlighter (`splitFigures` in `web/lib/answer.ts`). Years and dates do not.
-- **The answer card:** a header strip ("Answer", and on Ask the timings), the answer, warnings in amber, notes in a dashed outline, and the token count and cost in a grey footer strip, which on Ask also holds Copy and New question.
+- **The answer card:** since 2026-11-03 the hero's card, as described at the top: the question, Read as, the reply under "Answer" and its timings, the check, the passages and their filings, then warnings in amber, notes in a dashed outline, and the token count and cost in a grey foot, which on Ask also holds Copy and New question.
 - **The sources panel:** a header strip ("Sources"), then each source in turn, divided by hairlines:
   - "Source n" in green, then what the source is, and the filing line (company, section, filing date) in a grey box;
   - for a passage, its filing's period just under the heading, as in the mockup: "Fiscal year ended December 31, 2025", or "Quarter ended …" for a 10-Q, a long date in UTC, in secondary text at 14 px (8.96:1 on the card, 7.71:1 on the tinted card, light; 10.12:1 and 8.28:1, dark). It comes from the filing's `periodEnd`, SEC's period of report (2026-10-20). A fact card keeps its Period row, the value's own period, since a fact has no link to its filing;
@@ -207,7 +227,7 @@ A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius and controls 6 px;
   - a calculation (2026-10-27) as "Source 3: Calculated by FilingLens from sources 1 and 2", a grey box linking its two sources ("the answer model did none of this arithmetic"), then its lines in sans at 15 px, figures under the highlighter, not set like a filing's quoted words;
   - "Filing on sec.gov ↗" (the arrow has empty alt text, so no name changed) and "Back to the answer".
 - **The card a citation jumped to:** a green tint and outline, as the mockup marks the open source.
-- **States:** the draft is dashed with an amber "citations not checked yet" pill; a refusal shows an amber "Not answered" pill; errors sit in a red box; the status line keeps its green dot.
+- **States:** the draft is dashed with an amber "citations not checked yet" badge; a refusal shows an amber "Not answered" badge; errors sit in a red box in the card, under the question; the status line keeps its green dot.
 
 ## What changed in the markup
 
@@ -221,7 +241,7 @@ Styles still live only in `web/app/globals.css`, with no inline style, so the CS
 
 ## Screenshots
 
-`npm run build`, then `npm run screens` in `web/`, writes `docs/screenshots/ui/<screen>-<light|dark|phone>.png` against the mock API: light and dark at 1280 by 800, phone at 390 by 844 in light. Every screen passes axe before its screenshot. Each shot is a full page, except `offline`, which shows the top of the page: below its banner it is the demo page, shot in full as `demo`. The panel sticks, so a full-page shot shows it where it stands at the top of the page, its own scroll at the start. The screenshots come from Windows, so they show its fonts.
+`npm run build`, then `npm run screens` in `web/`, writes `docs/screenshots/ui/<screen>-<light|dark|phone>.png` against the mock API: light and dark at 1280 by 800, phone at 390 by 844 in light. Every screen passes axe before its screenshot. `SCREENS_DIR` writes the shots elsewhere, and `SCREENS_WIDTHS` (such as `1280,1440,1920,390`) shoots each width in light and dark instead, as `<screen>-<width>-<theme>.png`, on one worker: the sign-in error is then shot eight times, and locally every sign-in shares one limiter bucket, so each shot first signs in to empty it. Each shot is a full page, except `offline`, which shows the top of the page: below its banner it is the demo page, shot in full as `demo`. The panel sticks, so a full-page shot shows it where it stands at the top of the page, its own scroll at the start. The screenshots come from Windows, so they show its fonts.
 
 Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric`, `ask-textual`, `ask-comparison`, `ask-calculation` (after the [3] marker's jump, so the panel shows the calculation card), `ask-warnings`, `ask-recent` (x04's answer, n01 in the list), `ask-stored` (n01 picked from the list), `ask-refusal`, `ask-error`, `ask-sources-failed`, `coverage`, `demo`, `demo-coverage`, `offline`, `not-found`, `error`, `config-error`.
 

@@ -43,6 +43,66 @@ const STACK = [
   "Groq",
 ];
 
+// How an answer is made, laid out after FreightAudit's How it works (the same owner's project): each step's icon,
+// from Lucide (ISC licence, docs/third-party.md: route, search, message-square-text, shield-check), a title, one
+// line and its points. The two figures come from the official report, as the page's others do.
+const STEPS = [
+  {
+    title: "Route",
+    icon: (
+      <>
+        <circle cx="6" cy="19" r="3" />
+        <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+        <circle cx="18" cy="5" r="3" />
+      </>
+    ),
+    line: "A small model reads the question.",
+    points: ["Which company, which years, which figure or topic.", "Whether the filings can answer it at all."],
+  },
+  {
+    title: "Retrieve",
+    icon: (
+      <>
+        <path d="m21 21-4.34-4.34" />
+        <circle cx="11" cy="11" r="8" />
+      </>
+    ),
+    line: "Figures come from XBRL facts first; the rest from the filings' passages.",
+    points: [
+      `A keyword and meaning search over ${report.index.chunks.toLocaleString("en-US")} passages.`,
+      `A reranker picks the best of the top ${config.rerank_candidates}.`,
+    ],
+  },
+  {
+    title: "Answer",
+    icon: (
+      <>
+        <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+        <path d="M7 11h10" />
+        <path d="M7 15h6" />
+        <path d="M7 7h8" />
+      </>
+    ),
+    line: "The answer streams in as a draft, not yet checked.",
+    points: ["Each sentence cites a numbered source.", "The checked answer then takes the draft's place."],
+  },
+  {
+    title: "Check",
+    icon: (
+      <>
+        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+        <path d="m9 12 2 2 4-4" />
+      </>
+    ),
+    line: "Every quote and amount is checked against its source.",
+    points: [
+      "Quotes must match their passage word for word.",
+      "A failing draft is redone once; sentences that still fail are removed.",
+      "With none left, the answer is a refusal, not a guess.",
+    ],
+  },
+];
+
 /** One run's results: each metric's target, its result, and whether it met the target. */
 function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] }) {
   return (
@@ -72,7 +132,7 @@ function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] })
               <td className="num">{row.target}</td>
               <td className="num measured">{row.result}</td>
               <td>
-                <span className={row.status === "Met" ? "pill" : "tag"}>{row.status}</span>
+                <span className={row.status === "Met" ? "badge ok" : "badge warn"}>{row.status}</span>
               </td>
             </tr>
           ))}
@@ -93,37 +153,26 @@ export default async function LandingPage() {
 
         <section id="how" className="band" aria-labelledby="how-title">
           <h2 id="how-title">How an answer is made</h2>
-          <ol className="steps">
-            <li>
-              <h3>01 Route</h3>
-              <p>
-                A small model reads the question: which company, which years, which figure or topic, and whether
-                the filings can answer it at all.
-              </p>
-            </li>
-            <li>
-              <h3>02 Retrieve</h3>
-              <p>
-                Figures are looked up in the companies&apos; XBRL facts first. Everything else is a keyword and
-                meaning search over {report.index.chunks.toLocaleString("en-US")} passages, then a reranker picks
-                the best from the top {config.rerank_candidates}.
-              </p>
-            </li>
-            <li>
-              <h3>03 Answer</h3>
-              <p>
-                The answer streams in as a draft, marked as not yet checked, with numbered sources. The checked
-                answer then takes its place.
-              </p>
-            </li>
-            <li>
-              <h3>04 Check</h3>
-              <p>
-                Quotes must match their passage word for word, and amounts the fact or passage they cite. A failing
-                draft is redone once; sentences that still fail are removed, and with none left the answer is a
-                refusal, not a guess.
-              </p>
-            </li>
+          <ol className="how-steps">
+            {STEPS.map((step, i) => (
+              <li key={step.title}>
+                <span className="step-number" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <span className="step-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    {step.icon}
+                  </svg>
+                </span>
+                <h3>{step.title}</h3>
+                <p className="step-line">{step.line}</p>
+                <ul>
+                  {step.points.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
           </ol>
         </section>
 

@@ -1,5 +1,7 @@
 // Every screen in light, dark and phone width, for comparing designs side by side. Each passes axe
 // first, then goes to docs/screenshots/ui/<screen>-<variant>.png, or into SCREENS_DIR when that is set.
+// SCREENS_WIDTHS (such as "1280,1440,1920,390") shoots each width in light and dark instead, as
+// <screen>-<width>-<theme>.png.
 import { randomUUID } from "node:crypto";
 
 import type { Page } from "@playwright/test";
@@ -11,11 +13,21 @@ const DIR = process.env.SCREENS_DIR ?? "../docs/screenshots/ui";
 const TOP_ONLY = new Set(["offline"]); // below its banner it is the demo page, shot in full as "demo"
 
 // Reduced motion: the landing's hero stays the still, so its shots come out the same every run.
-const VARIANTS = [
-  { name: "light", viewport: { width: 1280, height: 800 }, colorScheme: "light", reducedMotion: "reduce" },
-  { name: "dark", viewport: { width: 1280, height: 800 }, colorScheme: "dark", reducedMotion: "reduce" },
-  { name: "phone", viewport: { width: 390, height: 844 }, colorScheme: "light", reducedMotion: "reduce" },
-] as const;
+const WIDTHS = process.env.SCREENS_WIDTHS?.split(",").map(Number);
+const VARIANTS = WIDTHS
+  ? WIDTHS.flatMap((width) =>
+      (["light", "dark"] as const).map((colorScheme) => ({
+        name: `${width}-${colorScheme}`,
+        viewport: { width, height: width < 640 ? 844 : 900 },
+        colorScheme,
+        reducedMotion: "reduce" as const,
+      })),
+    )
+  : ([
+      { name: "light", viewport: { width: 1280, height: 800 }, colorScheme: "light", reducedMotion: "reduce" },
+      { name: "dark", viewport: { width: 1280, height: 800 }, colorScheme: "dark", reducedMotion: "reduce" },
+      { name: "phone", viewport: { width: 390, height: 844 }, colorScheme: "light", reducedMotion: "reduce" },
+    ] as const);
 
 /** An answer whose card `n` has loaded its source, which names `ticker`. */
 async function answered(page: Page, text: string, n: number, ticker: string) {
@@ -32,6 +44,11 @@ async function signedOut(page: Page, path: string) {
 const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
   "sign-in": (page) => signedOut(page, "/login"),
   "sign-in-error": async (page) => {
+    // Locally every sign-in shares one limiter bucket, which a success empties: signing in first keeps the
+    // many widths' wrong tries under the lockout's five.
+    await signedOut(page, "/login");
+    await signIn(page);
+    await expect(page).toHaveURL("/ask");
     await signedOut(page, "/login");
     await signIn(page, "not the password");
     await expect(page.getByTestId("sign-in-error")).toHaveText("Wrong password.");

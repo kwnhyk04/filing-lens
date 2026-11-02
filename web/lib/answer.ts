@@ -30,6 +30,30 @@ export function sourceLabel(citation: Citation, sources?: Sources): string | und
   if (fact) return `${fact.company.ticker} fact, ${fact.label}, period ending ${fact.periodEnd}`;
 }
 
+/** "Checked: 56 percent matches source 2, and every quote matches its passage word for word.": each amount
+    with the source holding it, then the quotes when a passage is cited; nothing for an answer that cites nothing. */
+export function checkLine(answer: Answer): string | undefined {
+  const amounts = listed(answer.checks.map((check) => `${check.text} matches source ${check.citation}`));
+  if (!answer.citations.some((citation) => citation.chunk_id)) return amounts ? `Checked: ${amounts}.` : undefined;
+  return `Checked: ${amounts ? `${amounts}, and ` : ""}every quote matches its passage word for word.`;
+}
+
+/** "AMZN 10-K FY2025": each filing the answer's sources come from, once they load, one per filing. FilingLens
+    holds 10-Ks and 10-Qs only, so a fact's period names its filing's form. */
+export function citedFilings(answer: Answer, sources?: Sources): string[] {
+  const filings = new Map<string, string>();
+  for (const citation of answer.citations) {
+    const { chunk, fact } = findSource(citation, sources);
+    const filing = chunk
+      ? { ...chunk.filing, ticker: chunk.filing.company.ticker, form: formLabel(chunk.filing.formType) }
+      : fact && { ...fact, ticker: fact.company.ticker, form: fact.fiscalPeriod === "FY" ? "10-K" : "10-Q" };
+    if (!filing || filings.has(filing.accessionNumber)) continue;
+    const period = filing.fiscalPeriod === "FY" ? "" : ` ${filing.fiscalPeriod}`;
+    filings.set(filing.accessionNumber, `${filing.ticker} ${filing.form} FY${filing.fiscalYear}${period}`);
+  }
+  return [...filings.values()];
+}
+
 const KINDS: Record<Reading["route"], string> = {
   numeric: "Number question",
   comparison: "Comparison",

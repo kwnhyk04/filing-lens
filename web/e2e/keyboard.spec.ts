@@ -4,25 +4,27 @@ import type { Page } from "@playwright/test";
 import { PASSWORD, question } from "./env.ts";
 import { expect, signedOut, test } from "./fixtures.ts";
 
-/** The focused element's accessible-ish name: its label, its text, or its id. */
+/** The focused element's accessible-ish name: its label, a radio's label, its text, or its id. */
 const focused = (page: Page) =>
   page.evaluate(() => {
-    const element = document.activeElement as HTMLElement;
-    return element.getAttribute("aria-label") ?? (element.textContent?.trim() || element.id);
+    const element = document.activeElement as HTMLInputElement;
+    const radio = element.type === "radio" ? element.labels?.[0]?.textContent?.trim() : undefined;
+    return element.getAttribute("aria-label") ?? radio ?? (element.textContent?.trim() || element.id);
   });
 
 async function tab(page: Page, times = 1) {
   for (let i = 0; i < times; i++) await page.keyboard.press("Tab");
 }
 
-test("the skip link comes first, then the header, then the question form", async ({ page }) => {
+test("the skip link comes first, then the header with its theme switch, then the question form", async ({ page }) => {
   await page.goto("/ask");
   const order: string[] = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 8; i++) {
     await tab(page);
     order.push(await focused(page));
   }
-  expect(order).toEqual(["Skip to content", "FilingLens", "Ask", "Coverage", "Sign out", "question", "Ask"]);
+  // The theme switch is one stop, its checked radio; the arrow keys move between System, Light and Dark.
+  expect(order).toEqual(["Skip to content", "FilingLens", "Ask", "Coverage", "System", "Sign out", "question", "Ask"]);
   await page.goto("/ask");
   await tab(page);
   await page.keyboard.press("Enter");
@@ -32,7 +34,7 @@ test("the skip link comes first, then the header, then the question form", async
 
 test("ask, jump to a citation and back, then sign out, by keyboard alone", async ({ page }) => {
   await page.goto("/ask");
-  await tab(page, 6);
+  await tab(page, 7);
   await page.keyboard.type(question("x04"));
   await tab(page);
   await page.keyboard.press("Enter");
@@ -46,7 +48,7 @@ test("ask, jump to a citation and back, then sign out, by keyboard alone", async
   await page.keyboard.press("Enter");
   expect(await page.evaluate(() => document.activeElement?.id)).toBe("answer-text");
   await page.goto("/ask");
-  await tab(page, 5);
+  await tab(page, 6);
   expect(await focused(page)).toBe("Sign out");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL("/login");
@@ -54,7 +56,7 @@ test("ask, jump to a citation and back, then sign out, by keyboard alone", async
 
 test("after an answer, Tab goes from its citations to Copy and New question, which returns to the question box", async ({ page }) => {
   await page.goto("/ask");
-  await tab(page, 6);
+  await tab(page, 7);
   await page.keyboard.type(question("x04"));
   await tab(page);
   await page.keyboard.press("Enter");
