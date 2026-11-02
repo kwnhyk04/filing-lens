@@ -6,15 +6,25 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-02) **Hero loop:** the moving story loops through three saved answers, on branch `hero-loop` from main at 3fd652d (uncommitted).
+- [ ] (user, 2026-11-02) **App UI and the How section**, approved with the user's four answers (no API change; passages below the answer; only the cited filings; the theme switch in the app header), on branch `app-ui` from main at 7812548 (uncommitted). FreightAudit's files read only, never changed.
+  - [x] Tests first for each part, red then green: 2 units (`lib/answer.test.ts`), 12 Playwright specs (`e2e/card.spec.ts`, two in `e2e/landing.spec.ts`), and the keyboard and coverage specs updated for the theme switch and the badge.
+  - [x] Landing, "How an answer is made": FreightAudit's How it works layout in FilingLens's CSS and tokens (numbered circles joined by a line, an icon, a title, one line, two or three points); the four steps and their facts; stacked on phones.
+  - [x] Ask in the hero card's look, showing each part only when the stream or the sources lookup reports it; errors, Recent questions, the demo's 8 answers, reduced motion, keyboard use and axe kept; no canvas or WebGL in the app (`components/answer-card.tsx`).
+  - [x] The app's look after FreightAudit's `ui.tsx`: the theme switch in the app's header, Coverage as a list table (cards on a phone), one set of buttons and badges, the pager.
+  - [x] The hero's find beat: a pulled source moves sideways only, so no label crosses another (red on the GPU for x12, n01 and c02, then green).
+  - [x] Screenshots: 176 at 1280, 1440, 1920 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-app`; the repo's 66 screens regenerated.
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; `clients/ts` typecheck, 18 tests; web typecheck, `npm test` 120, build; Playwright 118 passed and 4 skipped without a GPU, 122 passed on Edge's GPU. `make test-int` (the user's go): 50 passed; the rate test's timing miss passed alone; the 2 egress errors are the subnet below.
+  - [ ] (user) ship.
+- [ ] **Egress tests' subnet** (found 2026-11-03, `make test-int`): `infra/tests/test_egress.py` creates its network on 10.231.233.0/28, which Triage Copilot's production network `triagecopilot-prod_outbound` now holds, so Docker refuses ("Pool overlaps"). Its own small PR: a free test subnet (FreightAudit holds .231, FilingLens's production .232, Triage Copilot .233).
+- [x] (user, 2026-11-02) **Hero loop:** the moving story loops through three saved answers, merged as #47 (7812548, git log). Built on branch `hero-loop` from main at 3fd652d.
   - [x] Tests first: the loop's stories (`lib/story.test.ts`); on the GPU, the loop reaches the second answer after its hold, hover pauses it, and a hero scrolled away stops it (`e2e/landing.spec.ts`). Red, then green.
   - [x] `lib/story.ts`: answers that cite facts, and two filings; the loop x12, x04, n01, c02.
   - [x] The user's change, the same day: x04 (Amazon) out of the loop, since the overview just below shows it; the loop is x12, n01, c02, and a unit test keeps the overview's answer out of it. Tests first, red then green. Checks again: web typecheck, `npm test` 118, build; Playwright 107 passed and 3 skipped without a GPU, 110 passed on Edge's GPU; the JavaScript unchanged. Python and `clients/ts` not rerun (unchanged).
   - [x] `hero-live.tsx`: one plot per story; a 7 s hold on the story's own clock, then a fade to the next answer, looping; hover or focus inside the card pauses; Replay restarts the current answer; the caption and its controls stay across answers.
   - [x] JavaScript before and after: before the load event 141.5 KB gzip on both; after it, on the desktop, 327.0 KB became 327.8 KB (the story's chunk 44.7 to 45.5 KB); the phone loads nothing after it on both.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; `clients/ts` typecheck, 18 tests; web typecheck, `npm test` 118, build; Playwright 107 passed and 3 skipped without a GPU (as CI), 110 passed on Edge's GPU.
-  - [ ] (user, optional) `make test-int`, with a go for Testcontainers.
-  - [ ] (user) ship.
+  - [x] (user, optional) `make test-int`: not run before #47 merged.
+  - [x] (user) ship: merged as #47.
 - [x] (user, 2026-11-02) **Inline Sources blocks, and the overview's head**, one PR, merged as #46 (3fd652d, git log). Built on branch `inline-sources` from main at 99992d9.
   - [x] Tests first, red then green: c13's draft from E5 with its Sources block on the answer's line, and the same block starting its own line: the list leaves the answer, its three quotes are read, and the stream never shows it (1 to 39 characters a chunk); two rows the heading must leave alone; the overview's new head with no label.
   - [x] Validation reads such a block as the Sources block (`answer.py`), and the stream waits on a heading that ends the text received so far.

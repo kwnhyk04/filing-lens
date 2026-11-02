@@ -198,6 +198,36 @@ test("the overview: another saved answer and its passage, two figures from the s
   await expect(overview.locator(".overview-jobs dt")).toHaveText(["Ask", "Cite", "Check"]);
 });
 
+test("How an answer is made: four numbered steps joined by a line, each an icon, a title, one line and its points", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  const steps = page.locator("#how ol.how-steps > li");
+  await expect(steps.locator("h3")).toHaveText(["Route", "Retrieve", "Answer", "Check"]);
+  await expect(steps.locator(".step-number")).toHaveText(["1", "2", "3", "4"]);
+  for (const step of await steps.all()) {
+    await expect(step.locator(".step-icon[aria-hidden='true'] svg")).toHaveCount(1);
+    await expect(step.locator(".step-line")).toHaveCount(1);
+    const points = await step.locator("ul > li").count();
+    expect(points).toBeGreaterThanOrEqual(1);
+    expect(points).toBeLessThanOrEqual(3);
+  }
+  for (const fact of ["XBRL facts first", "word for word", "redone once", "a refusal, not a guess"]) {
+    await expect(page.locator("#how")).toContainText(fact);
+  }
+  // A desktop shows one row, each number joined by a line to the one before; a phone stacks them, with no line.
+  const boxes = () => steps.evaluateAll((items) => items.map((item) => item.getBoundingClientRect()).map(({ top, left }) => ({ top: Math.round(top), left: Math.round(left) })));
+  const lines = () =>
+    steps.evaluateAll((items) =>
+      items.map((item) => getComputedStyle(item, "::before")).map((line) => line.content !== "none" && line.display !== "none"),
+    );
+  expect(new Set((await boxes()).map((box) => box.top)).size).toBe(1);
+  expect(await lines()).toEqual([false, true, true, true]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(new Set((await boxes()).map((box) => box.left)).size).toBe(1);
+  expect(await lines()).toEqual([false, false, false, false]);
+  await noSidewaysScroll(page);
+});
+
 test("the theme toggle keeps Light or Dark in a cookie the server reads, and System clears it", async ({ page, context }) => {
   await page.goto("/");
   const html = page.locator("html");
@@ -372,6 +402,40 @@ test.describe("on a desktop", () => {
     await expect(live).toContainText(stories[0].question);
     await page.locator(".hero").getByRole("button", { name: "Replay" }).focus();
     await expect(live).toHaveAttribute("data-moving", "true");
+  });
+
+  test("no floating label ever crosses another, through each answer's find beat, round the whole loop", async ({ page }) => {
+    test.setTimeout(150_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await movingStory(page);
+    // Every frame, each visible thing's label box against every other's, until each answer has reached its answer beat.
+    const crossings = await page.evaluate(
+      (count) =>
+        new Promise<string[]>((resolve) => {
+          const found = new Set<string>();
+          let answered = 0, last = "";
+          const tick = () => {
+            const beat = document.querySelector(".story-live")?.getAttribute("data-beat") ?? "";
+            if (beat === "4" && last !== "4") answered++;
+            last = beat;
+            const labels = [...document.querySelectorAll<HTMLElement>(".pb-thing")]
+              .filter((thing) => thing.dataset.empty !== "true" && Number(thing.style.opacity || 0) > 0.05)
+              .map((thing) => ({ name: thing.querySelector("b")?.textContent ?? "", box: thing.querySelector(".pb-thing-label")!.getBoundingClientRect() }));
+            labels.forEach((a, i) =>
+              labels.slice(i + 1).forEach((b) => {
+                const x = Math.min(a.box.right, b.box.right) - Math.max(a.box.left, b.box.left);
+                const y = Math.min(a.box.bottom, b.box.bottom) - Math.max(a.box.top, b.box.top);
+                if (x > 0.5 && y > 0.5) found.add(`beat ${beat}: ${a.name} / ${b.name}`);
+              }),
+            );
+            if (answered >= count) resolve([...found]);
+            else requestAnimationFrame(tick);
+          };
+          tick();
+        }),
+      stories.length,
+    );
+    expect(crossings).toEqual([]);
   });
 
   test("the story stops, and draws nothing, while the hero is scrolled away; back in view it goes on", async ({ page }) => {

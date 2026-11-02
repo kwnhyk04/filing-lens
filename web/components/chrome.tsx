@@ -1,16 +1,26 @@
 // Page chrome: the signed-in and demo headers, the demo banner, the configuration-error page. The
-// landing page's header is landing-header.tsx.
+// landing page's header is landing-header.tsx; both carry its theme switch.
+import { cookies } from "next/headers";
 import Link from "next/link";
 
 import { demo, demoCoverageLine } from "../lib/demo.ts";
 import { hasSession } from "../lib/server.ts";
+import { THEME_COOKIE, themeOf } from "../lib/theme.ts";
+import { ThemeToggle } from "./theme-toggle.tsx";
 
 const current = (on: boolean) => (on ? ("page" as const) : undefined);
+
+/** The theme switch, set to the choice the fl-theme cookie keeps, as the root layout reads it. */
+async function Theme() {
+  return <ThemeToggle theme={themeOf((await cookies()).get(THEME_COOKIE)?.value)} />;
+}
 
 function SignOut() {
   return (
     <form action="/logout" method="post">
-      <button type="submit">Sign out</button>
+      <button type="submit" className="secondary small">
+        Sign out
+      </button>
     </form>
   );
 }
@@ -32,6 +42,7 @@ export function LiveHeader({ page, line }: { page: "ask" | "coverage"; line?: st
       </nav>
       <div className="site-end">
         {line && <p>{line}</p>}
+        <Theme />
         <SignOut />
       </div>
     </header>
@@ -57,10 +68,11 @@ export async function DemoHeader({ page }: { page: "answers" | "coverage" }) {
       {/* Counted from the snapshot; the live header's line comes from the API's totals. */}
       <div className="site-end">
         <p>{demoCoverageLine}</p>
+        <Theme />
         {signedIn ? (
           <SignOut />
         ) : (
-          <Link href="/login" className="button" prefetch={false}>
+          <Link href="/login" className="button small" prefetch={false}>
             Sign in
           </Link>
         )}

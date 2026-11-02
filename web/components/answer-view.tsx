@@ -1,16 +1,15 @@
-// A validated answer with its citation links, number checks and source cards; renders on the server or client.
+// A validated answer's text with its citation links, its number checks and its source cards; renders on the
+// server or the client. The card around them is answer-card.tsx.
 import {
   checksTitle,
   figureRows,
   findSource as find,
   locateQuote,
   periodEnded,
-  readingChips,
   sourceLabel,
   splitFigures,
   splitMarkers,
   type Answer,
-  type Reading,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
 
@@ -18,30 +17,15 @@ export { sourceLabel };
 
 type Citation = Answer["citations"][number];
 
-/** How the router read the question, as quiet chips; nothing when the answer carries no reading. */
-export function ReadAs({ reading }: { reading?: Reading | null }) {
-  if (!reading) return null;
-  return (
-    <div className="read-as" data-testid="read-as">
-      <span>Read as</span>
-      <ul>
-        {readingChips(reading).map((chip) => (
-          <li key={chip}>{chip}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 /** Each amount in the answer with its source's number. Validation removes a sentence whose amount no
     cited source holds, so every row is a match. */
-function FigureChecks({ answer, sources }: { answer: Answer; sources?: Sources }) {
+export function FigureChecks({ answer, sources }: { answer: Answer; sources?: Sources }) {
   if (!answer.checks.length) return null;
   const title = checksTitle(answer);
   // On a phone the table scrolls sideways in its own region, so the keyboard must reach it (axe).
   return (
-    <div className="scroll checks" data-testid="checks" role="region" aria-label={title} tabIndex={0}>
-      <table>
+    <div className="table-wrap checks" data-testid="checks" role="region" aria-label={title} tabIndex={0}>
+      <table className="list-table">
         <caption>{title}</caption>
         <thead>
           <tr>
@@ -196,37 +180,6 @@ export function AnswerText({ answer, sources, prefix = "" }: Props) {
   );
 }
 
-/** The answer itself: its text with citation links, then warnings, notes and usage. */
-export function AnswerMain(props: Props) {
-  const { answer } = props;
-  const { input_tokens: input, output_tokens: output, cost_usd: cost } = answer.usage;
-  return (
-    <div className="answer-main">
-      {answer.refused && <p className="tag">Not answered</p>}
-      <AnswerText {...props} />
-      <FigureChecks answer={answer} sources={props.sources} />
-      {answer.warnings.length > 0 && (
-        <div className="warnings" data-testid="warnings">
-          <p>
-            <strong>Checks:</strong> validation changed the draft.
-          </p>
-          <ul>
-            {answer.warnings.map((warning, i) => (
-              <li key={i}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {answer.degraded && (
-        <p className="note">Search skipped the reranker after a timeout, so passages keep their first order.</p>
-      )}
-      <p className="usage">
-        {input.toLocaleString("en-US")} tokens in, {output.toLocaleString("en-US")} out, cost ${cost.toFixed(2)}
-      </p>
-    </div>
-  );
-}
-
 /** The sources panel, one card per citation; nothing when the answer cites nothing. */
 export function SourceList({ answer, sources, sourcesFailed = false, prefix = "" }: Props) {
   if (answer.citations.length === 0) return null;
@@ -242,14 +195,5 @@ export function SourceList({ answer, sources, sourcesFailed = false, prefix = ""
         <SourceCard key={i} n={i + 1} citation={citation} sources={sources} prefix={prefix} />
       ))}
     </section>
-  );
-}
-
-export function AnswerView(props: Props) {
-  return (
-    <div className="answer">
-      <AnswerMain {...props} />
-      <SourceList {...props} />
-    </div>
   );
 }

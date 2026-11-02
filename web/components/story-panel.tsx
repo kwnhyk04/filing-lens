@@ -1,7 +1,8 @@
 // The hero story's panel: the question, how the router read it, the sources it cites (a passage's form, year,
 // item and quote, or a fact and its value), the answer with its citation links, and the number check. The still
 // shows it whole; the moving story reveals one row at a time through `rowRef`, with ids of its own (`prefix`).
-import { checkLine, type HeroStory } from "../lib/story.ts";
+import { checkLine } from "../lib/answer.ts";
+import type { HeroStory } from "../lib/story.ts";
 import { AnswerText } from "./answer-view.tsx";
 
 type Ref<T> = (element: T | null) => void;
@@ -14,13 +15,13 @@ interface Props {
   replyRef?: Ref<HTMLDivElement>;
 }
 
-// Lucide's file-text and check (ISC licence, docs/third-party.md); a scan for the reading.
-const GLYPHS = {
+// Lucide's file-text and check (ISC licence, docs/third-party.md); a scan for the reading. Ask's card shares them.
+export const GLYPHS = {
   read: "M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10",
   check: "M20 6 9 17l-5-5",
 };
 
-function Glyph({ d }: { d: string }) {
+export function Glyph({ d }: { d: string }) {
   return (
     <span className="story-glyph" aria-hidden="true">
       <svg viewBox="0 0 24 24" focusable="false">
@@ -69,7 +70,7 @@ export function StoryPanel({ story, prefix, rowRef, replyRef }: Props) {
       </div>
       <p className="story-row" data-tone="check" ref={rowRef?.(3 + passages)}>
         <Glyph d={GLYPHS.check} />
-        <span>{checkLine(story)}</span>
+        <span>{checkLine(story.answer)}</span>
       </p>
     </div>
   );

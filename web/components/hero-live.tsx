@@ -810,7 +810,8 @@ function find(w: World, L: Layout, sizes: Size[], plot: Plot): Beat {
   const k = L.k;
   const one = (S: Strand, K: Cell, U: Cell, slot: number, row: number, t: number): AnimationSequence => {
     const n = w.nodes[slot], M = L.slots[slot], P = L.rims[slot], R = L.rows[row], pk = pocket(sizes[slot], k, M);
-    const tug = { x: M.x + (P.x - M.x) * 0.18, y: M.y + (P.y - M.y) * 0.18 };
+    // Sideways only: a pull up or down carried its label into the next row's, where another thing floats.
+    const tug = { x: M.x + (P.x - M.x) * 0.18, y: M.y };
     return [
       lookAt(w, M, t + 0.05),
       [S, { ax: P.x, ay: P.y, bx: P.x, by: P.y, r: 9 * k, taper: 0.35, tone: 1 }, { duration: 0.01, at: t }],

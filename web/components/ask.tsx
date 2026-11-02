@@ -14,7 +14,8 @@ import {
   type RecentAnswer,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
-import { AnswerMain, ReadAs, SourceList, sourceLabel } from "./answer-view.tsx";
+import { AnswerCard } from "./answer-card.tsx";
+import { SourceList, sourceLabel } from "./answer-view.tsx";
 import { QuoteInView } from "./quote-in-view.tsx";
 import { RecentQuestions } from "./recent-questions.tsx";
 
@@ -83,6 +84,7 @@ export function Ask({ samples }: { samples: string[] }) {
   const [problem, setProblem] = useState<Notice | null>(null);
   const [status, setStatus] = useState("");
   const [timing, setTiming] = useState<Timing | null>(null);
+  const [turn, setTurn] = useState(0); // each question's card is a new one, so what arrives moves in afresh
   const running = useRef<AbortController | null>(null);
   const focusAnswer = useRef(false);
   const form = useRef<HTMLFormElement>(null);
@@ -151,6 +153,7 @@ export function Ask({ samples }: { samples: string[] }) {
     running.current = controller;
     const { signal } = controller;
     setBusy(true);
+    setTurn((n) => n + 1);
     setAsked(question);
     setDraft("");
     setAnswer(null);
@@ -203,6 +206,7 @@ export function Ask({ samples }: { samples: string[] }) {
     const controller = new AbortController();
     running.current = controller;
     if (box.current) box.current.value = item.question;
+    setTurn((n) => n + 1);
     setAsked(item.question);
     setProblem(null);
     setTiming(null);
@@ -266,6 +270,7 @@ export function Ask({ samples }: { samples: string[] }) {
                 <li key={sample}>
                   <button
                     type="button"
+                    className="secondary small"
                     onClick={() => {
                       if (!box.current) return;
                       box.current.value = sample;
@@ -282,58 +287,66 @@ export function Ask({ samples }: { samples: string[] }) {
         <p role="status" className="status" data-testid="ask-status">
           {status}
         </p>
-        {problem && (
-          <div className="problem" data-testid="ask-error">
-            <p>{problem.text}</p>
-            {problem.demo && (
-              <p>
-                <Link href="/demo">See the saved answers</Link>
-              </p>
-            )}
-          </div>
-        )}
-        {draft !== null && (
-          <section className="draft" aria-busy="true" aria-labelledby="draft-title" data-testid="draft">
-            <h2 id="draft-title">
-              Draft <span className="tag">citations not checked yet</span>
-            </h2>
-            <p>{draft}</p>
-          </section>
-        )}
-        {answer && <ReadAs reading={answer.reading} />}
-        {answer && (
-          <section className="result" aria-labelledby="answer-title" data-testid="answer">
-            <div className="result-head">
-              <h2 id="answer-title">Answer</h2>
-              {storedAt ? (
+        {asked !== null && (
+          <AnswerCard
+            key={turn}
+            question={asked}
+            draft={draft}
+            answer={answer}
+            sources={sources}
+            sourcesFailed={sourcesFailed}
+            still={storedAt !== null}
+            problem={
+              problem && (
+                <>
+                  <p>{problem.text}</p>
+                  {problem.demo && (
+                    <p>
+                      <Link href="/demo">See the saved answers</Link>
+                    </p>
+                  )}
+                </>
+              )
+            }
+            head={
+              storedAt ? (
                 <p className="timings" data-testid="stored">
                   {storedLine(storedAt)}
                 </p>
               ) : (
-                timing && (
+                timing &&
+                answer && (
                   <p className="timings" data-testid="timings">
                     {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length, answer.checks.length > 0)}
                   </p>
                 )
-              )}
-            </div>
-            <AnswerMain answer={answer} sources={sources} />
-            <div className="actions">
-              {answer.citations.length > 0 && (
-                <button type="button" onClick={() => copy(answer)}>
-                  Copy answer with sources
-                </button>
-              )}
-              {storedAt && asked && (
-                <button type="button" aria-disabled={busy || undefined} onClick={() => !busy && run(asked, true)}>
-                  Ask again
-                </button>
-              )}
-              <button type="button" onClick={startOver}>
-                New question
-              </button>
-            </div>
-          </section>
+              )
+            }
+            actions={
+              answer && (
+                <>
+                  {answer.citations.length > 0 && (
+                    <button type="button" className="secondary small" onClick={() => copy(answer)}>
+                      Copy answer with sources
+                    </button>
+                  )}
+                  {storedAt && (
+                    <button
+                      type="button"
+                      className="secondary small"
+                      aria-disabled={busy || undefined}
+                      onClick={() => !busy && run(asked, true)}
+                    >
+                      Ask again
+                    </button>
+                  )}
+                  <button type="button" className="secondary small" onClick={startOver}>
+                    New question
+                  </button>
+                </>
+              )
+            }
+          />
         )}
         <RecentQuestions items={others} busy={busy} onPick={pick} />
       </div>

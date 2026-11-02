@@ -86,59 +86,7 @@ html:has(.landing-head) {
   display: none;
 }
 
-/* The theme: three radios as one pill, the radio itself covering its icon, so clicks and arrow keys are
-   the browser's own. */
-.theme-toggle {
-  display: inline-flex;
-  gap: 2px;
-  min-inline-size: 0;
-  margin: 0;
-  padding: 2px;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--sheet) 70%, transparent);
-}
-
-.theme-toggle label {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-
-.theme-toggle label:hover {
-  color: var(--ink);
-}
-
-.theme-toggle label:has(:checked) {
-  background: var(--sheet);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.12),
-    inset 0 0 0 1px var(--rule);
-  color: var(--ink);
-}
-
-.theme-toggle label:has(:focus-visible) {
-  outline: 3px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.theme-toggle input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.theme-toggle svg,
+/* The theme switch's own rules are the app's (globals.css); the menu's icon is drawn the same way. */
 .menu-toggle svg {
   width: 1rem;
   height: 1rem;
@@ -222,7 +170,7 @@ html:has(.landing-head) {
     font-size: 1rem;
   }
 
-  .theme-toggle label {
+  .landing-menu .theme-toggle label {
     width: 2.75rem;
     height: 2.75rem;
   }
@@ -336,96 +284,7 @@ html:has(.landing-head) {
   line-height: 1.45;
 }
 
-.story-sent {
-  justify-self: end;
-  max-width: 85%;
-}
-
-.story-bubble {
-  display: inline-block;
-  padding: 0.45rem 0.85rem;
-  border-radius: 14px 14px 4px 14px;
-  background: var(--bubble);
-  font-weight: 500;
-}
-
-.story-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.625rem;
-  padding: 0.4rem 0.625rem;
-  border-radius: 10px;
-  background: var(--row-bg);
-}
-
-.story-row b {
-  font-weight: 650;
-}
-
-.story-glyph,
-.story-n {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 50%;
-}
-
-.story-glyph {
-  background: var(--glyph-bg);
-}
-
-.story-glyph svg {
-  width: 0.75rem;
-  height: 0.75rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.story-n {
-  border: 1.5px solid var(--hero-teal);
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
-
-.story-passages {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.story-passages li:target {
-  box-shadow: inset 0 0 0 1.5px var(--hero-teal);
-}
-
-.story-cite {
-  display: grid;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.story-cite q {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--on-body-2);
-  font-family: var(--serif);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.story-reply .story-bubble {
-  display: block;
-  padding: 0.75rem 1rem;
-  border-radius: 14px 14px 14px 4px;
-  font-weight: 400;
-}
-
+/* Its parts (.story-sent, .story-row, the bubbles) are shared with Ask's card, in globals.css. */
 .story-reply .answer-text {
   color: var(--on-body);
   font-family: var(--serif);
@@ -638,6 +497,129 @@ html:has(.landing-head) {
   margin: 0.25rem 0 0;
   color: var(--ink-2);
   font-size: 0.875rem;
+}
+
+/* The results' badges keep their word and tint without the dot, as FreightAudit's landing does, so each table
+   still fits a phone without scrolling sideways. */
+.landing .badge::before {
+  display: none;
+}
+
+/* How an answer is made, after FreightAudit's How it works: four cards, their numbers above them joined by a
+   line, each card an icon, a title, one line and its points. */
+.how-steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.how-steps > li {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  margin-top: 3rem;
+  padding: 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-card);
+  background: var(--paper);
+}
+
+.step-number {
+  position: absolute;
+  top: -3rem;
+  left: 1.5rem;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--field);
+  border-radius: 50%;
+  background: var(--sheet);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* The line runs back from each number to the one before it, across the gap: a column less the two half
+   numbers' overhang (2 rem number, 1.5 rem inset, 1.5 rem gap). */
+.how-steps > li + li::before {
+  content: "";
+  position: absolute;
+  top: -2rem;
+  right: calc(100% - 1.5rem);
+  width: calc(100% - 0.5rem);
+  height: 1px;
+  background: var(--field);
+}
+
+.step-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--tint);
+  color: var(--accent);
+}
+
+.step-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.how-steps h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.step-line {
+  font-size: 0.9375rem;
+  line-height: 1.375rem;
+}
+
+.how-steps ul {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0.5rem 0 0;
+  padding-left: 1.125rem;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+  line-height: 1.375rem;
+}
+
+/* Two a row: the third starts a row of its own, so no line runs back to the second. */
+@media (40rem < width < 64rem) {
+  .how-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .how-steps > li:nth-child(odd)::before {
+    display: none;
+  }
+}
+
+@media (width >= 64rem) {
+  .how-steps {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* A phone stacks the steps, each number over its card, with no line between them. */
+@media (width <= 40rem) {
+  .how-steps > li + li::before {
+    display: none;
+  }
 }
 
 @media (width > 40rem) {

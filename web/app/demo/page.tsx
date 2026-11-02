@@ -1,4 +1,5 @@
-import { AnswerView, ReadAs } from "../../components/answer-view.tsx";
+import { AnswerCard } from "../../components/answer-card.tsx";
+import { SourceList } from "../../components/answer-view.tsx";
 import { DemoBanner, DemoHeader } from "../../components/chrome.tsx";
 import { QuoteInView } from "../../components/quote-in-view.tsx";
 import { demo } from "../../lib/demo.ts";
@@ -23,11 +24,17 @@ export default async function DemoPage({ searchParams }: Props) {
             </li>
           ))}
         </ol>
+        {/* Each saved answer in Ask's card, at rest; its question heads the section for screen readers and
+            shows in the card's bubble. */}
         {demo.answers.map((item) => (
           <section key={item.id} id={`q-${item.id}`} aria-labelledby={`q-${item.id}-title`} className="saved">
-            <h2 id={`q-${item.id}-title`}>{item.question}</h2>
-            <ReadAs reading={item.answer.reading} />
-            <AnswerView answer={item.answer} sources={demo.sources} prefix={`${item.id}-`} />
+            <h2 id={`q-${item.id}-title`} className="visually-hidden">
+              {item.question}
+            </h2>
+            <div className="answer">
+              <AnswerCard question={item.question} answer={item.answer} sources={demo.sources} still prefix={`${item.id}-`} level={3} />
+              <SourceList answer={item.answer} sources={demo.sources} prefix={`${item.id}-`} />
+            </div>
           </section>
         ))}
         <QuoteInView />

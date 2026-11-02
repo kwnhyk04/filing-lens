@@ -1,10 +1,13 @@
 // The answer helpers under `node --test`: SSE framing, quote highlighting, citation markers.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
   answerWithSources,
+  checkLine,
   checksTitle,
+  citedFilings,
   clockTime,
   createSseParser,
   figureRows,
@@ -20,7 +23,34 @@ import {
   type Answer,
   type Reading,
 } from "./answer.ts";
-import type { Sources } from "./demo.ts";
+import type { Snapshot, Sources } from "./demo.ts";
+
+const snapshot = (): Snapshot =>
+  JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as Snapshot;
+const saved = (id: string, data = snapshot()) => data.answers.find((item) => item.id === id)!.answer;
+
+test("the check line: each amount with its source, then the quotes when a passage is cited; none for a refusal", () => {
+  assert.equal(checkLine(saved("x12")), "Checked: 56 percent matches source 2, and every quote matches its passage word for word.");
+  assert.equal(checkLine(saved("x04")), "Checked: every quote matches its passage word for word.");
+  assert.equal(checkLine(saved("n01")), "Checked: 416,161,000,000 matches source 1.");
+  assert.equal(checkLine(saved("c02")), "Checked: $402,836,000,000 matches source 1 and $200,966,000,000 matches source 2.");
+  assert.equal(checkLine(saved("o02")), undefined);
+});
+
+test("cited filings: one per filing the sources come from, once they load, a fact's named by its period", () => {
+  const data = snapshot();
+  const filings = (id: string) => citedFilings(saved(id, data), data.sources);
+  assert.deepEqual(filings("x12"), ["LLY 10-K FY2025"]);
+  assert.deepEqual(filings("n01"), ["AAPL 10-K FY2025"]);
+  assert.deepEqual(filings("c02"), ["GOOGL 10-K FY2025", "META 10-K FY2025"]);
+  assert.deepEqual(filings("c12"), ["TSLA 10-K FY2025"]); // two facts and two passages from one filing
+  assert.deepEqual(filings("x02"), ["NVDA 10-K FY2026"]);
+  assert.deepEqual(filings("o02"), []);
+  assert.deepEqual(citedFilings(saved("x12", data)), []); // before the sources load
+  // FilingLens holds 10-Ks and 10-Qs only, so a fact from a quarter is a 10-Q's.
+  const quarter = { ...data.sources, facts: data.sources.facts.map((fact) => ({ ...fact, fiscalPeriod: "Q2" as const })) };
+  assert.deepEqual(citedFilings(saved("n01", data), quarter), ["AAPL 10-Q FY2025 Q2"]);
+});
 
 function parse(chunks: string[]): string[] {
   const data: string[] = [];

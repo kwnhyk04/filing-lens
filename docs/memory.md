@@ -1032,6 +1032,19 @@ From the hero loop (2026-11-02, branch `hero-loop` from main at 3fd652d, uncommi
 - 2026-11-02: The loop's e2e tests need the moving story, so they run only on a graphics card (`E2E_CHANNEL=msedge`) and skip on a software renderer, as on CI. CI checks the stories through the unit tests.
 - 2026-11-02: Pre-existing, not changed: in the find beat the pulled passage's label crosses the neighbouring filing's label for about a second (x12 on main too; seen in the loop's frames).
 
+From the app UI (2026-11-02 and 03, branch `app-ui` from main at 7812548, uncommitted; the user: "FL app UI and one landing section. Plan first and tell me the plan before building."):
+
+- 2026-11-02: The answer stream reports three events only: `delta` (the draft), `completed` (the whole checked answer, with the reading, citations and checks) and `failed`. Routing, the fact lookup and retrieval run before the first delta and are never reported (`events` in `answering.py`). The user chose to build on that with no API change ("1. A"), so Ask's card shows the reading with the checked answer, and the passages when the web's sources lookup returns.
+- 2026-11-02: The user's other answers to the plan: passages below the answer, in the order they arrive; only the cited filings round the card (any others would need one more API call per visit); the landing's theme switch in the app header; "Use the Lucide icons as inline SVGs, not a new package."
+- 2026-11-03: The card's arrivals move by position and a glow, never by opacity. Why: axe measures contrast with the opacity in force, and an e2e audit can run while a row arrives, so a fade would make the audits flaky.
+- 2026-11-03: "Read as" keeps an empty, hidden line while the draft streams. Why: it arrives with the checked answer, above the reply, and the kept line stops the reply from jumping down then.
+- 2026-11-03: A fact's filing chip takes its form from the fact's period: FY is a 10-K's, a quarter a 10-Q's. Why: GraphQL's Fact has no form, and FormType holds only 10-K and 10-Q.
+- 2026-11-03: The hero's label crossing (2026-11-02, above) was the find beat's tug, 18% of the way toward the source's point on the card, often up or down into the next row. A GPU test sampling every label's box each frame through the loop measured it first: x12's "Item 7" crossed "WMT 10-K", n01's value "WMT 10-K", c02's value "UNP 10-K". With a sideways tug, none cross.
+- 2026-11-03: Pitfall: with `SCREENS_WIDTHS` the sign-in error is shot eight times, and locally every sign-in shares one limiter bucket (5 tries in 15 minutes), so the 6th to 8th shots got the lockout message. A success empties the bucket, so that shot now signs in first; with four workers the tries still overlapped past five, so that mode runs on one worker.
+- 2026-11-03: Pitfall: the badge's dot made the landing's results tables wider than a 390 px phone (axe's `scrollable-region-focusable` on the landing's phone shot). The landing's badges drop the dot, as FreightAudit's landing does.
+- 2026-11-03: On a phone the app header's theme switch moves beside the name by position, not in the DOM. Why: the DOM order is the keyboard's, and the header keeps three rows.
+- 2026-11-03: Pitfall: the live egress tests (`infra/tests/test_egress.py`) create their network on 10.231.233.0/28, and Triage Copilot's production network `triagecopilot-prod_outbound` now holds that subnet, so Docker refuses ("Pool overlaps with other one on this address space") and both tests error in setup. The other projects' subnets are theirs to keep; the test needs a free one (todo.md).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

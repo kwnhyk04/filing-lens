@@ -17,7 +17,7 @@ export function RecentQuestions({ items, busy, onPick }: Props) {
         {items.map((item) => (
           <li key={item.id}>
             {/* aria-disabled, not disabled, while answering: a disabled button would drop the focus */}
-            <button type="button" aria-disabled={busy || undefined} onClick={() => !busy && onPick(item)}>
+            <button type="button" className="secondary" aria-disabled={busy || undefined} onClick={() => !busy && onPick(item)}>
               <span>{item.question}</span>
               <time dateTime={item.answered_at}>{clockTime(item.answered_at)}</time>
             </button>
