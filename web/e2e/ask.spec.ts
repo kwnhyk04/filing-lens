@@ -38,23 +38,13 @@ test("a chunk card says when its filing's fiscal year ended; a fact card keeps i
   await expect(fact).not.toContainText("Fiscal year ended");
 });
 
-test("the source panel fits the window from the first screen, and a citation brings its quote into view in it", async ({ page }) => {
-  await page.setViewportSize({ width: 1024, height: 360 }); // the narrowest two columns; short, so the quote starts below the card's first screen
+test("a citation brings its source, and the quote in it, into view in the Sources card below the stage", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 600 });
   await ask(page, question("x02"));
   await expect(page.locator("#source-1").getByRole("heading")).toContainText("NVDA");
-  const gapBelowPanel = () => page.evaluate(() => innerHeight - document.querySelector("section.sources")!.getBoundingClientRect().bottom);
-  expect(await gapBelowPanel()).toBeCloseTo(16, 0); // its bottom edge on screen at once, 1rem above the window's
   await page.getByTestId("answer").getByRole("link", { name: /^Source 1:/ }).first().click();
-  const shown = () =>
-    page.evaluate(() => {
-      const panel = document.querySelector("section.sources")!.getBoundingClientRect();
-      const quote = document.querySelector("#source-1 mark")!.getBoundingClientRect();
-      return {
-        panelOnScreen: panel.top >= 0 && panel.bottom <= innerHeight,
-        quoteInPanel: quote.top >= panel.top && quote.bottom <= panel.bottom,
-      };
-    });
-  await expect.poll(shown).toEqual({ panelOnScreen: true, quoteInPanel: true });
+  await expect(page).toHaveURL(/#source-1$/);
+  await expect(page.locator("#source-1 mark").first()).toBeInViewport();
 });
 
 test("comparison: one fact card per company", async ({ page }) => {

@@ -92,7 +92,8 @@ test.describe("with reduced motion", () => {
   });
 });
 
-test("no canvas and no WebGL anywhere in the app: Ask, Coverage and the demo", async ({ page }) => {
+test("with reduced motion, no canvas and no WebGL context on Ask, Coverage or the demo", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" }); // a desktop on a graphics card may load Ask's moving stage
   await page.addInitScript(() => {
     const scope = window as unknown as { contexts: number };
     const original = HTMLCanvasElement.prototype.getContext;

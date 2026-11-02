@@ -6,6 +6,16 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
+- [ ] (user, 2026-11-03) **Ask, the live version of the landing hero** (approved with the user's answers: the passage rows stay in the stage, the membrane pulling each cited source onto its row; the Sources card keeps the full passages; a go for `make test-int`), on branch `ask-stage` from main at 79ad003 (#49), uncommitted.
+  - [x] Tests first: units for the stage's things (covered filings keep their places, each cited source takes its filing's) and its phase; e2e for every state without a GPU, and on Edge's GPU for the moving stage.
+  - [x] The stage: the hero's card at the top of Ask, the field inside it (Enter sends, Shift+Enter a new line), example chips, the question once in a bubble; Recent questions (60%) and Sources (40%) below, stacked Sources first under 1024 px.
+  - [x] Covered filings from the Coverage query in place of Totals (one call, no API change).
+  - [x] The engine split: `bond.tsx` shared, `hero-live.tsx` the landing's, `ask-live.tsx` Ask's, loaded by one gate; the calm CSS version everywhere else.
+  - [x] JavaScript before and after: before, `/ask` loads 147.1 KB gzip (484.5 KB raw, 8 files) before the load event and nothing after, on the desktop and the phone. After: 149.0 KB gzip (489.0 KB raw, 9 files) before the load event on both; after it, 314.1 KB gzip (1,223.6 KB raw, 3 files) on the desktop and nothing on the phone.
+  - [x] Screenshots at 1280, 1440 and 390 px, light and dark (empty, loading, finished, error), in `H:\Projects\projects\_tmp\fl-ask`.
+  - [x] Checks: Python, `clients/ts`, web, Playwright without a GPU and on Edge's GPU, `make test-int`.
+  - [ ] (user) ship.
+  - Built and checked on 2026-11-03 (activity-log.md). The pause's handoff note is replaced: its decisions and traps are in memory.md.
 - [ ] (user, 2026-11-02) **App UI and the How section**, approved with the user's four answers (no API change; passages below the answer; only the cited filings; the theme switch in the app header), on branch `app-ui` from main at 7812548 (uncommitted). FreightAudit's files read only, never changed.
   - [x] Tests first for each part, red then green: 2 units (`lib/answer.test.ts`), 12 Playwright specs (`e2e/card.spec.ts`, two in `e2e/landing.spec.ts`), and the keyboard and coverage specs updated for the theme switch and the badge.
   - [x] Landing, "How an answer is made": FreightAudit's How it works layout in FilingLens's CSS and tokens (numbered circles joined by a line, an icon, a title, one line, two or three points); the four steps and their facts; stacked on phones.

@@ -66,7 +66,8 @@ test("picking one shows its stored answer, reading, sources and number checks, a
   await expect(page.getByTestId("read-as")).toBeVisible();
   await expect(page.getByTestId("checks").locator("tbody tr")).toHaveCount(1);
   await expect(page.locator("#source-1 h4")).toContainText("AAPL");
-  await expect(page.getByLabel("Your question")).toHaveValue(N01);
+  await expect(page.locator(".stage .story-sent")).toHaveText(N01); // the question shows once, in the bubble
+  await expect(page.getByLabel("Your question")).toHaveValue("");
   await expect(page.locator("#answer-text")).toBeFocused();
   await expect(page.getByTestId("ask-status")).toHaveText("Answer from earlier in this session, with 1 source.");
   await expect(items(page)).toHaveCount(1); // now X04, the one off screen
@@ -156,9 +157,10 @@ test("from a stored answer, Tab goes through Copy, Ask again and New question to
   await expect(page.locator("#answer-text")).toBeFocused();
   await expect(page.locator("#source-1 h4")).toContainText("AAPL");
   const order: string[] = [];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 9; i++) {
     await page.keyboard.press("Tab");
-    order.push(await focused(page));
+    const name = await focused(page);
+    if (name !== "Pause motion") order.push(name); // on a graphics card, the moving stage's last stop
   }
   const copy = order.indexOf("Copy answer with sources");
   expect(copy).toBeGreaterThan(0); // the answer's citation first

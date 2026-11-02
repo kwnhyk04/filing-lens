@@ -3,6 +3,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 
+import { softwareRenderer } from "../lib/motion.ts";
 import { signSession } from "../lib/session.ts";
 import { PASSWORD, SESSION_COOKIE, SESSION_SECRET } from "./env.ts";
 
@@ -67,8 +68,29 @@ export async function signIn(page: Page, password = PASSWORD) {
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
+/**
+ * On a desktop with a graphics card Ask's moving stage loads after the page (hero-motion.tsx), and its start-up
+ * (WebGL, then the field's three.js) can hold a quick draft's first paint for a moment: wait until it is in, so no
+ * test races it. Elsewhere the stage stays calm and there is nothing to wait for.
+ */
+export async function stageReady(page: Page) {
+  const renderer = await page.evaluate(() => {
+    const desktop = "(min-width: 64rem) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
+    if (!matchMedia(desktop).matches) return null;
+    const gl = document.createElement("canvas").getContext("webgl");
+    const info = gl?.getExtension("WEBGL_debug_renderer_info");
+    const name = gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : null;
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    return name;
+  });
+  if (!renderer || softwareRenderer(renderer)) return;
+  await expect(page.locator(".stage")).toHaveAttribute("data-live", "on", { timeout: 15_000 });
+  await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
+}
+
 export async function ask(page: Page, question: string) {
   await page.goto("/ask");
+  await stageReady(page);
   await page.getByLabel("Your question").fill(question);
   await page.getByRole("button", { name: "Ask", exact: true }).click(); // not "Ask again"
 }
