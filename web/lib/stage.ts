@@ -1,25 +1,40 @@
-// Ask's stage, the live version of the landing hero: its phase from what the answer stream and the sources
-// lookup have reported, and what floats round it. While FilingLens reads, only the covered filings float; once
-// the sources load, each cited source takes its own filing's place, so nothing is claimed before it is known.
-import { filingName, findSource, formLabel, sourceFiling, type Answer } from "./answer.ts";
+// Ask's stage, the live version of the landing hero's story: its phase from what the answer stream and the sources
+// lookup have reported, the card's parts in the hero's order with the reveal's schedule, and what floats round it.
+// While FilingLens reads, only the covered filings float; once the sources load, each cited source takes its own
+// filing's place, so nothing is claimed before it is known.
+import { checkLine, filingName, findSource, formLabel, sourceFiling, type Answer } from "./answer.ts";
 import type { Company, Sources } from "./demo.ts";
 
 export type Kind = "passage" | "fact" | "filing";
 /** What floats: a covered filing, or a cited passage or fact; `filing` names the filing it belongs to. */
 export type Thing = { kind: Kind; title: string; sub: string; icon: string; filing: string };
-export type Phase = "empty" | "reading" | "answered" | "done" | "failed";
+/** What the answer stream and the sources lookup have reported. */
+export type Phase = "empty" | "reading" | "done" | "failed";
+/** Where the stage is: the data's phase, or the sequence that shows it (the pull, the reveal) and the leave. */
+export type View = Phase | "pulling" | "revealing" | "leaving";
+/** The card's parts after the question, in the hero's order. */
+export type Part = "read" | "passages" | "answer" | "check";
 
-/** What Ask's moving stage plays from: the phase, the question's turn, the covered filings and, once the sources
-    load, the cited ones. */
+/** What Ask's moving stage plays from: where the stage is, the question's turn, the covered filings and, from the
+    pull on, the cited ones; and the Pause the page also obeys. */
 export interface StageProps {
-  phase: Phase;
+  phase: View;
   turn: number;
   covered: Thing[];
   cited: Thing[];
+  paused: boolean;
+  onPause: (paused: boolean) => void;
 }
 
 /** The places round the stage, as the hero's; one stays free, as there. */
 export const SLOTS = 12;
+
+/** The sequence in ms: the pull, the step between parts, a part's arrival (card-arrive), the leave, the flight. */
+export const PULL_MS = 800;
+export const STEP_MS = 220;
+export const ARRIVE_MS = 450;
+export const LEAVE_MS = 450;
+export const FLY_MS = 450;
 
 interface State {
   asked: string | null;
@@ -29,12 +44,37 @@ interface State {
   problem: boolean;
 }
 
-/** Empty, reading (sent, nothing checked yet), answered (checked, its sources still loading), done, or failed. */
+const needsLookup = (answer: Answer) => answer.citations.some((citation) => citation.chunk_id || citation.fact_id);
+
+/** Empty, reading (sent, until the checked answer and, when it cites a passage or fact, its sources are in), done,
+    or failed. */
 export function stagePhase({ asked, answer, sources, sourcesFailed, problem }: State): Phase {
   if (asked === null) return "empty";
   if (problem) return "failed";
   if (!answer) return "reading";
-  return sources || sourcesFailed || !answer.citations.length ? "done" : "answered";
+  return sources || sourcesFailed || !needsLookup(answer) ? "done" : "reading";
+}
+
+/** Whether the answer's passages can show: it cites something, and its sources are in, failed, or need no lookup. */
+export const landed = (answer: Answer, sources: Sources | undefined, failed: boolean) =>
+  answer.citations.length > 0 && (sources !== undefined || failed || !needsLookup(answer));
+
+/** The parts this answer has, in the hero's order; the rest of the card comes with the last of them. */
+export function revealParts(answer: Answer, passages: boolean): Part[] {
+  const parts: (Part | false)[] = [Boolean(answer.reading) && "read", passages && "passages", "answer", checkLine(answer) !== undefined && "check"];
+  return parts.filter((part): part is Part => part !== false);
+}
+
+/** When each of `n` parts shows, in ms from the data: after the pull when there is one, then a step apart. */
+export const revealTimes = (n: number, pull: boolean) => Array.from({ length: n }, (_, i) => (pull ? PULL_MS : 0) + i * STEP_MS);
+
+/** The stage's view: the leave over everything; else the data's phase, which once done is the pull, the reveal or
+    done, by how many of the card's `parts` show (`step`). */
+export function stageView(phase: Phase, { step, parts, pull, leaving }: { step: number; parts: number; pull: boolean; leaving: boolean }): View {
+  if (leaving) return "leaving";
+  if (phase !== "done") return phase;
+  if (step >= parts) return "done";
+  return step === 0 && pull ? "pulling" : "revealing";
 }
 
 /** Each covered filing as it floats, "AMZN 10-K" over "FY2025", as many as there are places but one. */

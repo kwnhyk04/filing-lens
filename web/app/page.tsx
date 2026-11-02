@@ -1,5 +1,6 @@
-// The public landing page: no session and no API call. Its figures come from the official eval report and
-// the demo snapshot, imported at build time; e2e/landing.spec.ts fails when the page and they drift apart.
+// The public landing page: no API call, and the session cookie only to offer Ask or Sign in. Its figures come
+// from the official eval reports and the demo snapshot, imported at build time; e2e/landing.spec.ts fails when
+// the page and they drift apart.
 import "./landing.css";
 
 import { cookies } from "next/headers";
@@ -12,16 +13,18 @@ import { Hero } from "../components/hero.tsx";
 import { LandingHeader } from "../components/landing-header.tsx";
 import { Overview } from "../components/overview.tsx";
 import { demo } from "../lib/demo.ts";
-import { evalDate, type ResultRow, resultRows } from "../lib/landing.ts";
+import { comparisonRows, EVIDENCE, evalDate, modelName, type RunCell, sourceLink } from "../lib/landing.ts";
+import { hasSession } from "../lib/server.ts";
 import { heroStory } from "../lib/story.ts";
 import { THEME_COOKIE, themeOf } from "../lib/theme.ts";
 
-// The two official runs of golden v2's test split: Claude first, as the live site runs while its credits
-// last, and the free models alone, which CI's floors come from.
+// The two official runs of golden v2's test split, side by side: Claude first, as the live site runs while its
+// credits last, and the free models alone, which CI's floors come from.
+const ROWS = comparisonRows(claudeTable, table);
 const RUNS = [
-  { id: "claude-first", title: "Claude first: the live site while its credits last", run: claude, table: claudeTable },
-  { id: "free", title: "Free models only: CI's floors, and the live site once the credits end", run: report, table },
-].map((item) => ({ ...item, rows: resultRows(item.table) }));
+  { key: "claude", name: "Claude first", run: claude, report: "evals/reports/2026-10-31-claude-first.md" },
+  { key: "free", name: "Free models only", run: report, report: "evals/reports/2026-10-31.md" },
+] as const;
 const { config, judge_calibration: judge } = report;
 const labeler = judge.labeler.charAt(0).toUpperCase() + judge.labeler.slice(1);
 const story = heroStory(demo);
@@ -83,8 +86,8 @@ const STEPS = [
         <path d="M7 7h8" />
       </>
     ),
-    line: "The answer streams in as a draft, not yet checked.",
-    points: ["Each sentence cites a numbered source.", "The checked answer then takes the draft's place."],
+    line: "The model drafts the answer, not yet checked.",
+    points: ["Each sentence cites a numbered source.", "Only the checked answer is shown."],
   },
   {
     title: "Check",
@@ -103,13 +106,26 @@ const STEPS = [
   },
 ];
 
-/** One run's results: each metric's target, its result, and whether it met the target. */
-function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] }) {
+/** One run's result: its figure in bold with its badge, which wraps under it in a narrow column. */
+function Result({ cell }: { cell: RunCell }) {
   return (
-    <div className="scroll">
-      <table>
+    <td>
+      <span className="result">
+        <strong className="measured">{cell.result}</strong>{" "}
+        <span className={cell.status === "Met" ? "badge ok" : "badge warn"}>{cell.status}</span>
+      </span>
+    </td>
+  );
+}
+
+/** Both official runs, after FreightAudit's landing: each metric's target, then each run's result, each run named
+    in its column's head by its answer model and date. */
+function ResultsTable() {
+  return (
+    <div className="scroll" role="region" aria-label="Results by metric" tabIndex={0}>
+      <table className="compare">
         <caption className="visually-hidden">
-          {caption}: each metric&apos;s target, its result, and whether it met the target
+          Each metric&apos;s target, then each run&apos;s result and whether it met the target
         </caption>
         <thead>
           <tr>
@@ -117,23 +133,23 @@ function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] })
             <th scope="col" className="num">
               Target
             </th>
-            <th scope="col" className="num">
-              Result
-            </th>
-            <th scope="col">
-              <span className="visually-hidden">Status</span>
-            </th>
+            {RUNS.map(({ key, name, run }) => (
+              <th key={key} scope="col">
+                {name}
+                <span className="run-meta">
+                  {modelName(run.config.primary)} · {evalDate(run.created_at)}
+                </span>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {ROWS.map((row) => (
             <tr key={row.label}>
               <th scope="row">{row.label}</th>
               <td className="num">{row.target}</td>
-              <td className="num measured">{row.result}</td>
-              <td>
-                <span className={row.status === "Met" ? "badge ok" : "badge warn"}>{row.status}</span>
-              </td>
+              <Result cell={row.claude} />
+              <Result cell={row.free} />
             </tr>
           ))}
         </tbody>
@@ -142,13 +158,23 @@ function ResultsTable({ caption, rows }: { caption: string; rows: ResultRow[] })
   );
 }
 
-export default async function LandingPage() {
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function LandingPage({ searchParams }: Props) {
   const theme = themeOf((await cookies()).get(THEME_COOKIE)?.value);
+  const signedIn = await hasSession();
+  // Sign-out lands here with ?signed-out=1; an old link to it tells someone signed in nothing.
+  const signedOut = !signedIn && (await searchParams)["signed-out"] === "1";
   return (
     <>
-      <LandingHeader theme={theme} />
+      <LandingHeader theme={theme} signedIn={signedIn} />
       <main id="main" className="landing">
-        <Hero story={story} companies={demo.companies.length} answers={demo.answers.length} />
+        <Hero
+          story={story}
+          companies={demo.companies.length}
+          answers={demo.answers.length}
+          notice={signedOut ? "You're signed out. Thanks for stopping by." : undefined}
+        />
         <Overview />
 
         <section id="how" className="band" aria-labelledby="how-title">
@@ -179,79 +205,65 @@ export default async function LandingPage() {
         <section id="results" aria-labelledby="results-title">
           <h2 id="results-title">Evaluation results</h2>
           <p>
-            Measured on {report.records.answer.length} questions from golden set v2&apos;s test split on{" "}
-            {evalDate(report.created_at)}, twice, judging by <code>{config.judge}</code>. Nothing was tuned on this
-            set.
+            Golden set v2&apos;s test split, answered two ways. Claude first is how the live site answers while its
+            credits last; the free models alone are what CI&apos;s floors come from, and what answers once the credits
+            end.
           </p>
-          <p>
-            On the live site, Claude Haiku 5.5 routes and answers first, within its daily budget and while its
-            prepaid credits last; then the free models: Gemini 3.5 Flash-Lite answers, gpt-oss-20b on Groq routes,
-            and gpt-oss-20b on NVIDIA is the last fallback.
-          </p>
-          {RUNS.map(({ id, title, run, rows }) => (
-            <div key={id} id={`results-${id}`}>
-              <h3>{title}</h3>
-              <p className="small">
-                Answers by <code>{run.config.primary}</code> (thinking {run.config.thinking}), routing by{" "}
-                <code>{run.config.router}</code>.
-              </p>
-              <ResultsTable caption={title} rows={rows} />
-            </div>
-          ))}
-          <p className="small">
-            Citation precision and faithfulness are graded by an LLM judge, <code>{config.judge}</code>, calibrated
-            against labels written by {labeler} (Cohen&apos;s kappa {judge.kappa.toFixed(2)}), not by a human.
-            Retrieval recall rests on {report.metrics.retrieval["recall@10"].n} questions, whose passage labels are
-            AI-labeled, cross-checked blind by a second model; no human spot check in v2.
-          </p>
+          <ResultsTable />
+          <div className="results-notes">
+            <p className="small">
+              Measured on {report.records.answer.length} questions on {evalDate(report.created_at)}. Nothing was tuned
+              on this set.
+            </p>
+            <p className="small">
+              {RUNS.map(({ key, name, run }) => (
+                <span key={key}>
+                  {name}: answers by <code>{run.config.primary}</code> (thinking {run.config.thinking}), routing by{" "}
+                  <code>{run.config.router}</code>.{" "}
+                </span>
+              ))}
+            </p>
+            <p className="small">
+              On the live site, Claude Haiku 5.5 routes and answers first, within its daily budget and while its
+              prepaid credits last; then the free models: Gemini 3.5 Flash-Lite answers, gpt-oss-20b on Groq routes,
+              and gpt-oss-20b on NVIDIA is the last fallback.
+            </p>
+            <p className="small">
+              Citation precision and faithfulness are graded by an LLM judge, <code>{config.judge}</code>, calibrated
+              against labels written by {labeler} (Cohen&apos;s kappa {judge.kappa.toFixed(2)}), not by a human.
+            </p>
+            <p className="small">
+              Retrieval recall rests on {report.metrics.retrieval["recall@10"].n} questions, whose passage labels are
+              AI-labeled, cross-checked blind by a second model; no human spot check in v2.
+            </p>
+            <p className="small">
+              Complete results with 95% confidence intervals are in the reports:{" "}
+              <a href={sourceLink(RUNS[0].report)}>Claude first</a> and <a href={sourceLink(RUNS[1].report)}>free models only</a>.
+            </p>
+          </div>
         </section>
 
+        {/* After FreightAudit's "Engineering, with its evidence": each claim, what it means, and its proof. */}
         <section id="architecture" className="band" aria-labelledby="architecture-title">
           <h2 id="architecture-title">Architecture</h2>
-          <div className="features">
-            <div>
-              <h3>Rate-limited SEC ingestion</h3>
-              <p>
-                Every worker shares one rate limiter in Redis that keeps under SEC&apos;s request limit, with
-                retries and dead-letter queues.
-              </p>
-            </div>
-            <div>
-              <h3>Hybrid retrieval</h3>
-              <p>
-                PostgreSQL full-text search and pgvector similarity, fused by reciprocal rank, then reranked by a
-                cross-encoder on the CPU.
-              </p>
-            </div>
-            <div>
-              <h3>Grounded generation</h3>
-              <p>
-                Quotes must match the passage word for word, and amounts the fact or passage they cite. Unsupported
-                sentences are removed.
-              </p>
-            </div>
-            <div>
-              <h3>Reproducible evaluation</h3>
-              <p>
-                A frozen test set, a calibrated judge, and reports fingerprinted with the exact code and prompt
-                versions they measured.
-              </p>
-            </div>
-            <div>
-              <h3>Quality gates in CI</h3>
-              <p>
-                Pull requests that change the answer pipeline rerun the retrieval and answer evals against floors. A
-                provider&apos;s quota stop fails the check instead of passing silently.
-              </p>
-            </div>
-            <div>
-              <h3>End-to-end tracing</h3>
-              <p>
-                One OpenTelemetry trace per question, with a span for each stage: routing, facts, search and
-                generation.
-              </p>
-            </div>
-          </div>
+          <p>Each claim links to the files that prove it.</p>
+          <dl className="evidence">
+            {EVIDENCE.map(({ claim, line, paths }) => (
+              <div key={claim}>
+                <dt>{claim}</dt>
+                <dd>
+                  <p>{line}</p>
+                  <p className="evidence-links">
+                    {paths.map((path) => (
+                      <a key={path} href={sourceLink(path)}>
+                        <code>{path}</code>
+                      </a>
+                    ))}
+                  </p>
+                </dd>
+              </div>
+            ))}
+          </dl>
           <ul className="chips" aria-label="Stack">
             {STACK.map((name) => (
               <li key={name}>{name}</li>

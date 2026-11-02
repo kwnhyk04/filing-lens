@@ -11,6 +11,26 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Ask tells the hero's story, and the landing polish (2026-11-03, branch `fl-polish`)
+
+The user's brief: re-sequence Ask's live answer to the landing hero's story, hide empty cards, centre How an answer is made, one comparison table for the evaluation, Architecture with its evidence, and sign-in and sign-out fixes. Their answers: the hero's layout (the field hides while answering and comes back under the card; New question brings it back at the top), no draft shown, the reveal may wait (about 2 s at most after the data). This supersedes the sections below where they differ.
+
+- **The sequence** (page-driven in `components/ask.tsx`, schedule in `lib/stage.ts`; the engine follows):
+
+  | Step | What moves | Lasts |
+  | --- | --- | --- |
+  | Leave (an answer on screen) | The card's parts wipe upward (`clip-path`, never a fade); the membrane lets go of its held sources, each flashing back to its place as a plain filing. | 450 ms |
+  | Send | The field hides; the card with the bubble takes the top of the stage; the question flies there from the field (`element.animate`). | 450 ms |
+  | Reading | The membrane covers the card: the bubble and "Reading the filings…"; the covered filings float, none lit. | until the answer and its sources are in |
+  | Pull (graphics card) | Tendrils reach each cited filing left and right, 120 ms apart, and hold it against the card. | 800 ms |
+  | Reveal | Read as, the passages and their filing chips, the answer with its timings, the check with the rest: 220 ms apart, each rising 8 px (`card-arrive`). | settled by 1.91 s |
+
+- **Without motion** (phones, reduced motion, Pause, a stage out of view or a hidden tab) every part shows at once in the same order; a Recent click and the demo always do.
+- **The card** takes the hero's order everywhere: bubble, Read as, passages and filing chips, answer, check, then the number check, notes and the foot.
+- **Below the stage:** Recent questions and Sources only when they hold something; a lone card takes the row; Sources appears once the answer is whole.
+- **Sign-in:** a "Back to home" link with Lucide's arrow-left in the mark's row; sign-out lands on the landing page with a pill notice over the headline.
+- **Landing:** How an answer is made centred (heading, each number over its card's middle, one height, text left-aligned); one comparison table after FreightAudit's (each run's model and date under its name, the figure in bold with its badge), the details as small notes under it; Architecture after FreightAudit's "Engineering, with its evidence" (a claim a row under a hairline, what it means, its files in mono, one a line, each a 24 px target), the stack's chips under it.
+
 ## Ask, the live version of the landing hero (2026-11-03)
 
 The brief: Ask as the live version of the landing hero, its answer card in the hero's place. The plan was approved with the user's answers (memory.md): no API change; the passage rows stay in the card under the check, the membrane pulling each cited source onto its row; the Sources card keeps the full passages; Recent questions about 60% and Sources about 40% below; only the cited filings pulled in; nothing claimed while it reads; the answer never waits for an animation.
@@ -266,7 +286,7 @@ Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric
 ## Known limits
 
 - On a desktop with a graphics card, a question sent within about a second of the page load can see its draft a moment late (290 ms, measured with the mock's quick draft) while the moving stage starts up: its WebGL, then the field's three.js.
-- When a new question follows an answer, the moving stage goes back to rest at once: the organisms leave the card's membrane without a beat of their own, while the card itself changes.
+- Resolved on 2026-11-03 (`fl-polish`): a new question no longer drops the answer at once; the card wipes away and the membrane lets go of its sources first. Before, the stage went back to rest at once while the card changed.
 - A desktop whose WebGL is drawn in software keeps the calm stage, at the moving stage's 40rem height, with room below the examples.
 - What the mockup shows and the app does not have (History, the pickers, "Read as", the number check, the Filings totals and detail panel, ingest jobs and more) is listed as candidates in `docs/todo.md`.
 - Fonts differ from system to system, by choice: no web font is downloaded.

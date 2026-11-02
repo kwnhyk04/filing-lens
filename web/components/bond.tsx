@@ -425,11 +425,13 @@ function Membrane({ ref, mode, onMeasure }: { ref: React.Ref<MembraneHandle>; mo
 
 /* ── What a story plays ── */
 
-/** The hero's beats run 0 (the question is typed) to LAST; Ask's take 0 (rest, or roam while it reads), GATHER
-    (round the checked answer), FIND (its sources pulled in), then LAST. */
+/** The hero's beats run 0 (the question is typed) to LAST; Ask's follow its page: 0 (rest), GATHER (round the card
+    while it reads), FIND (its sources pulled in and held), LAST (settled round the answer as it grows), RELEASE (the
+    held sources let go before the next question). */
 export const LAST = 5;
 export const FIND = 3;
 export const GATHER = 6;
+export const RELEASE = 7;
 /** The membrane's pockets and messengers: at most this many sources are pulled in (c12 cites 4). */
 export const PULLS = 4;
 const START_MS = 900; // the page starts typing the question this long after the hero is ready
@@ -523,8 +525,10 @@ function offsetIn(el: HTMLElement, panel: HTMLElement) {
   return { x, y };
 }
 function measure(host: HTMLElement, capsule: HTMLElement, panel: HTMLElement, rowEls: (HTMLElement | null)[], replyEl: HTMLElement | null, heads: Element[], count: number): Layout | null {
-  const s = host.getBoundingClientRect(), f = capsule.getBoundingClientRect(), p = panel.getBoundingClientRect();
-  if (!s.width || !f.width || !p.width) return null;
+  // Ask's field hides while it answers, and its card is out of the way while empty: each stands in for the other.
+  const box = (el: HTMLElement) => (el.offsetWidth ? el.getBoundingClientRect() : null);
+  const s = host.getBoundingClientRect(), f = box(capsule) ?? box(panel), p = box(panel) ?? f;
+  if (!s.width || !f || !p) return null;
   const W = s.width, H = s.height, cx = f.left - s.left + f.width / 2, cy = f.top - s.top + f.height / 2;
   const hw = f.width / 2 + 10, hh = f.height / 2 + 6, k = Math.min(1.8, Math.max(0.62, hw / 290));
   const pl = p.left - s.left, pt = p.top - s.top, pcx = pl + p.width / 2, pcy = pt + p.height / 2, phw = p.width / 2 + 10, phh = p.height / 2 + 8;
@@ -679,7 +683,8 @@ function panelPose(w: World, L: Layout, roam: Roam[], upTo: number, plot: Plot) 
 
 /* ── Choreography: one Motion sequence per beat ── */
 
-type Beat = { seq: AnimationSequence; still: number };
+/** A beat's timeline, its still pose's time, and the seconds it is played into when shorter (`fit`). */
+type Beat = { seq: AnimationSequence; still: number; fit?: number };
 const flow = [0.6, 0, 0.15, 1] as const, settle = [0.4, 0, 0.2, 1] as const, inOut = "easeInOut" as const, out = "easeOut" as const;
 const spring = (stiffness: number, damping: number) => ({ type: "spring" as const, stiffness, damping });
 const lookAt = (w: World, p: Point, t: number, d = 0.4): AnimationSequence[number] => [w.gaze, { ...at(p), w: 1 }, { duration: d, at: t }];
@@ -759,6 +764,7 @@ function launch(w: World, L: Layout): Beat {
  * corners and one body under it, the others drawn in. From the roam, each organism's cell first takes its place,
  * so letting go of the roam moves nothing; gathered already, they re-fit a card that changed. */
 function gather(w: World, L: Layout, roam: Roam[]): Beat {
+  const gathered = w.env.free === 0; // then it only re-fits a card that changed, quickly
   if (w.env.free === 1) {
     [w.A, w.B, ...w.O].forEach((c, i) => Object.assign(c, { px: roam[i].x, py: roam[i].y, hw: roam[i].r, hh: roam[i].r, r: roam[i].r, rot: 0 }));
     Object.assign(w.PL, { px: roam[0].x, py: roam[0].y, ...zero });
@@ -777,32 +783,53 @@ function gather(w: World, L: Layout, roam: Roam[]): Beat {
       [w.env, { breath: 1, wobble: 1.5, contour: 0.3 }, { duration: 0.8, at: 0.4 }],
       lookAt(w, { x: L.panel.cx, y: L.panel.top + 40 * L.k }, 0.5, 0.5),
     ],
+    fit: gathered ? 0.4 : undefined,
   };
 }
-/** Beat 3: a tendril reaches each source, the membrane closes round it, tugs it a little, and what it says
- * streams into the body and settles on its row. Then the source is let go and floats on. The hero's row lands
- * then (`reveal`); Ask's is on screen already, so only a ring ripples off it. */
-function find(w: World, L: Layout, sizes: Size[], plot: Plot, reveal: boolean): Beat {
+/** The reach: a tendril reaches the source in `slot`, the membrane closes round it, flashes it and draws it a share
+ * (`draw`) of the way to the panel's edge, sideways only: a pull up or down carried its label into the next row's,
+ * where another thing floats. It holds the source there. */
+function grab(w: World, L: Layout, sizes: Size[], S: Strand, K: Cell, slot: number, t: number, draw: number): AnimationSequence {
+  const k = L.k, n = w.nodes[slot], M = L.slots[slot], P = L.rims[slot], pk = pocket(sizes[slot], k, M);
+  const tug = { x: M.x + (P.x - M.x) * draw, y: M.y };
+  return [
+    lookAt(w, M, t + 0.05),
+    [S, { ax: P.x, ay: P.y, bx: P.x, by: P.y, r: 9 * k, taper: 0.35, tone: 1 }, { duration: 0.01, at: t }],
+    [S, { bx: M.x, by: M.y }, { duration: 0.7, ease: out, at: t + 0.02 }],
+    [n, { free: 0 }, { duration: 0.3, at: t + 0.6 }],
+    [K, { px: M.x, py: M.y, ...zero, r: pk.r, tone: 1, w: 1.3, rot: 0 }, { duration: 0.01, at: t + 0.72 }],
+    [K, { hw: pk.hw, hh: pk.hh }, { ...spring(210, 14), at: t + 0.75 }],
+    [n, { flash: 1 }, { duration: 0.1, at: t + 0.75 }],
+    [n, { flash: 0 }, { duration: 0.4, ease: out, at: t + 0.85 }],
+    [n, { s: 1.1 }, { duration: 0.14, ease: out, at: t + 0.75 }],
+    [n, { s: 1 }, { duration: 0.3, at: t + 0.89 }],
+    [[n, K], { px: tug.x, py: tug.y }, { duration: 0.5, ease: inOut, at: t + 1.0 }],
+    [S, { bx: tug.x, by: tug.y }, { duration: 0.5, ease: inOut, at: t + 1.0 }],
+  ];
+}
+/** The let-go: the pocket closes, the tendril draws back to `anchor`, where it left the panel, and the source
+ * floats home. */
+function letGo(w: World, L: Layout, S: Strand, K: Cell, slot: number, t: number, anchor: Point): AnimationSequence {
+  const k = L.k, n = w.nodes[slot], M = L.slots[slot];
+  return [
+    [K, zero, { duration: 0.35, at: t }],
+    [S, { r: 8 * k }, { duration: 0.2, at: t }],
+    [S, { bx: anchor.x, by: anchor.y, taper: 0.9 }, { duration: 0.5, ease: inOut, at: t + 0.2 }],
+    [S, { r: 0 }, { duration: 0.2, at: t + 0.65 }],
+    [n, { px: M.x, py: M.y, s: 1 }, { ...spring(120, 12), at: t + 0.1 }],
+    [n, { free: 1 }, { duration: 0.5, at: t + 0.3 }],
+  ];
+}
+/** Beat 3, the hero's: each source is reached and held, what it says streams into the body and settles on its row,
+ * then the source is let go and floats on. */
+function find(w: World, L: Layout, sizes: Size[], plot: Plot): Beat {
   const k = L.k;
   const one = (S: Strand, K: Cell, U: Cell, slot: number, row: number, t: number): AnimationSequence => {
-    // Ask's passages can land a frame before its card is measured again, which then builds this beat anew.
     const R = L.rows[row] ?? { x: L.panel.left + 10, y: L.panel.cy };
-    const n = w.nodes[slot], M = L.slots[slot], P = L.rims[slot], pk = pocket(sizes[slot], k, M);
-    // Sideways only: a pull up or down carried its label into the next row's, where another thing floats.
+    const n = w.nodes[slot], M = L.slots[slot], P = L.rims[slot];
     const tug = { x: M.x + (P.x - M.x) * 0.18, y: M.y };
     return [
-      lookAt(w, M, t + 0.05),
-      [S, { ax: P.x, ay: P.y, bx: P.x, by: P.y, r: 9 * k, taper: 0.35, tone: 1 }, { duration: 0.01, at: t }],
-      [S, { bx: M.x, by: M.y }, { duration: 0.7, ease: out, at: t + 0.02 }],
-      [n, { free: 0 }, { duration: 0.3, at: t + 0.6 }],
-      [K, { px: M.x, py: M.y, ...zero, r: pk.r, tone: 1, w: 1.3, rot: 0 }, { duration: 0.01, at: t + 0.72 }],
-      [K, { hw: pk.hw, hh: pk.hh }, { ...spring(210, 14), at: t + 0.75 }],
-      [n, { flash: 1 }, { duration: 0.1, at: t + 0.75 }],
-      [n, { flash: 0 }, { duration: 0.4, ease: out, at: t + 0.85 }],
-      [n, { s: 1.1 }, { duration: 0.14, ease: out, at: t + 0.75 }],
-      [n, { s: 1 }, { duration: 0.3, at: t + 0.89 }],
-      [[n, K], { px: tug.x, py: tug.y }, { duration: 0.5, ease: inOut, at: t + 1.0 }],
-      [S, { bx: tug.x, by: tug.y }, { duration: 0.5, ease: inOut, at: t + 1.0 }],
+      ...grab(w, L, sizes, S, K, slot, t, 0.18),
       [U, { px: tug.x, py: tug.y, ...zero, r: 5 * k, tone: 1, w: 1.3, rot: 0 }, { duration: 0.01, at: t + 1.45 }],
       [U, { hw: 6 * k, hh: 6 * k }, { duration: 0.15, at: t + 1.47 }],
       [S, { r: 12 * k }, { duration: 0.3, at: t + 1.5 }],
@@ -813,17 +840,60 @@ function find(w: World, L: Layout, sizes: Size[], plot: Plot, reveal: boolean): 
       [w.env, { pulse: 0 }, { duration: 0.35, at: t + 2.34 }],
       [U, { px: R.x, py: R.y }, { duration: 0.4, ease: inOut, at: t + 2.45 }],
       [U, zero, { duration: 0.25, at: t + 2.85 }],
-      [K, zero, { duration: 0.35, at: t + 2.3 }],
-      [S, { r: 8 * k }, { duration: 0.2, at: t + 2.3 }],
-      [S, { bx: P.x, by: P.y, taper: 0.9 }, { duration: 0.5, ease: inOut, at: t + 2.5 }],
-      [S, { r: 0 }, { duration: 0.2, at: t + 2.95 }],
-      [n, { px: M.x, py: M.y, s: 1 }, { ...spring(120, 12), at: t + 2.4 }],
-      [n, { free: 1 }, { duration: 0.5, at: t + 2.6 }],
-      ...(reveal ? [...land(w, L, row, t + 2.5), ...arrive(w, row, t + 2.9)] : ripple(w, row, t + 2.92)),
+      ...letGo(w, L, S, K, slot, t + 2.3, P),
+      ...land(w, L, row, t + 2.5),
+      ...arrive(w, row, t + 2.9),
     ];
   };
   const seq = plot.pulls.flatMap((slot, i) => one(w.strands[i], w.K[i], w.U[i], slot, plot.first + i, i * 0.6));
   return { still: 2.2, seq: [...seq, ...widen(w, 0.8, 1.2), home(w, L, 2.9 + plot.pulls.length * 0.6)] };
+}
+/** Ask's pull: from wherever the gathering got, the membrane finishes it and reaches every cited source at once, a
+ * step apart, closing round each and drawing it against the card, where it holds it until the answer leaves. */
+function pull(w: World, L: Layout, sizes: Size[], plot: Plot, roam: Roam[]): Beat {
+  const grabs = plot.pulls.flatMap((slot, i) => grab(w, L, sizes, w.strands[i], w.K[i], slot, i * 0.12, 0.45));
+  return { still: 1.9, seq: [...gather(w, L, roam).seq, ...grabs, ...widen(w, 0.3, 0.9)], fit: 0.8 };
+}
+/** Ask's settled beat: the membrane fits round the answer's card as its parts arrive, then the eyes blink. */
+function settled(w: World, L: Layout, roam: Roam[]): Beat {
+  const fitted = gather(w, L, roam);
+  return { still: 1.8, seq: [...fitted.seq, ...blink(w, 1.3)], fit: fitted.fit };
+}
+/** Ask's leave: each held source flashes and is let go back to its place, while the page clears the card. */
+function release(w: World, L: Layout, plot: Plot): Beat | null {
+  if (!plot.pulls.length) return null;
+  const seq = plot.pulls.flatMap((slot, i): AnimationSequence => {
+    const n = w.nodes[slot], S = w.strands[i], t = i * 0.06;
+    return [
+      [n, { flash: 0.8 }, { duration: 0.08, at: t }],
+      [n, { flash: 0 }, { duration: 0.3, ease: out, at: t + 0.1 }],
+      ...letGo(w, L, S, w.K[i], slot, t, { x: S.ax, y: S.ay }),
+    ];
+  });
+  return { still: 1.1, seq, fit: 0.4 };
+}
+/** Ask's way back to rest after New question: every cell eases into its rest pose rather than jumping there. */
+function toRest(w: World, L: Layout, roam: Roam[]): Beat {
+  const goal = structuredClone(w);
+  restPose(goal, L, roam);
+  const cells = (of: World) => [of.A, of.B, ...of.O, of.PL, of.PR, ...of.K, ...of.U];
+  const goals = cells(goal);
+  return {
+    still: 0.6,
+    seq: [
+      ...cells(w).map((c, i): AnimationSequence[number] => [c, goals[i], { duration: 0.6, ease: flow, at: 0 }]),
+      ...w.strands.map((s, i): AnimationSequence[number] => [s, goal.strands[i], { duration: 0.4, at: 0 }]),
+      ...w.eyes.map((e, i): AnimationSequence[number] => [e, goal.eyes[i], { duration: 0.4, at: 0.2 }]),
+      [w.env, goal.env, { duration: 0.6, at: 0 }],
+      [w.gaze, goal.gaze, { duration: 0.4, at: 0 }],
+    ],
+  };
+}
+/** No source held: tendrils, pockets and messengers gone, every thing floating in its place. */
+function drop(w: World, L: Layout) {
+  for (const s of w.strands) s.r = 0;
+  for (const c of [...w.K, ...w.U]) Object.assign(c, zero);
+  floatPose(w, L);
 }
 /** Beat 4: the answer types itself; a second look runs along it and approves; the check lands. */
 function answer(w: World, L: Layout, plot: Plot): Beat {
@@ -851,14 +921,17 @@ function answer(w: World, L: Layout, plot: Plot): Beat {
     ],
   };
 }
-function buildBeat(beat: number, w: World, L: Layout, sizes: Size[], plot: Plot, roam: Roam[], reveal: boolean): Beat | null {
+function buildBeat(beat: number, w: World, L: Layout, sizes: Size[], plot: Plot, roam: Roam[], ask: boolean): Beat | null {
   switch (beat) {
     case 1: return bond(w, L);
     case 2: return launch(w, L);
-    case FIND: return find(w, L, sizes, plot, reveal);
+    case FIND: return ask ? pull(w, L, sizes, plot, roam) : find(w, L, sizes, plot);
     case 4: return answer(w, L, plot);
-    case LAST: return { still: 0.5, seq: [...blink(w, 0.1), home(w, L, 0.1)] };
+    case LAST: return ask ? settled(w, L, roam) : { still: 0.5, seq: [...blink(w, 0.1), home(w, L, 0.1)] };
     case GATHER: return gather(w, L, roam);
+    case RELEASE: return release(w, L, plot);
+    // Ask's rest: eased into from a membrane still round a card, else nothing to play.
+    case 0: return ask && w.env.free < 1 ? toRest(w, L, roam) : null;
     default: return null;
   }
 }
@@ -882,14 +955,8 @@ type StoryProps = {
   mode: Mode;
   onReady: () => void;
   onBeat?: (beat: number) => void;
-  onDone: () => void; // the hero's answer has held and faded out; Ask's sources are pulled in
+  onDone: () => void; // the hero's answer has held and faded out; Ask's settle round its answer, or its rest, has played
 };
-
-/** Ask's rows, as its card shows them: the question, the reading, the reply, the check, then each passage. */
-const pageRows = (panel: HTMLElement) => [
-  ...[".story-sent", ".read-as", ".story-reply", "[data-tone='check']"].map((s) => panel.querySelector<HTMLElement>(s)),
-  ...panel.querySelectorAll<HTMLElement>(".story-passages > li"),
-];
 
 export function Story({ plot, host, layer, heads, page, target, moving, quiet, mode, onReady, onBeat, onDone }: StoryProps) {
   const story = plot.story;
@@ -906,7 +973,7 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   const stageBox = React.useRef<HTMLDivElement>(null), doneAt = React.useRef<number | null>(null), left = React.useRef(false);
   const finish = React.useRef(onDone);
   const capture = React.useRef<Capture | null>(null), controls = React.useRef<AnimationPlaybackControls | null>(null), generation = React.useRef(0);
-  const played = React.useRef<number | null>(null), settled = React.useRef(false); // the beat last built; whether it has played out
+  const played = React.useRef<number | null>(null); // the beat last built
   const clock = React.useRef(0), pointer = React.useRef<Point | null>(null);
   const typing = React.useRef<{ at: number; n: number } | null>(null), started = React.useRef(false), readyOnce = React.useRef(false);
   const scene = React.useRef({
@@ -1117,13 +1184,14 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     paintSoon();
   }, [moving, quiet, paint, paintSoon, beat, ready]);
 
-  /* Ask's plot follows its answer: cited sources take their filings' places, and its passages bring rows. */
+  /* Ask's plot follows its answer: cited sources take their filings' places. A new plot drops the old one's held
+   * sources (a recent question, New question, or a change while paused); after a release there are none. */
   React.useEffect(() => {
     if (!page) return;
-    const w = world.current;
+    const w = world.current, L = layout.current;
     w.filled = plot.env.map((thing) => thing !== null);
     w.nodes.forEach((n, i) => { n.o = w.filled[i] ? 1 : 0; });
-    while (w.rows.length < plot.rows) w.rows.push(row());
+    if (L && w.nodes.some((n) => n.free < 1)) drop(w, L);
   }, [page, plot]);
 
   /* Layout follows the real capsule, panel and rows; the pose of the current beat is re-fitted on resize. Ask's
@@ -1131,16 +1199,19 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   const relayout = React.useCallback(() => {
     const capsuleEl = page?.capsule ?? capsule.current, panelEl = page?.panel ?? panel.current;
     if (!capsuleEl || !panelEl) return;
-    if (page) rowRefs.current = pageRows(page.panel);
-    const L = measure(host, capsuleEl, panelEl, rowRefs.current, reply.current, heads, page ? rowRefs.current.length : plot.rows);
+    const L = measure(host, capsuleEl, panelEl, rowRefs.current, reply.current, heads, page ? 0 : plot.rows);
     if (!L) return;
     const first = layout.current === null;
     layout.current = L;
     setCompact(!L.roomy);
     const w = world.current, b = state.current.beat;
     if (first) restPose(w, L, roam.current);
-    if (page && (b === 0 || b === GATHER)) floatPose(w, L);
-    else if (b === 0) restPose(w, L, roam.current);
+    // Ask never jumps: its things take their new places unless one is held, and the beat built anew below tweens
+    // the membrane round the card from wherever it is; a pull under way is left to finish.
+    if (page) {
+      if (b !== FIND && !w.nodes.some((n) => n.free < 1)) floatPose(w, L);
+      if (b === FIND && !first) return;
+    } else if (b === 0) restPose(w, L, roam.current);
     else if (b === 1) bondedPose(w, L, roam.current);
     else panelPose(w, L, roam.current, b, plot);
     setReady((v) => v + 1);
@@ -1191,11 +1262,9 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     return () => window.clearTimeout(timer);
   }, [story, ready, moving, quiet]);
 
-  /* Ask's beat follows its phase: rest at once; else gather round the checked answer, then find its sources once
-   * gathered. */
+  /* Ask's beat is its page's: the page decides when each step starts. */
   React.useEffect(() => {
-    if (target === undefined) return;
-    setBeat((b) => (target === 0 ? 0 : target === GATHER || b === 0 || (b === GATHER && !settled.current) ? GATHER : b === GATHER ? FIND : b));
+    if (target !== undefined) setBeat(target);
   }, [target]);
 
   /* Build the current beat's timeline; play, pause or seek according to the motion gates. */
@@ -1205,7 +1274,6 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     played.current = beat;
     controls.current?.stop();
     controls.current = null;
-    settled.current = false;
     if (!L) return;
     if (beat === 1) {
       // The organisms fly in from wherever they are; the heads' tween targets are their docks.
@@ -1217,17 +1285,19 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       const shape = el?.firstElementChild as HTMLElement | null;
       return { w: shape?.offsetWidth ?? 30, h: shape?.offsetHeight ?? 30 };
     });
-    // Ask's pulls start from the gathered card, however far the gathering got.
-    if (beat === LAST || (page && beat === FIND)) panelPose(w, L, roam.current, beat, plot);
-    const built = buildBeat(beat, w, L, sizes, plot, roam.current, !page);
+    if (!page && beat === LAST) panelPose(w, L, roam.current, beat, plot);
+    // Ask entering its rest or a new question's reading holds no source any more.
+    if (page && entered && (beat === 0 || beat === GATHER) && w.nodes.some((n) => n.free < 1)) drop(w, L);
+    const built = buildBeat(beat, w, L, sizes, plot, roam.current, Boolean(page));
     if (!built) {
-      // Ask's roam goes on while its card grows; only a new question starts it from rest.
       if (beat === 0 && (!page || entered)) restPose(w, L, roam.current);
+      if (page && beat === 0) finish.current(); // at rest already: nothing to play
       return;
     }
     const own = ++generation.current;
     let cancelled = false;
     const c = animate(built.seq, { defaultTransition: { ease: "easeInOut" } });
+    if (built.fit) c.speed = Math.max(1, c.duration / built.fit); // Ask's steps are short: the beat plays faster
     controls.current = c;
     if (quiet || !moving) {
       c.pause();
@@ -1237,10 +1307,8 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       () => {
         if (cancelled || generation.current !== own || !state.current.moving || state.current.quiet) return;
         c.complete();
-        settled.current = true;
         if (!page) setBeat((b) => Math.min(LAST, b + 1));
-        else if (beat === LAST) finish.current();
-        else setBeat((b) => (b === GATHER && state.current.target === FIND ? FIND : b === FIND ? LAST : b));
+        else if (beat === LAST || beat === 0) finish.current();
       },
       () => {},
     );

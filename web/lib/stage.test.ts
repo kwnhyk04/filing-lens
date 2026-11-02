@@ -5,23 +5,69 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import type { Snapshot } from "./demo.ts";
-import { citedThings, coveredThings, placeThings, SLOTS, stagePhase } from "./stage.ts";
+import {
+  ARRIVE_MS,
+  citedThings,
+  coveredThings,
+  landed,
+  PULL_MS,
+  placeThings,
+  revealParts,
+  revealTimes,
+  SLOTS,
+  stagePhase,
+  stageView,
+  STEP_MS,
+} from "./stage.ts";
 
 const snapshot = (): Snapshot =>
   JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as Snapshot;
 const saved = (data: Snapshot, id: string) => data.answers.find((item) => item.id === id)!.answer;
 
-test("the phase follows what was reported: nothing asked, reading, answered, done, or failed", () => {
+test("the phase follows what was reported: reading until the answer and its sources are both in, then done", () => {
   const data = snapshot();
   const x04 = saved(data, "x04"), o02 = saved(data, "o02");
   const state = { asked: "q", answer: null, sources: undefined, sourcesFailed: false, problem: false };
   assert.equal(stagePhase({ ...state, asked: null }), "empty");
   assert.equal(stagePhase(state), "reading");
   assert.equal(stagePhase({ ...state, problem: true }), "failed");
-  assert.equal(stagePhase({ ...state, answer: x04 }), "answered"); // its sources not loaded yet
+  assert.equal(stagePhase({ ...state, answer: x04 }), "reading"); // checked, but its sources not loaded yet
   assert.equal(stagePhase({ ...state, answer: x04, sources: data.sources }), "done");
   assert.equal(stagePhase({ ...state, answer: x04, sourcesFailed: true }), "done");
   assert.equal(stagePhase({ ...state, answer: o02 }), "done"); // a refusal cites nothing to wait for
+});
+
+test("the card's parts come in the hero's order: Read as, the passages, the answer, the check", () => {
+  const data = snapshot();
+  const x04 = saved(data, "x04"), n01 = saved(data, "n01"), o02 = saved(data, "o02");
+  assert.deepEqual(revealParts(x04, landed(x04, data.sources, false)), ["read", "passages", "answer", "check"]);
+  assert.deepEqual(revealParts(n01, landed(n01, data.sources, false)), ["read", "passages", "answer", "check"]); // a fact
+  assert.deepEqual(revealParts(n01, landed(n01, undefined, true)), ["read", "passages", "answer", "check"]); // its quotes, unnamed
+  assert.deepEqual(revealParts(o02, landed(o02, undefined, false)), ["read", "answer"]); // a refusal: no passage, no check
+  assert.deepEqual(revealParts({ ...x04, reading: null }, true), ["passages", "answer", "check"]);
+  assert.equal(landed(x04, undefined, false), false, "the passages wait for the lookup");
+});
+
+test("the reveal settles within 2 s of the data: the pull, then each part a step apart", () => {
+  assert.deepEqual(revealTimes(4, true), [PULL_MS, PULL_MS + STEP_MS, PULL_MS + 2 * STEP_MS, PULL_MS + 3 * STEP_MS]);
+  assert.deepEqual(revealTimes(2, false), [0, STEP_MS]);
+  for (const pull of [true, false]) {
+    for (let n = 1; n <= 4; n++) assert.ok(revealTimes(n, pull).at(-1)! + ARRIVE_MS <= 2000, `${n} parts, pull ${pull}`);
+  }
+});
+
+test("the stage's view: the data's phase, then the pull and the reveal, and the leave over all of them", () => {
+  const at = (step: number, pull = true, leaving = false) => ({ step, parts: 4, pull, leaving });
+  assert.equal(stageView("empty", at(Infinity)), "empty");
+  assert.equal(stageView("reading", at(0)), "reading");
+  assert.equal(stageView("failed", at(Infinity)), "failed");
+  assert.equal(stageView("done", at(0)), "pulling");
+  assert.equal(stageView("done", at(0, false)), "revealing");
+  assert.equal(stageView("done", at(2)), "revealing");
+  assert.equal(stageView("done", at(4)), "done");
+  assert.equal(stageView("done", at(Infinity)), "done");
+  assert.equal(stageView("done", at(Infinity, false, true)), "leaving");
+  assert.equal(stageView("failed", at(Infinity, false, true)), "leaving");
 });
 
 test("covered filings float as their form over their year, at most one fewer than the places", () => {

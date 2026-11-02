@@ -29,8 +29,8 @@ let settings: Settings | undefined;
 export const config = (): Settings => (settings ??= loadSettings(process.env));
 export const signInLimiter = createLimiter();
 
-/** This sign-in, read from its signed cookie only (never from the browser's own say), or null. */
-export async function session(): Promise<{ sid: string } | null> {
+/** This sign-in and when it ends, read from its signed cookie only (never from the browser's own say), or null. */
+export async function session(): Promise<{ sid: string; expiresAt: number } | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   return readSession(token, config().sessionSecret, Date.now());
 }
@@ -39,9 +39,9 @@ export async function hasSession(): Promise<boolean> {
   return (await session()) !== null;
 }
 
-/** The second lock on every live page; proxy.ts is the first. */
-export async function requireSession(): Promise<void> {
-  if (!(await hasSession())) redirect("/login");
+/** The second lock on every live page (proxy.ts is the first): the sign-in, whose end the header watches. */
+export async function requireSession(): Promise<{ sid: string; expiresAt: number }> {
+  return (await session()) ?? redirect("/login");
 }
 
 export const json = (status: number, body: object) =>

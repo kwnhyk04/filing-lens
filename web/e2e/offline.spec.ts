@@ -6,7 +6,7 @@ test("a signed-in visitor can sign out from the offline demo", async ({ page, co
   await page.goto("/ask");
   await expect(page).toHaveURL("/demo?offline=1");
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page).toHaveURL("/login");
+  await expect(page).toHaveURL("/?signed-out=1");
   expect((await context.cookies()).some((cookie) => cookie.name === SESSION_COOKIE)).toBe(false);
 });
 

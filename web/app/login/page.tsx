@@ -15,6 +15,14 @@ export default async function LoginPage({ searchParams }: Props) {
   if (await hasSession()) redirect(target);
   return (
     <main id="main" className="narrow">
+      {/* Beside the mark, and first for the keyboard: the way out without signing in. */}
+      <Link href="/" className="back-home">
+        {/* Lucide's arrow-left (ISC licence, docs/third-party.md) */}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m12 19-7-7 7-7M19 12H5" />
+        </svg>
+        Back to home
+      </Link>
       <h1>Sign in to FilingLens</h1>
       <SignInForm next={target} />
       <p>

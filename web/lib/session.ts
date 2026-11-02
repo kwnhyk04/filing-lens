@@ -17,8 +17,9 @@ export function signSession(secret: string, nowMs: number, sid = randomBytes(16)
   return `${payload}.${mac(secret, payload)}`;
 }
 
-/** The sign-in's id when the token is genuine and unexpired, else null. A v1 token has no id, so it signs no one in. */
-export function readSession(token: string | undefined, secret: string | undefined, nowMs: number): { sid: string } | null {
+/** The sign-in's id and when it ends (unix ms) when the token is genuine and unexpired, else null. A v1 token has
+    no id, so it signs no one in. */
+export function readSession(token: string | undefined, secret: string | undefined, nowMs: number): { sid: string; expiresAt: number } | null {
   // A missing or short secret signs no one in, since anyone can compute an empty key's MAC.
   if (!secret || secret.length < MIN_SECRET) return null;
   const parts = token?.split(".") ?? [];
@@ -27,7 +28,8 @@ export function readSession(token: string | undefined, secret: string | undefine
   const given = Buffer.from(parts[3]);
   const expected = Buffer.from(mac(secret, `v2.${parts[1]}.${parts[2]}`));
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
-  return Number(parts[2]) * 1000 > nowMs ? { sid: parts[1] } : null;
+  const expiresAt = Number(parts[2]) * 1000;
+  return expiresAt > nowMs ? { sid: parts[1], expiresAt } : null;
 }
 
 export function verifySession(token: string | undefined, secret: string | undefined, nowMs: number): boolean {

@@ -1,10 +1,13 @@
 // Request guards: the sign-in redirect target, the same-origin rule, the sign-in limiter.
 
-/** The `next=` path if it stays on `origin` (any origin works: only the path is kept), else null. */
+// Routes that are no page: sign-out answers POST only, the probes and the BFF answer JSON.
+const NOT_PAGE = /^\/(?:logout|healthz|readyz|api|_next)(?:\/|$)/;
+
+/** The `next=` path if it is a page on `origin` (any origin works: only the path is kept), else null. */
 export function safeNext(next: string | null | undefined, origin = "http://web.invalid"): string | null {
   if (!next?.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return null;
   const url = new URL(next, origin); // drops tabs and newlines, resolves dot segments
-  if (url.origin !== origin || url.pathname.startsWith("//")) return null;
+  if (url.origin !== origin || url.pathname.startsWith("//") || NOT_PAGE.test(url.pathname)) return null;
   return url.pathname + url.search + url.hash;
 }
 

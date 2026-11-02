@@ -14,7 +14,7 @@ export const metadata = { title: "Ask" };
 const SAMPLES = demo.answers.filter((item) => !item.answer.refused).map((item) => item.question).slice(0, 4);
 
 export default async function AskPage() {
-  await requireSession();
+  const { expiresAt } = await requireSession();
   // One call, as the totals' was: the coverage list's first page carries the totals and the filings that float
   // round the stage while an answer is on its way.
   const api = await coveragePage();
@@ -23,7 +23,7 @@ export default async function AskPage() {
   const covered = api.ok ? coveredThings(api.data.companies.edges.map((edge) => edge.node)) : [];
   return (
     <>
-      <LiveHeader page="ask" line={line} />
+      <LiveHeader page="ask" line={line} expiresAt={expiresAt} />
       {!api.ok && api.failure.kind === "misconfigured" ? (
         <ConfigError requestId={api.failure.requestId} />
       ) : (

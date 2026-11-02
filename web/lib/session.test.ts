@@ -20,7 +20,8 @@ test("a fresh token holds until it expires, 8 hours on", () => {
 test("each sign-in gets its own id, even two in the same second, and reading the token gives it back", () => {
   const ids = [signSession(SECRET, NOW), signSession(SECRET, NOW)].map((one) => readSession(one, SECRET, NOW)?.sid);
   assert.equal(new Set(ids).size, 2);
-  assert.deepEqual(readSession(signSession(SECRET, NOW, "A".repeat(22)), SECRET, NOW), { sid: "A".repeat(22) });
+  const expiresAt = NOW + SESSION_TTL_S * 1000; // NOW falls on a whole second
+  assert.deepEqual(readSession(signSession(SECRET, NOW, "A".repeat(22)), SECRET, NOW), { sid: "A".repeat(22), expiresAt });
 });
 
 const [, sid, expiry, mac] = token.split(".");

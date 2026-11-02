@@ -11,9 +11,8 @@ function recorded(id: string) {
   return { answer, cited: citations[0] as { quote: string; filing_url: string } };
 }
 
-test("numeric: the draft streams, then the checked answer links its fact card", async ({ page }) => {
+test("numeric: no draft shows; the checked answer links its fact card", async ({ page }) => {
   await ask(page, question("n01"));
-  await expect(page.getByTestId("draft")).toContainText("citations not checked yet");
   const answer = page.getByTestId("answer");
   await expect(answer).toContainText("416,161,000,000 USD");
   await expect(page.getByTestId("draft")).toHaveCount(0);
@@ -98,14 +97,19 @@ test("New question clears the answer and the question box, and puts the focus th
   await expect(page.getByTestId("ask-status")).toHaveText("");
 });
 
-test("New question while the sources still load stops their lookup, and the next question runs", async ({ page }) => {
+test("a sources lookup that never answers gives up after 6 s: the answer shows, and its sources could not be loaded", async ({ page }) => {
+  test.setTimeout(30_000);
   await page.route("**/api/sources", () => {}); // never answers
+  const looked = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/sources");
   await ask(page, question("n01"));
-  await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD");
-  await page.getByRole("button", { name: "New question" }).click();
-  await page.getByLabel("Your question").fill(question("x04"));
+  await looked;
+  await expect(page.getByTestId("answer")).toHaveCount(0); // the answer waits for its sources
+  await expect(page.locator(".stage").getByText("Reading the filings…")).toBeVisible();
+  await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD", { timeout: 12_000 });
+  await expect(page.getByTestId("sources-error")).toHaveText("Sources could not be loaded.");
+  await page.getByLabel("Your question").fill(question("x04")); // and the next question runs
   await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await expect(page.getByTestId("answer")).toContainText("three reportable segments");
+  await expect(page.getByTestId("answer")).toContainText("three reportable segments", { timeout: 12_000 });
 });
 
 test("an answer validation rewrote shows its warnings", async ({ page }) => {
@@ -159,8 +163,10 @@ for (const [name, failure] of SOURCES_FAILURES) {
 
 test("leaving Ask through a header link stops its answer stream at the API", async ({ page, request }) => {
   const slow = `e2e: slow ${randomUUID()}`; // the mock streams it for about 3 s
+  const streaming = page.waitForResponse((reply) => new URL(reply.url()).pathname === "/api/answers");
   await ask(page, slow);
-  await expect(page.getByTestId("draft")).toBeVisible();
+  await streaming; // its headers are in: the stream runs
+  await expect(page.locator(".stage").getByText("Reading the filings…")).toBeVisible();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Coverage" }).click();
   await expect(page).toHaveURL(/\/coverage$/);
   // Chromium reports even a finished stream as net::ERR_ABORTED, so the mock says whether it was cut.

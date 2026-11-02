@@ -25,11 +25,17 @@ function Letters({ text }: { text: string }) {
   );
 }
 
-export function Hero({ story, companies, answers }: { story: HeroStory; companies: number; answers: number }) {
+/** `notice`: a line over the headline, such as the one after signing out. */
+export function Hero({ story, companies, answers, notice }: { story: HeroStory; companies: number; answers: number; notice?: string }) {
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="hero-field" aria-hidden="true" />
       <div className="hero-stage" aria-hidden="true" />
+      {notice && (
+        <p className="hero-notice" role="status">
+          {notice}
+        </p>
+      )}
       <h1 id="hero-title" className="hero-title">
         <span className="visually-hidden">{LINES.join(" ")}</span>
         {LINES.map((line, i) => (
