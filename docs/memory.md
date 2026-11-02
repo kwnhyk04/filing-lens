@@ -994,6 +994,20 @@ From landing round 1 (2026-11-02, branch `landing-round-1` from main at 58baddd,
   - Tests: a11y runs with reduced motion, so it never depends on the moving hero. The WebGL test reads the renderer and asserts what it calls for: the still and no three.js on software, the moving story on a graphics card. `E2E_CHANNEL=msedge` runs the suite in headless Edge on the GPU, where the moving branch runs; the bundled shell runs the still branch, as CI does.
   - Lesson: check which renderer a test browser really has before trusting a performance-sensitive test that passes locally.
 
+From landing round 2 (2026-11-02, branch `landing-round-2` from main at 6d273ef, uncommitted):
+
+- 2026-11-02: Landing round 2 (user: "FL landing, round 2 of 2"): the features panel from Hirael's feature-10, a How it works section if the hero did not already explain the flow, and four review fixes to round 1's hero. No line of the paste was still a ">>> PASTE" placeholder.
+- 2026-11-02: Decisions taken without the user, listed in the report:
+  - feature-10 was rebuilt in FilingLens's CSS and markup in `web/components/overview.tsx`, as round 1 did with Prompt Bond. The integration prompt's setup (shadcn CLI, Tailwind, `components/ui/`, lucide-react, two Radix packages, class-variance-authority) was not followed: one static section does not justify a second styling system or new packages.
+  - The quote is x04 (Amazon's reportable segments): textual, one passage with form, year and item (AMZN 10-K FY2025, Item 1), 238 characters. x02 (NVIDIA) is 624 characters, too long for a large serif quote. The numeric answers cite XBRL facts, which have no item.
+  - The figures: filings indexed (30, from the snapshot, one per company) and numeric exact match (100%, 12 of 12 within 0.5%, the same in both official runs of 2026-10-31). Both are computed from the imported files, and the e2e test checks them against the snapshot and both reports, including that the two runs agree. Its label is "Exact numbers": "Numeric accuracy" wrapped at 390 px and put its value out of line with the other figure.
+  - How it works was left out: the subtitle the user wrote ("FilingLens finds the passages and answers with citations") and the hero's story already show Ask, find the passages, answer with citations, and "How an answer is made" goes deeper. `_tmp/21st/steps-5.png` does not exist; once the section was left out, it was not needed, and nothing from it went into `docs/third-party.md`.
+  - The hero's main button is "Open the demo" to `/demo`, the header's words and target, under the subtitle.
+  - The offline note is static: the landing calls no API, so it cannot tell whether the backend is up, and a live check would add an API call to every view of a public page. The note shows whether the backend is up or not, and the e2e test checks it on the offline server.
+  - The Recent questions cell links to pull request #42 on GitHub: Ask needs the site's password, and the demo has no Recent questions.
+  - The still's two heads were removed (the CSS `::before` and `::after` that drew Prompt Bond's two organisms at the card's top corners). The moving story's membrane keeps its two eyes: they belong to Prompt Bond's engine, and the user named only the circles.
+- 2026-11-02: Discrepancy fixed: the README still said the landing's "Try the live demo" signs in and opens Ask. Round 1 had removed that button; the README now names "Open the demo" and Sign in.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

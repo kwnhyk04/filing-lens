@@ -10,6 +10,7 @@ import report from "../../evals/reports/2026-10-31.json";
 import table from "../../evals/reports/2026-10-31.md";
 import { Hero } from "../components/hero.tsx";
 import { LandingHeader } from "../components/landing-header.tsx";
+import { Overview } from "../components/overview.tsx";
 import { demo } from "../lib/demo.ts";
 import { evalDate, type ResultRow, resultRows } from "../lib/landing.ts";
 import { heroStory } from "../lib/story.ts";
@@ -87,7 +88,8 @@ export default async function LandingPage() {
     <>
       <LandingHeader theme={theme} />
       <main id="main" className="landing">
-        <Hero story={story} companies={demo.companies.length} />
+        <Hero story={story} companies={demo.companies.length} answers={demo.answers.length} />
+        <Overview />
 
         <section id="how" className="band" aria-labelledby="how-title">
           <h2 id="how-title">How an answer is made</h2>

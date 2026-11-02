@@ -6,7 +6,15 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-02) **Landing, round 1: header, hero and logo**, on branch `landing-round-1` from main at 58baddd (uncommitted). Round 2 (features, how it works) comes later; those sections stay as they are.
+- [ ] (user, 2026-11-02) **Landing, round 2: the features panel, and four hero fixes**, on branch `landing-round-2` from main at 6d273ef (uncommitted). Header and hero unchanged apart from the fixes.
+  - [x] Tests first (`e2e/landing.spec.ts`), red against the current build (3 failed, 9 passed), then green (12): the new subtitle, the hero's "Open the demo" and its offline note (also on the offline server), the panel's answer and citation, its two figures against the snapshot and both official reports, the Recent questions link, and Ask, Cite and Check.
+  - [x] Features panel after Hirael's feature-10 (MIT): rebuilt in FilingLens's markup and CSS tokens in `web/components/overview.tsx`, with no Tailwind, shadcn or new package (as round 1). "Where FilingLens stands."; x04's saved answer (Amazon, not the hero's Eli Lilly) with AMZN 10-K FY2025, Item 1; filings indexed (30) and exact numbers (100%, 12 of 12), each with its source in a comment; Recent questions (#42); Ask, Cite and Check.
+  - [x] How it works (Ask, Find the passages, Answer with citations): left out, since the hero's subtitle and story already show that flow. `_tmp/21st/steps-5.png` does not exist.
+  - [x] Hero fixes: "Open the demo" under the subtitle; the subtitle the user wrote; the offline note back; the still's two Prompt Bond heads removed.
+  - [x] `docs/third-party.md`: feature-10's MIT notice.
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 621; web typecheck, `npm test` 114, build, Playwright 107 (bundled shell) and 107 (Edge on the GPU); the three landing screens; screenshots at 1280, 1440, 1920 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-landing-2`.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-02) **Landing, round 1: header, hero and logo**, merged with its CI fix as #43 (6d273ef, git log). Built on branch `landing-round-1` from main at 58baddd. Round 2 (features, how it works) comes later; those sections stay as they are.
   - [x] Baseline first: the landing's JavaScript and load time on the current main, desktop and phone profiles.
   - [x] Logo: variant #6 redrawn as an SVG (two arcs, a teal bar inside the lens, ink pills outside, equal gaps, one stroke width, round ends); one-colour, light and dark versions; in every header, the sign-in and error pages, the favicon (read at 16 and 32 px) and the app icon.
   - [x] Theme: System, Light and Dark, kept in an `fl-theme` cookie that the root layout reads, so a page never flashes the other theme.
@@ -14,7 +22,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Hero from Prompt Bond (MIT) with its ShaderGradient field (MIT): "Every answer." then "Straight from the filing.", the subtitle with the corpus's real scope, and the story of x12 from the demo snapshot (the question, its two passages, the answer and its citations). Navy, teal and paper. A still first; three.js and WebGL only after the load and only on desktop; phones and reduced motion keep the still.
   - [x] `docs/third-party.md`; deploy.md step 28 (FilingLens's own Gemini project since 2026-10-31).
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 621; web typecheck, `npm test` 112, build, Playwright 106, screens 67 (66 shots changed); screenshots in `H:\Projects\projects\_tmp\fl-landing`; JavaScript and load time before and after (activity-log.md).
-  - [ ] (user) ship. Optional: move `landing.css` into `globals.css` (one stylesheet; the phone's first paint is 136 ms later with two).
+  - [x] (user) ship: merged as #43. Still open, optional: move `landing.css` into `globals.css` (one stylesheet; the phone's first paint is 136 ms later with two).
   - [x] (user, 2026-11-02) CI fix on the same branch: 3 web e2e tests timed out on GitHub's GPU-less runners (axe on `/` in light and dark, and the WebGL test). The moving hero now needs WebGL on a graphics card (`failIfMajorPerformanceCaveat` and no software renderer), so CI gets the still; a11y runs with reduced motion; the WebGL test asserts what the renderer calls for. Local runs: 106 on Edge's GPU, 106 on the shell with `--disable-gpu`. Its own commit message.
 - [x] (user, 2026-11-01) **answer-log-privacy**, merged as #41 (0bfb840, git log) (branch from main at 104f3d5; bug-fix-first, found while planning Recent questions). The regenerate and router-retry log lines quoted draft sentences and the router's tickers; they now log counts, and redaction covers session ids.
   - [x] Tests first: two log-capture tests and a redaction test, red then green.

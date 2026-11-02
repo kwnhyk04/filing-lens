@@ -124,6 +124,23 @@ The user's round 1; round 2 (the features and how it works) comes later, and tho
 - **Left out, for the user to pick:** the hero's two calls to action and its offline note (the header has Sign in and "Open the demo"); a `favicon.ico` (current browsers take the SVG); a web app manifest; a raster still image of the field (the still is CSS and weighs nothing); the toggle in the app's own headers.
 - **Screens:** `npm run screens` runs with reduced motion, so the landing's shots show the still.
 
+## Landing, round 2: the overview and four hero fixes (2026-11-02)
+
+The user's round 2. The header is unchanged; the hero changed only as the user's four review fixes asked.
+
+- **Overview** (`#overview`, right under the hero, on the paper band), after Hirael's feature-10 (MIT; `docs/third-party.md`), in FilingLens's tokens and markup:
+  - Head: a small "Overview" label, the serif headline "Where FilingLens stands." (36 px on a phone, 48 px from 40rem, line height 1.04), and one line on what the panel holds.
+  - One white sheet split by 1 px hairlines in `--rule`, with a 12 px corner: six columns from 64rem, otherwise full width, with the two figures side by side.
+  - The answer (4 columns, 2 rows): x04 from golden v1's test run, "What are Amazon's reportable segments?", its answer in serif (24 px, 30 px from 40rem) with its citation boxes, and under it the source in place of the person: the citation's number in a grey circle, "AMZN 10-K FY2025, Item 1" (form, year and item) and "From golden v1's test run". No name, no quote from a person.
+  - Two figures (2 columns each): "Filings indexed", 30 (the snapshot's filings, one per company); "Exact numbers", 100% (numeric exact match, 12 of 12 within 0.5%, the same in both official runs of 2026-10-31). Mono, 36 px, 48 px from 40rem. "Numeric accuracy", the results table's name, wrapped at 390 px and put its value out of line with the other figure.
+  - Recent questions (4 columns): "New in Ask", what the feature does in two sentences, and "Read the pull request" (#42 on GitHub), Ask's quiet outlined button with Lucide's arrow. Ask needs the site's password and the demo has no Recent questions, so the pull request is what any visitor can open.
+  - What it does (2 columns): Ask, Cite and Check, one line each.
+- **How it works** (three steps: Ask, Find the passages, Answer with citations): not built. The hero's subtitle says that flow in those words, its story shows it (the question, the passages with form, year and item, the answer with its citations, the check), and "How an answer is made" explains it in more depth below.
+- **Hero fixes:**
+  - Subtitle, the user's words: "Ask about the 10-K filings of 30 large US companies. FilingLens finds the passages and answers with citations you can check." The 30 still comes from the snapshot.
+  - "Open the demo" (`/demo`, as in the header) under the subtitle, larger than the header's button, with the offline note under it: "When the live backend is offline, the site serves 8 saved sample answers." The landing calls no API, so the note is always there, whether the backend is up or not.
+  - The still's two heads (Prompt Bond's two organisms, drawn in CSS at the card's top corners) are gone. The moving story's membrane keeps its eyes, which are part of Prompt Bond's engine.
+
 ## Layout
 
 - **Header:** the mark and the name, then tabs with the current one underlined in green on the header's edge, then Sign out as a quiet outlined button. The demo's Sign in is a green button, like the mockup's landing call to action. On a phone the header takes three rows, as in the mockup: the name, the tabs, then the button.

@@ -8,7 +8,7 @@ import type { Page } from "@playwright/test";
 import type { Snapshot } from "../lib/demo.ts";
 import { evalDate, resultRows } from "../lib/landing.ts";
 import { softwareRenderer } from "../lib/motion.ts";
-import { heroStory } from "../lib/story.ts";
+import { heroStory, QUOTE } from "../lib/story.ts";
 import { LIVE, OFFLINE, snapshot } from "./env.ts";
 import { audit, expect, noSidewaysScroll, signedOut, signIn, test } from "./fixtures.ts";
 
@@ -28,8 +28,18 @@ const RUNS = [
   ["claude-first", claude, claudeTable],
   ["free", report, table],
 ] as const;
-const story = heroStory(JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as Snapshot);
+const demo = JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as Snapshot;
+const story = heroStory(demo);
+const saved = heroStory(demo, QUOTE);
 const REPO = "https://github.com/kwnhyk04/filing-lens";
+const NOTE = `When the live backend is offline, the site serves ${snapshot.answers.length} saved sample answers.`;
+
+/** The hero's main button leads to the demo, and its note says what the site serves while the API is off. */
+async function heroOffersTheDemo(page: Page) {
+  const hero = page.locator(".hero");
+  await expect(hero.getByRole("link", { name: "Open the demo", exact: true })).toHaveAttribute("href", "/demo");
+  await expect(hero).toContainText(NOTE);
+}
 
 // Reduced motion keeps every test on the still except the WebGL one, which asserts what this browser's
 // renderer calls for: the moving story on a graphics card, the still on a software renderer (CI's runners).
@@ -74,6 +84,7 @@ test("/ needs no API: it renders while the API is off, with no detour to the dem
     resultRows(claudeTable).length + resultRows(table).length,
   );
   await expect(page.getByTestId("demo-banner")).toHaveCount(0);
+  await heroOffersTheDemo(page);
 });
 
 test("the header's links lead where they say, and Sign in comes back to Ask", async ({ page }) => {
@@ -131,7 +142,10 @@ test("the evaluation's tables, date, models and notes are the newest reports'", 
 test("the hero's scope and story are the demo snapshot's: x12's question, passages, answer and check", async ({ page }) => {
   await page.goto("/");
   const hero = page.locator(".hero");
-  await expect(hero).toContainText(`a fixed set of ${snapshot.companies.length} companies' 10-K SEC filings`);
+  await expect(hero.locator(".hero-lead")).toHaveText(
+    `Ask about the 10-K filings of ${snapshot.companies.length} large US companies. FilingLens finds the passages and answers with citations you can check.`,
+  );
+  await heroOffersTheDemo(page);
   const still = hero.getByTestId("story-still");
   await expect(still).toContainText(story.question);
   await expect(still).toContainText(story.reading.join(" · "));
@@ -147,6 +161,36 @@ test("the hero's scope and story are the demo snapshot's: x12's question, passag
   }
   for (const check of story.checks) await expect(still).toContainText(check.text);
   await expect(hero).toContainText("A saved answer from golden v1's test run, as the demo shows it.");
+});
+
+test("the overview: another saved answer and its passage, two figures from the snapshot and both reports, #42, and the three jobs", async ({ page }) => {
+  await page.goto("/");
+  const overview = page.locator("section#overview");
+  await expect(overview.getByRole("heading", { level: 2 })).toHaveText("Where FilingLens stands.");
+  expect(saved.filing).not.toBe(story.filing);
+  await expect(overview).toContainText(saved.question);
+  await expect(overview.locator("blockquote .answer-text")).toHaveText(saved.answer.answer);
+  for (const passage of saved.passages) {
+    await expect(overview.locator(`#overview-source-${passage.n}`)).toContainText(passage.label);
+    const links = overview.getByRole("link", { name: `Source ${passage.n}: ${passage.label}` });
+    expect(await links.count()).toBeGreaterThan(0);
+    for (const link of await links.all()) await expect(link).toHaveAttribute("href", `#overview-source-${passage.n}`);
+  }
+  // The snapshot's indexed filings, one per company; numeric exact match, the same in both official runs.
+  const filings = snapshot.companies.reduce((sum, company) => sum + company.filings.edges.length, 0);
+  expect(filings).toBe(snapshot.companies.length);
+  const exact = claude.metrics.answer.numeric_exact_match;
+  for (const [, run] of RUNS) expect(run.metrics.answer.numeric_exact_match).toMatchObject({ value: exact.value, n: exact.n });
+  const figure = (label: string) => overview.locator(".overview-figure").filter({ hasText: label });
+  await expect(figure("Filings indexed").locator(".overview-value")).toHaveText(String(filings));
+  await expect(figure("Filings indexed")).toContainText("One 10-K from each company");
+  await expect(figure("Exact numbers").locator(".overview-value")).toHaveText(`${Math.round(exact.value * 100)}%`);
+  await expect(figure("Exact numbers")).toContainText(
+    `${Math.round(exact.value * exact.n)} of ${exact.n} numeric test questions within 0.5%, in both official runs`,
+  );
+  await expect(overview.getByRole("heading", { level: 3, name: "Recent questions" })).toBeVisible();
+  await expect(overview.getByRole("link", { name: "Read the pull request" })).toHaveAttribute("href", `${REPO}/pull/42`);
+  await expect(overview.locator(".overview-jobs dt")).toHaveText(["Ask", "Cite", "Check"]);
 });
 
 test("the theme toggle keeps Light or Dark in a cookie the server reads, and System clears it", async ({ page, context }) => {

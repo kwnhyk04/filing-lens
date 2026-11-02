@@ -5,6 +5,8 @@ import type { Snapshot } from "./demo.ts";
 
 /** x12: Eli Lilly's revenue growth, answered from two passages of its 10-K. */
 export const STORY = "x12";
+/** x04: Amazon's reportable segments, from one passage of its 10-K: the overview's saved answer. */
+export const QUOTE = "x04";
 
 export function heroStory(snapshot: Snapshot, id = STORY) {
   const saved = snapshot.answers.find((item) => item.id === id);
