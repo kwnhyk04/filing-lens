@@ -44,7 +44,8 @@ const FIGURES: Record<string, string> = {
   long_term_debt: "Long-term debt",
 };
 
-const listed = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+/** "a", "a and b", "a, b and c". */
+export const listed = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
 /** How the router read a question: its kind, the companies, the years, a quarter and the figure. */
 export function readingChips(reading: Reading): string[] {

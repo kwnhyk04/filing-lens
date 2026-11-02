@@ -1,7 +1,7 @@
-// The hero story's panel: the question, how the router read it, the passages it cites (form, year, item and
-// quote), the answer with its citation links, and the number check. The still shows it whole; the moving
-// story reveals one row at a time through `rowRef`, with ids of its own (`prefix`).
-import type { HeroStory } from "../lib/story.ts";
+// The hero story's panel: the question, how the router read it, the sources it cites (a passage's form, year,
+// item and quote, or a fact and its value), the answer with its citation links, and the number check. The still
+// shows it whole; the moving story reveals one row at a time through `rowRef`, with ids of its own (`prefix`).
+import { checkLine, type HeroStory } from "../lib/story.ts";
 import { AnswerText } from "./answer-view.tsx";
 
 type Ref<T> = (element: T | null) => void;
@@ -30,9 +30,6 @@ function Glyph({ d }: { d: string }) {
   );
 }
 
-/** "a", "a and b", "a, b and c". */
-const listed = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
-
 export function StoryPanel({ story, prefix, rowRef, replyRef }: Props) {
   const passages = story.passages.length;
   return (
@@ -60,7 +57,7 @@ export function StoryPanel({ story, prefix, rowRef, replyRef }: Props) {
               {passage.n}
             </span>
             <span className="story-cite">
-              <b>{passage.label}</b> <q>{passage.quote}</q>
+              <b>{passage.label}</b> {passage.kind === "passage" ? <q>{passage.quote}</q> : passage.quote}
             </span>
           </li>
         ))}
@@ -72,15 +69,7 @@ export function StoryPanel({ story, prefix, rowRef, replyRef }: Props) {
       </div>
       <p className="story-row" data-tone="check" ref={rowRef?.(3 + passages)}>
         <Glyph d={GLYPHS.check} />
-        <span>
-          Checked:{" "}
-          {story.checks.length > 0 && (
-            <>
-              {listed(story.checks.map((check) => `${check.text} matches source ${check.n}`))}, and{" "}
-            </>
-          )}
-          every quote matches its passage word for word.
-        </span>
+        <span>{checkLine(story)}</span>
       </p>
     </div>
   );

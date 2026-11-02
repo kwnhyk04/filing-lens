@@ -8,7 +8,7 @@ import type { Page } from "@playwright/test";
 import type { Snapshot } from "../lib/demo.ts";
 import { evalDate, resultRows } from "../lib/landing.ts";
 import { softwareRenderer } from "../lib/motion.ts";
-import { heroStory, QUOTE } from "../lib/story.ts";
+import { heroStories, heroStory, QUOTE } from "../lib/story.ts";
 import { LIVE, OFFLINE, snapshot } from "./env.ts";
 import { audit, expect, noSidewaysScroll, signedOut, signIn, test } from "./fixtures.ts";
 
@@ -264,6 +264,44 @@ test.describe("with reduced motion", () => {
   });
 });
 
+/** Which renderer draws this browser's WebGL: Playwright's bundled shell and CI's runners have SwiftShader only;
+    headless Edge (E2E_CHANNEL=msedge) draws on this PC's graphics card. */
+const rendererOf = (page: Page) =>
+  page.evaluate(() => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const info = gl?.getExtension("WEBGL_debug_renderer_info");
+    return gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : "";
+  });
+
+/** The moving story once it stands in for the still. A software renderer keeps the still (the test below checks
+    that), so on one these tests are skipped: run them with E2E_CHANNEL=msedge on a graphics card. */
+async function movingStory(page: Page) {
+  // Every WebGL draw, the membrane's and the field's, counted on window.draws.
+  await page.addInitScript(() => {
+    const counted = window as unknown as { draws: number };
+    counted.draws = 0;
+    for (const context of [WebGLRenderingContext, WebGL2RenderingContext]) {
+      for (const name of ["drawArrays", "drawElements"] as const) {
+        const draw = context.prototype[name] as (...args: unknown[]) => void;
+        Object.defineProperty(context.prototype, name, {
+          value(this: unknown, ...args: unknown[]) {
+            counted.draws += 1;
+            return draw.apply(this, args);
+          },
+        });
+      }
+    }
+  });
+  await page.goto("/");
+  const renderer = await rendererOf(page);
+  test.skip(!renderer || softwareRenderer(renderer), "the moving story needs WebGL on a graphics card");
+  await expect(page.locator(".hero")).toHaveAttribute("data-live", "on", { timeout: 15_000 });
+  return page.locator(".story-live");
+}
+
+const draws = (page: Page) => page.evaluate(() => (window as unknown as { draws: number }).draws);
+const stories = heroStories(demo);
+
 test.describe("on a desktop", () => {
   test.use({ reducedMotion: "no-preference" });
 
@@ -275,13 +313,7 @@ test.describe("on a desktop", () => {
     });
     await page.goto("/");
     const hero = page.locator(".hero");
-    // Which renderer draws this browser's WebGL: Playwright's bundled shell and CI's runners have SwiftShader
-    // only; headless Edge (E2E_CHANNEL=msedge) draws on this PC's graphics card.
-    const renderer = await page.evaluate(() => {
-      const gl = document.createElement("canvas").getContext("webgl");
-      const info = gl?.getExtension("WEBGL_debug_renderer_info");
-      return gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : "";
-    });
+    const renderer = await rendererOf(page);
     if (!renderer || softwareRenderer(renderer)) {
       await expect(hero).toHaveAttribute("data-motion", "still", { timeout: 15_000 });
       expect(scripts.filter((script) => script.three || script.membrane)).toEqual([]);
@@ -304,5 +336,58 @@ test.describe("on a desktop", () => {
     await pause.click();
     await expect(hero.getByRole("button", { name: "Resume motion" })).toHaveAttribute("aria-pressed", "true");
     await audit(page);
+  });
+
+  test("the story moves on to the next saved answer once the first has held for about 7 s", async ({ page }) => {
+    test.setTimeout(120_000);
+    const live = await movingStory(page);
+    await expect(live).toContainText(stories[0].question);
+    await expect(live).toHaveAttribute("data-beat", "5", { timeout: 45_000 }); // x12's answer and check are in
+    const done = Date.now();
+    await expect(live).toContainText(stories[1].question, { timeout: 30_000 });
+    expect(Date.now() - done).toBeGreaterThan(6_000);
+    // The next answer plays as the first did, and the controls are the same ones.
+    await expect(live).not.toContainText(stories[0].question);
+    await expect(live).toHaveAttribute("data-beat", "2", { timeout: 15_000 });
+    await page.locator(".hero").getByRole("button", { name: "Replay" }).click();
+    await expect(live).toHaveAttribute("data-beat", "0");
+    await expect(live).toContainText(stories[1].question); // Replay starts the current answer again
+  });
+
+  test("hovering the card, or keyboard focus inside it, pauses the story; leaving it goes on", async ({ page }) => {
+    test.setTimeout(90_000);
+    const live = await movingStory(page);
+    await expect(live).toHaveAttribute("data-beat", "2", { timeout: 20_000 });
+    await live.hover();
+    await expect(live).toHaveAttribute("data-moving", "false");
+    const beat = await live.getAttribute("data-beat");
+    await page.waitForTimeout(4_000); // longer than any one beat
+    await expect(live).toHaveAttribute("data-beat", beat ?? "");
+    await page.mouse.move(5, 5);
+    await expect(live).toHaveAttribute("data-moving", "true");
+    await expect(live).toHaveAttribute("data-beat", "5", { timeout: 45_000 });
+    await live.getByRole("link").first().focus(); // a citation in the answer
+    await expect(live).toHaveAttribute("data-moving", "false");
+    await page.waitForTimeout(9_000); // past the 7 s hold: still the same answer
+    await expect(live).toContainText(stories[0].question);
+    await page.locator(".hero").getByRole("button", { name: "Replay" }).focus();
+    await expect(live).toHaveAttribute("data-moving", "true");
+  });
+
+  test("the story stops, and draws nothing, while the hero is scrolled away; back in view it goes on", async ({ page }) => {
+    test.setTimeout(90_000);
+    const live = await movingStory(page);
+    await expect(live).toHaveAttribute("data-beat", "2", { timeout: 20_000 });
+    await page.locator("#architecture").scrollIntoViewIfNeeded();
+    await expect(live).toHaveAttribute("data-moving", "false");
+    await page.waitForTimeout(1_000); // the last frames after the stop
+    const beat = await live.getAttribute("data-beat");
+    const before = await draws(page);
+    await page.waitForTimeout(4_000);
+    expect(await draws(page)).toBe(before);
+    await expect(live).toHaveAttribute("data-beat", beat ?? "");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(live).toHaveAttribute("data-moving", "true");
+    await expect.poll(() => draws(page)).toBeGreaterThan(before);
   });
 });

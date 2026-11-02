@@ -1,19 +1,19 @@
 "use client";
 // The moving hero, after Prompt Bond by Cojeev (21st.dev, MIT; docs/third-party.md): a living membrane grows
-// round the question, reaches the two passages it needs, and settles round the answer and its check. It
-// tells the still's story (story-panel.tsx) and loads only on a desktop once the page has loaded
-// (hero-motion.tsx). It stops for reduced motion, a hidden tab, a hero scrolled away, and the Pause button.
+// round the question, reaches the sources it needs, and settles round the answer and its check. It tells the
+// still's story (story-panel.tsx), then the loop's other saved answers, each held 7 s before the next, round
+// and round, and loads only on a desktop once the page has loaded (hero-motion.tsx). It stops for reduced
+// motion, a hidden tab, a hero scrolled away, the pointer or keyboard focus on the card, and the Pause button.
 import { animate, type AnimationPlaybackControls, type AnimationSequence, cancelFrame, frame } from "motion";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
 import { demo } from "../lib/demo.ts";
-import { heroStory } from "../lib/story.ts";
+import { heroStories, type HeroStory, storyBeats } from "../lib/story.ts";
 import { appearance, themeOf } from "../lib/theme.ts";
 import "./hero-live.css";
 import { StoryPanel } from "./story-panel.tsx";
 
-const story = heroStory(demo);
 type Mode = "light" | "dark";
 
 /* ── Motion gates: a visible tab without reduced motion, and the hero on screen ── */
@@ -69,6 +69,7 @@ const GEOMETRY: Record<string, string> = {
   pause: "M14 3h5v18h-5zM5 3h5v18H5z",
   replay: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5",
   "arrow-right": "M5 12h14m-7-7 7 7-7 7",
+  hash: "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18",
 };
 
 function Icon({ name }: { name: string }) {
@@ -79,7 +80,8 @@ function Icon({ name }: { name: string }) {
   );
 }
 
-/* ── The cue: each word rises out of a soft blur, once per new line ── */
+/* ── The cue: each word rises out of a soft blur, once per new line. While the loop turns, screen readers are
+ * not told each cue (aria-live off, as in WAI-ARIA's carousel pattern); paused, they are. ── */
 
 function TextReveal({ text, moving }: { text: string; moving: boolean }) {
   const host = React.useRef<HTMLParagraphElement>(null);
@@ -101,7 +103,7 @@ function TextReveal({ text, moving }: { text: string; moving: boolean }) {
     };
   }, [text, moving]);
   return (
-    <p ref={host} className="pb-cue" aria-live="polite" aria-atomic="true">
+    <p ref={host} className="pb-cue" aria-live={moving ? "off" : "polite"} aria-atomic="true">
       <span className="visually-hidden">{text}</span>
       <span aria-hidden="true">
         {text.split(/(\s+)/).map((word, i) =>
@@ -447,6 +449,10 @@ function Membrane({ ref, mode, onMeasure }: { ref: React.Ref<MembraneHandle>; mo
       surface.removeEventListener("webglcontextrestored", restored);
       current.dispose();
       renderer.current = null;
+      // A story's canvas leaves with it (not in React's dev double run, where it stays): its WebGL context goes
+      // back now, not at garbage collection, so a long loop never meets the browser's context limit, which
+      // drops the oldest context, the field's.
+      if (!surface.isConnected) surface.getContext("webgl")?.getExtension("WEBGL_lose_context")?.loseContext();
     };
     // The palette follows `mode` in its own effect; the renderer is made once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -458,39 +464,43 @@ function Membrane({ ref, mode, onMeasure }: { ref: React.Ref<MembraneHandle>; mo
   );
 }
 
-/* ── The story: one question, its two passages, the answer and its check ── */
+/* ── The stories: each saved answer's question, sources, answer and check, told in turn ── */
 
 const SLOTS = 12;
-const PASSAGES = story.passages.length;
-const ROWS = PASSAGES + 4; // the question, the reading, each passage, the answer, the check
-const REPLY = 2 + PASSAGES;
-const CHECK = REPLY + 1;
 const LAST = 5;
 const START_MS = 900; // the page starts typing the question this long after the hero is ready
-const words = ["One", "Two", "Three", "Four"];
+const HOLD_S = 7; // a told answer stays this long on the story's clock, which stops whenever the motion does
+const FADE_S = 0.6; // then it fades out, and the next answer fades in
 
-export const beats = [
-  { cue: "A question about a filing.", label: "Ready" },
-  { cue: "FilingLens reads it: the company, the years, the kind of question.", label: "Read" },
-  { cue: `Read as ${story.reading.join(" · ")}.`, label: "Ask" },
-  { cue: `${words[PASSAGES - 1] ?? PASSAGES} passages from ${story.filing} hold the answer.`, label: "Find" },
-  { cue: "Each sentence cites its passage, and a check matches every quote and amount.", label: "Answer" },
-  { cue: "An answer you can check.", label: "Done" },
-] as const;
-
-type Kind = "passage" | "filing";
+type Kind = "passage" | "fact" | "filing";
 type Thing = { kind: Kind; title: string; sub: string; icon: string };
-const KIND_TITLE: Record<Kind, string> = { passage: "Passage", filing: "Filing" };
+const KIND_TITLE: Record<Kind, string> = { passage: "Passage", fact: "Fact", filing: "Filing" };
 
-/** What floats round the panel: the cited passages first, one on each side, then the snapshot's other filings. */
-const ENV: (Thing | null)[] = (() => {
-  const passages = story.passages.map((p): Thing => ({ kind: "passage", title: `Item ${p.item}`, sub: story.filing, icon: "file-text" }));
-  const filings = story.others.slice(0, SLOTS - PASSAGES - 1).map((filing): Thing => {
+/** One story's rows, beats and things. What floats round the panel: its cited sources first, one on each side
+    (a passage by its item, a fact by its value), then the snapshot's other filings. */
+function plotOf(story: HeroStory) {
+  const passages = story.passages.length;
+  const cited = story.passages.map((p): Thing =>
+    p.kind === "passage"
+      ? { kind: "passage", title: `Item ${p.item}`, sub: p.filing, icon: "file-text" }
+      : { kind: "fact", title: p.quote, sub: p.filing, icon: "hash" },
+  );
+  const filings = story.others.slice(0, SLOTS - passages - 1).map((filing): Thing => {
     const [ticker, form, year] = filing.split(" ");
     return { kind: "filing", title: `${ticker} ${form}`, sub: year, icon: "file" };
   });
-  return [...passages, ...filings, ...Array<null>(SLOTS - passages.length - filings.length).fill(null)];
-})();
+  return {
+    story,
+    passages,
+    rows: passages + 4, // the question, the reading, each source, the answer, the check
+    reply: 2 + passages,
+    check: 3 + passages,
+    beats: storyBeats(story),
+    env: [...cited, ...filings, ...Array<null>(SLOTS - cited.length - filings.length).fill(null)],
+  };
+}
+type Plot = ReturnType<typeof plotOf>;
+const PLOTS = heroStories(demo).map(plotOf);
 
 /* ── World: plain objects the timelines tween and the frame loop paints. Positions are px/py on purpose:
  * Motion treats keys called x and y as transforms. ── */
@@ -505,7 +515,7 @@ type Eye = { o: number; lid: number };
 type World = {
   env: { free: number; breath: number; wobble: number; underline: number; pulse: number; contour: number; panel: number };
   A: Cell; B: Cell; O: Cell[]; PL: Cell; PR: Cell; K: Cell[]; U: Cell[];
-  strands: Strand[]; nodes: Node[]; rows: Row[]; eyes: Eye[];
+  strands: Strand[]; nodes: Node[]; filled: boolean[]; rows: Row[]; eyes: Eye[];
   gaze: { px: number; py: number; w: number };
   lines: { a: number; check: number; typing: number };
   capsule: { o: number };
@@ -513,15 +523,16 @@ type World = {
 const ORGANISMS = 6, RADII = [26, 23, 13, 11, 15, 10];
 const cell = (tone: number, w = 1): Cell => ({ px: 0, py: 0, hw: 0, hh: 0, r: 0, tone, rot: 0, w });
 const strand = (tone: number): Strand => ({ ax: 0, ay: 0, bx: 0, by: 0, r: 0, tone, taper: 0, w: 1 });
-function createWorld(): World {
+function createWorld(plot: Plot): World {
   return {
     env: { free: 1, breath: 0, wobble: 1.2, underline: 1, pulse: 0, contour: 0, panel: 0 },
     A: cell(0), B: cell(2), O: [cell(0), cell(2), cell(0), cell(2)], PL: cell(0), PR: cell(2),
     K: [cell(1, 1.4), cell(1, 1.4), cell(3, 1.4), cell(1, 1.2)],
-    U: Array.from({ length: Math.max(2, PASSAGES) }, () => cell(1)),
+    U: Array.from({ length: Math.max(2, plot.passages) }, () => cell(1)),
     strands: Array.from({ length: 8 }, (_, i) => strand(i > 5 ? 0 : 1)),
     nodes: Array.from({ length: SLOTS }, () => ({ px: 0, py: 0, o: 0, s: 1, t: 1, free: 1, rip: 1, flash: 0 })),
-    rows: Array.from({ length: ROWS }, () => ({ o: 0, dy: 0, p: 0, g: 0 })),
+    filled: plot.env.map((thing) => thing !== null), // the slots a thing floats in
+    rows: Array.from({ length: plot.rows }, () => ({ o: 0, dy: 0, p: 0, g: 0 })),
     eyes: Array.from({ length: ORGANISMS }, () => ({ o: 1, lid: 0 })),
     gaze: { px: 0, py: 0, w: 0 },
     lines: { a: 0, check: 0, typing: 0 },
@@ -560,7 +571,7 @@ function offsetIn(el: HTMLElement, panel: HTMLElement) {
   }
   return { x, y };
 }
-function measure(stage: HTMLElement, capsule: HTMLElement, panel: HTMLElement, rowEls: (HTMLElement | null)[], replyEl: HTMLElement | null, heads: Element[]): Layout | null {
+function measure(stage: HTMLElement, capsule: HTMLElement, panel: HTMLElement, rowEls: (HTMLElement | null)[], replyEl: HTMLElement | null, heads: Element[], count: number): Layout | null {
   const s = stage.getBoundingClientRect(), f = capsule.getBoundingClientRect(), p = panel.getBoundingClientRect();
   if (!s.width || !f.width || !p.width) return null;
   const W = s.width, H = s.height, cx = f.left - s.left + f.width / 2, cy = f.top - s.top + f.height / 2;
@@ -569,7 +580,7 @@ function measure(stage: HTMLElement, capsule: HTMLElement, panel: HTMLElement, r
   const inset = Math.min(90, H * 0.1), bounds = { x0: 40 * k, y0: inset, x1: W - 40 * k, y1: H - inset };
   const place = (x: number, y: number): Point => ({ x: Math.min(bounds.x1, Math.max(bounds.x0, x)), y: Math.min(bounds.y1, Math.max(bounds.y0, y)) });
   const endL = { x: cx - hw + hh * 0.3, y: cy }, endR = { x: cx + hw - hh * 0.3, y: cy };
-  const rows = Array.from({ length: ROWS }, (_, i) => {
+  const rows = Array.from({ length: count }, (_, i) => {
     const el = rowEls[i];
     if (!el) return { x: pcx, y: pcy };
     const o = offsetIn(el, panel);
@@ -654,7 +665,7 @@ const pocket = (size: Size, k: number, anchor: Point) => ({ px: anchor.x, py: an
 /* ── Poses: the still of each beat, so a seek, a resize or a stop always lands somewhere true ── */
 
 function floatPose(w: World, L: Layout) {
-  w.nodes.forEach((n, i) => Object.assign(n, { ...at(L.slots[i]), o: ENV[i] ? 1 : 0, s: 1, t: 1, free: 1, rip: 1, flash: 0 }));
+  w.nodes.forEach((n, i) => Object.assign(n, { ...at(L.slots[i]), o: w.filled[i] ? 1 : 0, s: 1, t: 1, free: 1, rip: 1, flash: 0 }));
 }
 function restPose(w: World, L: Layout, roam: Roam[]) {
   const k = L.k;
@@ -695,7 +706,7 @@ const headR = (L: Layout) => ({ px: L.panel.right - 30 * L.k, py: L.panel.top + 
 const bodyL = (L: Layout) => ({ px: L.panel.cx - L.panel.hw * 0.22, py: L.panel.cy, hw: L.panel.hw * 0.78, hh: L.panel.hh, r: 30 * L.k });
 const bodyR = (L: Layout) => ({ px: L.panel.cx + L.panel.hw * 0.22, py: L.panel.cy, hw: L.panel.hw * 0.78, hh: L.panel.hh, r: 30 * L.k });
 /** The open panel with what every beat before `upTo` revealed. */
-function panelPose(w: World, L: Layout, roam: Roam[], upTo: number) {
+function panelPose(w: World, L: Layout, roam: Roam[], upTo: number, plot: Plot) {
   bondedPose(w, L, roam);
   Object.assign(w.env, { panel: 1, contour: 0.3 });
   w.capsule.o = 0;
@@ -707,11 +718,11 @@ function panelPose(w: World, L: Layout, roam: Roam[], upTo: number) {
   w.rows[0].o = 1;
   const done = (i: number) => Object.assign(w.rows[i], { o: 1, g: 1 });
   if (upTo > 2) done(1);
-  if (upTo > 3) for (let i = 0; i < PASSAGES; i++) done(2 + i);
+  if (upTo > 3) for (let i = 0; i < plot.passages; i++) done(2 + i);
   if (upTo > 4) {
-    w.rows[REPLY].o = 1;
+    w.rows[plot.reply].o = 1;
     Object.assign(w.lines, { a: 1, check: 1 });
-    done(CHECK);
+    done(plot.check);
   }
 }
 
@@ -793,9 +804,9 @@ function launch(w: World, L: Layout): Beat {
     ],
   };
 }
-/** Beat 3: a tendril reaches each passage, the membrane closes round it, tugs it a little, and what it says
- * streams into the body and settles on its row. Then the passage is let go and floats on. */
-function find(w: World, L: Layout, sizes: Size[]): Beat {
+/** Beat 3: a tendril reaches each source, the membrane closes round it, tugs it a little, and what it says
+ * streams into the body and settles on its row. Then the source is let go and floats on. */
+function find(w: World, L: Layout, sizes: Size[], plot: Plot): Beat {
   const k = L.k;
   const one = (S: Strand, K: Cell, U: Cell, slot: number, row: number, t: number): AnimationSequence => {
     const n = w.nodes[slot], M = L.slots[slot], P = L.rims[slot], R = L.rows[row], pk = pocket(sizes[slot], k, M);
@@ -833,17 +844,17 @@ function find(w: World, L: Layout, sizes: Size[]): Beat {
       ...arrive(w, row, t + 2.9),
     ];
   };
-  const seq = story.passages.flatMap((_, i) => one(w.strands[i], w.K[i], w.U[i], i, 2 + i, i * 0.6));
-  return { still: 2.2, seq: [...seq, ...widen(w, 0.8, 1.2), home(w, L, 2.9 + PASSAGES * 0.6)] };
+  const seq = plot.story.passages.flatMap((_, i) => one(w.strands[i], w.K[i], w.U[i], i, 2 + i, i * 0.6));
+  return { still: 2.2, seq: [...seq, ...widen(w, 0.8, 1.2), home(w, L, 2.9 + plot.passages * 0.6)] };
 }
 /** Beat 4: the answer types itself; a second look runs along it and approves; the check lands. */
-function answer(w: World, L: Layout): Beat {
+function answer(w: World, L: Layout, plot: Plot): Beat {
   const k = L.k, [K0] = w.K, R = L.reply;
   return {
     still: 3.6,
     seq: [
-      [w.rows[REPLY], { dy: 8 * k }, { duration: 0.01, at: 0 }],
-      [w.rows[REPLY], { o: 1, dy: 0 }, { duration: 0.4, ease: settle, at: 0 }],
+      [w.rows[plot.reply], { dy: 8 * k }, { duration: 0.01, at: 0 }],
+      [w.rows[plot.reply], { o: 1, dy: 0 }, { duration: 0.4, ease: settle, at: 0 }],
       [w.lines, { typing: 1 }, { duration: 0.3, at: 0.1 }],
       [w.eyes[0], { lid: 0.35 }, { duration: 0.3, at: 0.2 }],
       lookAt(w, { x: R.x + R.w / 2, y: R.y + R.h / 2 }, 0.2),
@@ -856,28 +867,38 @@ function answer(w: World, L: Layout): Beat {
       [K0, zero, { duration: 0.2, at: 3.55 }],
       [w.lines, { check: 1 }, { duration: 0.3, at: 3.4 }],
       ...blink(w, 3.45),
-      ...land(w, L, CHECK, 3.6),
-      ...arrive(w, CHECK, 3.9),
+      ...land(w, L, plot.check, 3.6),
+      ...arrive(w, plot.check, 3.9),
       home(w, L, 4.0),
     ],
   };
 }
-function buildBeat(beat: number, w: World, L: Layout, sizes: Size[]): Beat | null {
+function buildBeat(beat: number, w: World, L: Layout, sizes: Size[], plot: Plot): Beat | null {
   switch (beat) {
     case 1: return bond(w, L);
     case 2: return launch(w, L);
-    case 3: return find(w, L, sizes);
-    case 4: return answer(w, L);
+    case 3: return find(w, L, sizes, plot);
+    case 4: return answer(w, L, plot);
     case LAST: return { still: 0.5, seq: [...blink(w, 0.1), home(w, L, 0.1)] };
     default: return null;
   }
 }
 
-/* ── One play-through of the story, painted over the hero ── */
+/* ── One saved answer told once, painted over the hero; HeroLive puts the next one in its place ── */
 
-type StoryProps = { hero: HTMLElement; stage: HTMLElement; moving: boolean; quiet: boolean; mode: Mode; onReady: () => void; controls: React.ReactNode };
+type StoryProps = {
+  plot: Plot;
+  hero: HTMLElement;
+  stage: HTMLElement;
+  moving: boolean;
+  quiet: boolean;
+  mode: Mode;
+  onReady: () => void;
+  onBeat: (beat: number) => void;
+  onDone: () => void;
+};
 
-function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: StoryProps) {
+function Story({ plot, hero, stage, moving, quiet, mode, onReady, onBeat, onDone }: StoryProps) {
   const [beat, setBeat] = React.useState(0);
   const [typed, setTyped] = React.useState("");
   const [ready, setReady] = React.useState(0);
@@ -887,7 +908,9 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
   const eyeRefs = React.useRef<(HTMLSpanElement | null)[]>([]), nodeRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const rowRefs = React.useRef<(HTMLElement | null)[]>([]), reply = React.useRef<HTMLDivElement | null>(null);
   const origins = React.useRef<number[]>([]); // each thing's blob centre from its left edge, measured once a layout
-  const world = React.useRef(createWorld()), roam = React.useRef(createRoam()), layout = React.useRef<Layout | null>(null);
+  const world = React.useRef(createWorld(plot)), roam = React.useRef(createRoam()), layout = React.useRef<Layout | null>(null);
+  const stageBox = React.useRef<HTMLDivElement>(null), doneAt = React.useRef<number | null>(null), left = React.useRef(false);
+  const finish = React.useRef(onDone);
   const capture = React.useRef<Capture | null>(null), controls = React.useRef<AnimationPlaybackControls | null>(null), generation = React.useRef(0);
   const clock = React.useRef(0), pointer = React.useRef<Point | null>(null);
   const typing = React.useRef<{ at: number; n: number } | null>(null), started = React.useRef(false), readyOnce = React.useRef(false);
@@ -898,11 +921,13 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
   const state = React.useRef({ moving, quiet, beat });
   React.useLayoutEffect(() => {
     state.current = { moving, quiet, beat };
-  }, [moving, quiet, beat]);
+    finish.current = onDone;
+  }, [moving, quiet, beat, onDone]);
+  React.useEffect(() => onBeat(beat), [beat, onBeat]);
   const rowRef = React.useMemo(() => {
-    const refs = Array.from({ length: ROWS }, (_, i) => (el: HTMLElement | null) => { rowRefs.current[i] = el; });
+    const refs = Array.from({ length: plot.rows }, (_, i) => (el: HTMLElement | null) => { rowRefs.current[i] = el; });
     return (i: number) => refs[i];
-  }, []);
+  }, [plot.rows]);
   const replyRef = React.useCallback((el: HTMLDivElement | null) => { reply.current = el; }, []);
 
   /* Steering for one free organism: wander with arrival, keep company, keep off the capsule. */
@@ -968,11 +993,11 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
     const t = clock.current, k = L.k, f = w.env.free, p = pointer.current, R = roam.current;
     if (f > 0) for (let i = 0; i < ORGANISMS; i++) stepRoam(i, dt, L);
     // The page types the question on the same clock, so a pause pauses the typing too.
-    const ty = typing.current;
+    const ty = typing.current, question = plot.story.question;
     if (ty) {
-      const n = Math.min(story.question.length, Math.floor((t - ty.at) / 0.03));
-      if (n !== ty.n) { ty.n = n; setTyped(story.question.slice(0, n)); }
-      if (n === story.question.length && t - ty.at > 0.03 * n + 0.45) { typing.current = null; setBeat(1); }
+      const n = Math.min(question.length, Math.floor((t - ty.at) / 0.03));
+      if (n !== ty.n) { ty.n = n; setTyped(question.slice(0, n)); }
+      if (n === question.length && t - ty.at > 0.03 * n + 0.45) { typing.current = null; setBeat(1); }
     }
     const breath = 1 + w.env.breath * 0.012 * Math.sin(t * 1.9), pulse = w.env.pulse * 3 * k;
     const cells = scene.current.cells;
@@ -1054,19 +1079,28 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
       bubble.style.setProperty("--check", w.lines.check.toFixed(3));
       bubble.style.setProperty("--typing", w.lines.typing.toFixed(3));
     }
+    // A told answer holds HOLD_S on this clock, then fades out and asks for the next one, which fades in.
+    if (state.current.beat === LAST) doneAt.current ??= t;
+    const out = doneAt.current === null ? 0 : Math.min(1, Math.max(0, (t - doneAt.current - HOLD_S) / FADE_S));
+    const shown = Math.min(1, t / FADE_S) * (1 - out);
+    if (stageBox.current) stageBox.current.style.opacity = String(shown);
     if (capsule.current) {
-      capsule.current.style.opacity = String(w.capsule.o);
+      capsule.current.style.opacity = String(w.capsule.o * shown);
       capsule.current.style.setProperty("--line", w.env.underline.toFixed(3));
     }
     if (panel.current) {
       const el = panel.current, open = w.env.panel > 0.5;
-      el.style.opacity = String(w.env.panel);
+      el.style.opacity = String(w.env.panel * shown);
       if ((el.dataset.open === "true") !== open) {
         el.dataset.open = open ? "true" : "false";
         el.inert = !open;
       }
     }
-  }, [stepRoam]);
+    if (out >= 1 && !left.current) {
+      left.current = true;
+      finish.current();
+    }
+  }, [plot, stepRoam]);
 
   /* One clock, painting after Motion's own render step, so seeks and completions are already written. */
   const paintSoon = React.useCallback((frames = 4) => {
@@ -1090,16 +1124,16 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
   const relayout = React.useCallback(() => {
     if (!capsule.current || !panel.current) return;
     const heads = [hero.querySelector(".hero-title"), hero.querySelector(".hero-lead")].filter((el): el is Element => el !== null);
-    const L = measure(hero, capsule.current, panel.current, rowRefs.current, reply.current, heads);
+    const L = measure(hero, capsule.current, panel.current, rowRefs.current, reply.current, heads, plot.rows);
     if (!L) return;
     layout.current = L;
     setCompact(!L.roomy);
     const w = world.current, b = state.current.beat;
     if (b === 0) restPose(w, L, roam.current);
     else if (b === 1) bondedPose(w, L, roam.current);
-    else panelPose(w, L, roam.current, b);
+    else panelPose(w, L, roam.current, b, plot);
     setReady((v) => v + 1);
-  }, [hero]);
+  }, [hero, plot]);
   React.useEffect(() => {
     const box = theatre.current;
     if (!box) return;
@@ -1162,8 +1196,8 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
       const shape = el?.firstElementChild as HTMLElement | null;
       return { w: shape?.offsetWidth ?? 30, h: shape?.offsetHeight ?? 30 };
     });
-    if (beat === LAST) panelPose(w, L, roam.current, LAST);
-    const built = buildBeat(beat, w, L, sizes);
+    if (beat === LAST) panelPose(w, L, roam.current, LAST, plot);
+    const built = buildBeat(beat, w, L, sizes, plot);
     if (!built) {
       if (beat === 0) restPose(w, L, roam.current);
       return;
@@ -1214,11 +1248,10 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
     };
   }, [hero]);
 
-  const cue = beats[beat].cue;
   return (
     <>
       {createPortal(
-        <div className="pb-stage" data-compact={compact} data-quiet={quiet} data-moving={moving}>
+        <div className="pb-stage" ref={stageBox} data-compact={compact} data-quiet={quiet} data-moving={moving}>
           <Membrane ref={membrane} mode={mode} onMeasure={relayout} />
           <div className="pb-riders">
             {RADII.map((_, i) => (
@@ -1227,7 +1260,7 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
                 <i />
               </span>
             ))}
-            {ENV.map((thing, i) => (
+            {plot.env.map((thing, i) => (
               <span key={i} className="pb-thing" data-kind={thing?.kind ?? "filing"} data-empty={!thing} ref={(el) => { nodeRefs.current[i] = el; }}>
                 <span className="pb-thing-shape">
                   <i className="pb-thing-ring" />
@@ -1247,7 +1280,7 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
       )}
       <div className="story-live" ref={theatre} data-beat={beat} data-moving={moving} data-quiet={quiet} role="group" aria-label="The saved answer's story, moving">
         <div className="pb-panel" ref={panel} data-open="false">
-          <StoryPanel story={story} prefix="hero-live-" rowRef={rowRef} replyRef={replyRef} />
+          <StoryPanel story={plot.story} prefix="hero-live-" rowRef={rowRef} replyRef={replyRef} />
         </div>
         <div className="pb-capsule" ref={capsule} aria-hidden="true">
           <span className="pb-prefix">›</span>
@@ -1257,17 +1290,36 @@ function Story({ hero, stage, moving, quiet, mode, onReady, controls: bar }: Sto
           </span>
         </div>
       </div>
-      <div className="story-caption">
-        <TextReveal text={cue} moving={moving && !quiet} />
-        <div className="pb-progress" role="img" aria-label={`Story: ${beats[beat].label}`}>
-          {beats.slice(1, LAST).map((b, i) => (
-            <span key={b.label} data-complete={beat > i + 1} data-current={beat === i + 1} />
-          ))}
-        </div>
-        {bar}
-      </div>
     </>
   );
+}
+
+/** Whether the pointer or keyboard focus is on the story's card, which pauses the loop until it leaves. Watched
+    on the figure, which stays while each answer's card takes the last one's place. */
+function useHeld(hero: HTMLElement | null) {
+  const [held, setHeld] = React.useState(false);
+  React.useEffect(() => {
+    const figure = hero?.querySelector<HTMLElement>(".hero-story");
+    if (!figure) return;
+    let pointer = false, focus = false;
+    const onCard = (node: EventTarget | null) => node instanceof Element && node.closest(".story-live") !== null;
+    const update = () => setHeld(pointer || focus);
+    const over = (event: PointerEvent) => { pointer = onCard(event.target); update(); };
+    const out = (event: PointerEvent) => { if (!onCard(event.relatedTarget)) { pointer = false; update(); } };
+    const focusIn = (event: FocusEvent) => { focus = onCard(event.target); update(); };
+    const focusOut = (event: FocusEvent) => { if (!onCard(event.relatedTarget)) { focus = false; update(); } };
+    figure.addEventListener("pointerover", over);
+    figure.addEventListener("pointerout", out);
+    figure.addEventListener("focusin", focusIn);
+    figure.addEventListener("focusout", focusOut);
+    return () => {
+      figure.removeEventListener("pointerover", over);
+      figure.removeEventListener("pointerout", out);
+      figure.removeEventListener("focusin", focusIn);
+      figure.removeEventListener("focusout", focusOut);
+    };
+  }, [hero]);
+  return held;
 }
 
 /* ── The field and the headline's weights: Prompt Bond's ShaderGradient, and its variable proximity ── */
@@ -1320,25 +1372,39 @@ function useProximity(hero: HTMLElement | null, moving: boolean) {
   }, [hero, moving]);
 }
 
-/* ── The moving hero: finds its places in the still hero, runs the story, then brings in the field ── */
+/* ── The moving hero: finds its places in the still hero, tells the stories in turn, then brings in the field ── */
 
 export function HeroLive() {
-  const anchor = React.useRef<HTMLSpanElement>(null);
+  const anchor = React.useRef<HTMLSpanElement>(null), live = React.useRef(false);
   const [hero, setHero] = React.useState<HTMLElement | null>(null);
   const [Field, setField] = React.useState<React.ComponentType<FieldProps> | null>(null);
   const [paused, setPaused] = React.useState(false);
-  const [replay, setReplay] = React.useState(0);
+  const [told, setTold] = React.useState({ index: 0, replay: 0 }); // which answer, and its play-through
+  const [beat, setBeat] = React.useState(0);
   const mode = useMode();
   const { enabled, inView } = useMotionVisibility(hero);
-  const moving = enabled && inView && !paused;
+  const held = useHeld(hero);
+  const moving = enabled && inView && !paused && !held;
+  const plot = PLOTS[told.index];
 
   React.useLayoutEffect(() => {
     setHero(anchor.current?.closest<HTMLElement>(".hero") ?? null);
   }, []);
   useProximity(hero, moving);
 
+  // After the last answer, the first again; Replay tells the current one again.
+  const next = React.useCallback(() => {
+    setBeat(0);
+    setTold(({ index, replay }) => ({ index: (index + 1) % PLOTS.length, replay }));
+  }, []);
+  const again = () => {
+    setBeat(0);
+    setTold(({ index, replay }) => ({ index, replay: replay + 1 }));
+  };
+
   const onReady = React.useCallback(() => {
-    if (!hero) return;
+    if (!hero || live.current) return;
+    live.current = true;
     hero.dataset.live = "on";
     const still = hero.querySelector<HTMLElement>(".story-still");
     if (still) {
@@ -1353,7 +1419,7 @@ export function HeroLive() {
   const stage = hero?.querySelector<HTMLElement>(".hero-stage");
   const bar = (
     <div className="pb-controls">
-      <button type="button" className="pb-control" onClick={() => setReplay((n) => n + 1)}>
+      <button type="button" className="pb-control" onClick={again}>
         <Icon name="replay" />
         Replay
       </button>
@@ -1367,7 +1433,30 @@ export function HeroLive() {
     <>
       <span ref={anchor} hidden />
       {hero && stage && (
-        <Story key={replay} hero={hero} stage={stage} moving={moving} quiet={!enabled} mode={mode} onReady={onReady} controls={bar} />
+        <>
+          <Story
+            key={`${told.index}-${told.replay}`}
+            plot={plot}
+            hero={hero}
+            stage={stage}
+            moving={moving}
+            quiet={!enabled}
+            mode={mode}
+            onReady={onReady}
+            onBeat={setBeat}
+            onDone={next}
+          />
+          {/* The caption and its controls stay while the answers change, so focus on Pause or Replay stays. */}
+          <div className="story-caption">
+            <TextReveal text={plot.beats[beat].cue} moving={moving} />
+            <div className="pb-progress" role="img" aria-label={`Story: ${plot.beats[beat].label}`}>
+              {plot.beats.slice(1, LAST).map((b, i) => (
+                <span key={b.label} data-complete={beat > i + 1} data-current={beat === i + 1} />
+              ))}
+            </div>
+            {bar}
+          </div>
+        </>
       )}
       {Field && field &&
         createPortal(

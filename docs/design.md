@@ -141,6 +141,17 @@ The user's round 2. The header is unchanged; the hero changed only as the user's
   - "Open the demo" (`/demo`, as in the header) under the subtitle, larger than the header's button, with the offline note under it: "When the live backend is offline, the site serves 8 saved sample answers." The landing calls no API, so the note is always there, whether the backend is up or not.
   - The still's two heads (Prompt Bond's two organisms, drawn in CSS at the card's top corners) are gone. The moving story's membrane keeps its eyes, which are part of Prompt Bond's engine.
 
+## Landing, the hero's loop (2026-11-02)
+
+The user's change: the moving story played once (about 20 s) and stopped until Replay; it now tells three saved answers in turn. The still, phones, reduced motion and software WebGL are as before.
+
+- **The answers** (`LOOP` in `web/lib/story.ts`), all from the demo snapshot, no company twice: x12 first (Eli Lilly's growth drivers, two passages: the still's), then n01 (Apple's revenue in fiscal 2025, one XBRL fact) and c02 (Alphabet's revenue against Meta's, two facts from two filings). Each is answered, carries no warning and is 300 characters or less. Left out: x04 (Amazon's reportable segments, one passage; in the first build, then dropped by the user, since the overview just below the hero shows it), x02 (624 characters, written twice and cut by a sentence), c12 (four citations, facts and table rows mixed), o02 and t01 (refused).
+- **Facts in the story:** a fact's row is its citation name and its value as published, without quote marks; round the panel it floats as "Fact" with its value and filing, under Lucide's hash. The caption counts what is cited ("One fact from AAPL 10-K FY2025 holds the answer."; c02's names both filings), and the check line names only the amounts when no passage is cited ("Checked: 416,161,000,000 matches source 1.").
+- **The loop:** each answer plays as before (the question typed into the capsule, the membrane, the sources pulled in, the answer, the check), holds 7 s, then fades out over 0.6 s while the next fades in; after c02 comes x12 again. The hold and the fades run on the story's own clock, which stops whenever the motion stops, so a paused, hovered, hidden or scrolled-away story never moves on.
+- **Pauses:** the pointer on the card, or keyboard focus inside it, pauses everything as Pause does, and leaving resumes. The caption and its controls do not count, so Replay and Pause stay usable. Replay tells the current answer again. A hidden tab, a hero scrolled away (IntersectionObserver) or reduced motion still stop it, and neither the membrane nor the field draws then.
+- **The card** keeps the still's height (462 px at 1440 px wide), so nothing below the hero moves; a shorter answer's panel sits in the card's middle, round the capsule's line.
+- **Accessibility:** the caption and its controls stay while the answers change, so focus on Replay or Pause stays put (before, Replay rebuilt them and focus fell back to the page). The cue is not announced while the loop turns (`aria-live="off"`, as in WAI-ARIA's carousel pattern), and is announced once it is paused.
+
 ## Layout
 
 - **Header:** the mark and the name, then tabs with the current one underlined in green on the header's edge, then Sign out as a quiet outlined button. The demo's Sign in is a green button, like the mockup's landing call to action. On a phone the header takes three rows, as in the mockup: the name, the tabs, then the button.
