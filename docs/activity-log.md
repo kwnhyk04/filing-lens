@@ -15,6 +15,21 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-03: The egress tests' throwaway network moves to a free subnet (uncommitted, branch `egress-test-subnet`)
+
+- Changes, on `egress-test-subnet` from main at fbb22d2 (#48 merged). Its own small PR before the Ask redesign, as the user asked: "fix the egress test subnet first as its own small PR (10.231.234.0/28 is free; FA uses .231, FL .232, TC .233)".
+  - `infra/tests/test_egress.py`: the test network, its dynamic range, the four clients' addresses, the proxy's and one other address move from 10.231.233.x to 10.231.234.x. Production's addresses (10.231.232.x) are unchanged.
+- Files: `infra/tests/test_egress.py`, `docs/memory.md`, `docs/todo.md`, this log.
+- Validation:
+  - Red first: `pytest -m integration infra/tests/test_egress.py` on the unchanged branch errored in both live tests' setup: "invalid pool request: Pool overlaps with other one on this address space". Then 7 passed.
+  - `docker network inspect` (read only) showed no network on 10.231.234.x before the change.
+  - `make lint` clean, `make typecheck` 0 errors, `make test` 703 passed, `make test-int` 53 passed (the user's go; its own throwaway containers and network, none left after; no other project's container touched).
+  - Web and `clients/ts`: not run, since nothing in them changed.
+- Events, in order:
+  - GateGuard refused the test file's first edit until its facts were stated.
+  - `make lint` failed once on my new comment (ruff E501, 113 characters against 100); shortened, then clean.
+- Outstanding: (user) ship; then the Ask redesign on a branch from the new main.
+
 ### 2026-11-03: Ask's answer card in the hero's look, the app's look after FreightAudit's, the How section, and the hero's labels (uncommitted, branch `app-ui`)
 
 - Changes, on `app-ui` from main at 7812548 (#47 merged). The user's brief, pasted: "FL app UI and one landing section. Plan first and tell me the plan before building." The plan was approved with four answers: A (no API change), passages below the answer in the order they arrive, only the cited filings round the card, the landing's theme switch in the app header; also "Use the Lucide icons as inline SVGs, not a new package", and a go for the integration tests.

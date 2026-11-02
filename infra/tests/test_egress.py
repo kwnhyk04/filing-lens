@@ -47,14 +47,15 @@ CLIENTS = {
 }
 
 IMAGE = "filinglens-squid:test"
-TEST_NET = ("10.231.233.0/28", "10.231.233.8/29")  # subnet and dynamic range; production's is .232
+# Subnet and dynamic range; production uses .232, FreightAudit's .231, Triage Copilot's .233.
+TEST_NET = ("10.231.234.0/28", "10.231.234.8/29")
 TEST_ADDRESSES = {
-    "api": "10.231.233.2",
-    "tailscale": "10.231.233.3",
-    "alertmanager": "10.231.233.4",
-    "smtp_relay": "10.231.233.5",
+    "api": "10.231.234.2",
+    "tailscale": "10.231.234.3",
+    "alertmanager": "10.231.234.4",
+    "smtp_relay": "10.231.234.5",
 }
-PROXY, OTHER = "10.231.233.7", "10.231.233.9"
+PROXY, OTHER = "10.231.234.7", "10.231.234.9"
 UNREACHABLE = "203.0.113.10"  # a public address (TEST-NET-3) with no route from the test network
 ALLOWED, REFUSED = "503", "403"
 # The proxy as production runs it (test_the_proxy_is_pinned_and_locked_down).

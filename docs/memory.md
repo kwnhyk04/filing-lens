@@ -1044,6 +1044,7 @@ From the app UI (2026-11-02 and 03, branch `app-ui` from main at 7812548, uncomm
 - 2026-11-03: Pitfall: the badge's dot made the landing's results tables wider than a 390 px phone (axe's `scrollable-region-focusable` on the landing's phone shot). The landing's badges drop the dot, as FreightAudit's landing does.
 - 2026-11-03: On a phone the app header's theme switch moves beside the name by position, not in the DOM. Why: the DOM order is the keyboard's, and the header keeps three rows.
 - 2026-11-03: Pitfall: the live egress tests (`infra/tests/test_egress.py`) create their network on 10.231.233.0/28, and Triage Copilot's production network `triagecopilot-prod_outbound` now holds that subnet, so Docker refuses ("Pool overlaps with other one on this address space") and both tests error in setup. The other projects' subnets are theirs to keep; the test needs a free one (todo.md).
+- 2026-11-03: The egress tests' throwaway network moved to 10.231.234.0/28, the user's pick: "10.231.234.0/28 is free; FA uses .231, FL .232, TC .233". Its own PR, before the Ask redesign.
 
 ## Preferences and Instructions
 
