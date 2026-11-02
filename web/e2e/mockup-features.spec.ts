@@ -3,7 +3,8 @@
 import { question, snapshot } from "./env.ts";
 import { ask, audit, expect, noSidewaysScroll, test } from "./fixtures.ts";
 
-const ANSWERED = snapshot.answers.filter((item) => !item.answer.refused).map((item) => item.question);
+// Ask's stage offers the first four answered saved questions as its examples.
+const ANSWERED = snapshot.answers.filter((item) => !item.answer.refused).map((item) => item.question).slice(0, 4);
 const C12 = ["Comparison", "Tesla, Inc.", "Fiscal 2024 and 2025", "Net income"];
 
 test("the live header says what the API covers, on Ask and on Coverage", async ({ page }) => {
@@ -54,17 +55,6 @@ test("a fact-only answer is checked against XBRL data; a refusal reads as read a
   await expect(page.getByTestId("read-as").getByRole("listitem")).toHaveText(["Out of scope"]);
   await expect(page.getByTestId("checks")).toHaveCount(0);
   await expect(page.getByTestId("timings")).not.toContainText("every number checked");
-});
-
-test("from 64rem the sources panel takes about a third of the width, beside the answer", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await ask(page, question("x04"));
-  await expect(page.locator("#source-1 h4")).toContainText("AMZN");
-  const main = await page.locator(".ask-main").boundingBox();
-  const panel = await page.locator(".ask > .sources").boundingBox();
-  if (!main || !panel) throw new Error("no layout boxes");
-  expect(panel.x).toBeGreaterThan(main.x + main.width);
-  expect(panel.width / (main.width + panel.width)).toBeCloseTo(1 / 3, 1);
 });
 
 test("390 px: the checks table scrolls in its own region, which the keyboard can reach", async ({ page }) => {

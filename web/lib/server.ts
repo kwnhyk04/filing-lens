@@ -7,7 +7,6 @@ import type { NextRequest } from "next/server";
 
 import {
   ApiError,
-  TotalsDocument,
   CoverageDocument,
   createApiClient,
   executeGraphql,
@@ -93,9 +92,7 @@ function graphql<R, V>(document: TypedDocumentString<R, V>, variables: V, reques
   return executeGraphql(apiUrl, apiKey, document, variables, { signal, requestId, timeoutMs: PAGE_TIMEOUT_MS });
 }
 
-/** The coverage totals: shows whether the API is up and takes the key, and fills the header's line. */
-export const ping = () => call("ping", (id) => graphql(TotalsDocument, {}, id));
-
+/** A page of the covered companies and their filings, with the totals: Ask's header line and stage read the first. */
 export const coveragePage = (after?: string) =>
   call("coverage", (id) => graphql(CoverageDocument, { first: 20, after }, id));
 

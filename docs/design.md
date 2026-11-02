@@ -11,6 +11,24 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Ask, the live version of the landing hero (2026-11-03)
+
+The brief: Ask as the live version of the landing hero, its answer card in the hero's place. The plan was approved with the user's answers (memory.md): no API change; the passage rows stay in the card under the check, the membrane pulling each cited source onto its row; the Sources card keeps the full passages; Recent questions about 60% and Sources about 40% below; only the cited filings pulled in; nothing claimed while it reads; the answer never waits for an animation.
+
+- **The stage** (`section.stage`, styled in `app/ask/ask.css`): the hero still's field, a soft ground with a teal glow at the top left and a blue one at the bottom right, in a 32 px rounded box under the page's title. One 38rem column holds the question field, its help line, the four example chips while the stage is empty, the status line, then the card. The question shows once, in the card's bubble; the field clears on send.
+- **The field:** a glass pill holding the textarea ("Ask about a company's 10-K...", 3 to 1,000 characters) and a round green arrow, named "Ask", that becomes a pill reading "Answering…" while it waits. Enter sends; Shift+Enter, and an input method's Enter, start a new line. The focus ring circles the whole pill.
+- **The card:** the hero still's membrane drawn in CSS (32 px radius, a teal glow at the top left, a blue one at the bottom right, a soft green shadow) round the answer card's parts, in the hero's colours: the question's bubble, Read as, the reply under "Answer" and its timings, the check, the numbered passages and their filings, the number check (it fits the column from 64rem), warnings, notes, then the usage with Copy, Ask again and New question. As in the hero's panel, every word sits on a bubble or a row, so it keeps 4.5:1 on the membrane's glows: the reply's head, the notes and the foot take the rows' background. An error sits in the card under the question.
+- **While it reads:** "Reading the filings…" under the card, and the coverage list's first 11 filings as quiet chips (`AMZN 10-K FY2025`), none of them claimed.
+- **Below the stage:** Recent questions (about 60%) and Sources (about 40%), each a white card, top-aligned; below 64rem they stack, Sources first (by `order`; the DOM, and so the keyboard, keeps Recent first). Empty, they read "Questions you ask will appear here." and "Sources for your answer appear here."; after a refusal, "This answer cites no sources.". From 64rem Sources scrolls on its own, at most 40rem tall.
+- **The moving stage** (`components/ask-live.tsx`, on the landing hero's engine in `components/bond.tsx`): on a desktop that allows motion and draws WebGL on a graphics card, after the load event, as the landing hero does; phones, reduced motion and software renderers keep the calm stage. It draws the field (ShaderGradient) and the membrane live, under the page's own content:
+  1. Empty: the six organisms rest round the field and the covered filings float on both sides, still.
+  2. Reading: the organisms roam among the floating filings.
+  3. The checked answer in: they gather round the card, two heads at its top corners and one body under it, the others drawn in.
+  4. The sources in: each cited source (at most 4) takes its own filing's place, lit and labelled with its item or value; a tendril reaches it, the membrane closes round it and carries what it says to its row, where a ring ripples off its number. Then the eyes blink and everything rests.
+  - It moves only while the answer is read, while it waits for its sources and while the pulls play; otherwise it is still. A Pause button sits in the stage's corner, after the card in the DOM. The card never waits for it: each part shows the moment the stream or the sources lookup reports it, and the membrane catches up.
+  - Where it may load (the gate's media query), the stage keeps 40rem of height and the card 12 px of room for the heads from the first paint, so nothing moves when the motion starts.
+- **Measured:** `/ask`'s JavaScript before the load event went from 147.1 KB gzip (8 files) to 149.0 KB (9 files), on a desktop and a phone; after it, a desktop on a graphics card loads 314.1 KB more (the engine, then three.js), a phone nothing.
+
 ## Ask's answer card, the app's look and the How section (2026-11-03)
 
 The user's brief: Ask in the landing hero's answer-card style; FreightAudit's app look in FilingLens's colours, header and theme switch; and the landing's "How an answer is made" after FreightAudit's How it works. FreightAudit is the same owner's project, read only; its structure is followed here and nothing there changed. The user's answers to the plan: build on what the stream already reports, with no API change; passages below the answer, in the order they arrive; only the cited filings round the card; the landing's theme switch in the app header.
@@ -176,7 +194,7 @@ The user's change: the moving story played once (about 20 s) and stopped until R
 
 - **Header:** the mark and the name, then tabs with the current one underlined in green on the header's edge, then the coverage line, the theme switch (since 2026-11-03) and Sign out as a quiet outlined button. The demo's Sign in is a green button, like the mockup's landing call to action. On a phone the header takes three rows, as in the mockup: the name with the theme switch, the tabs, then the line and the button.
 - **Page column:** 82rem (1,312 px) with 64 px gutters, 32 px below 64rem and 24 px on a phone. The header lines up with it.
-- **Ask:** as above. Before the first answer the right half stays empty, so the question box keeps its width when sources arrive.
+- **Ask:** since 2026-11-03 the stage, then Recent questions and Sources below it (above).
 - **Coverage**, in the app's list look since 2026-11-03: one rounded table with a plain head row, company names in semibold, tickers and CIKs in mono, and the pager as quiet buttons. On a phone each company is a card.
 - **Demo**, in the mockup's landing look: a serif title and lead, the saved questions as numbered cards on a full-width white band, then each saved answer in Ask's card beside its sources panel (since 2026-11-03). The offline banner is the mockup's amber banner.
 - **Sign-in and the error pages:** one white card under the mark.
@@ -212,7 +230,7 @@ Every text pair in use reaches 4.5:1. The lowest is 5.01:1, labels on the tinted
 
 ## Spacing and shape
 
-A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius (Ask's answer card 16 px, as the hero's) and controls 6 px; badges are fully round.
+A 4 px base. Cards pad 16 to 20 px; cards have an 8 px radius (the demo's answer card 16 px; Ask's stage and its card 32 px, 24 px on a phone, as the hero's still) and controls 6 px; badges are fully round.
 
 ## Answers, citations and sources
 
@@ -241,13 +259,15 @@ Styles still live only in `web/app/globals.css`, with no inline style, so the CS
 
 ## Screenshots
 
-`npm run build`, then `npm run screens` in `web/`, writes `docs/screenshots/ui/<screen>-<light|dark|phone>.png` against the mock API: light and dark at 1280 by 800, phone at 390 by 844 in light. Every screen passes axe before its screenshot. `SCREENS_DIR` writes the shots elsewhere, and `SCREENS_WIDTHS` (such as `1280,1440,1920,390`) shoots each width in light and dark instead, as `<screen>-<width>-<theme>.png`, on one worker: the sign-in error is then shot eight times, and locally every sign-in shares one limiter bucket, so each shot first signs in to empty it. Each shot is a full page, except `offline`, which shows the top of the page: below its banner it is the demo page, shot in full as `demo`. The panel sticks, so a full-page shot shows it where it stands at the top of the page, its own scroll at the start. The screenshots come from Windows, so they show its fonts.
+`npm run build`, then `npm run screens` in `web/`, writes `docs/screenshots/ui/<screen>-<light|dark|phone>.png` against the mock API: light and dark at 1280 by 800, phone at 390 by 844 in light. Every screen passes axe before its screenshot. `SCREENS_DIR` writes the shots elsewhere, and `SCREENS_WIDTHS` (such as `1280,1440,1920,390`) shoots each width in light and dark instead, as `<screen>-<width>-<theme>.png`, on one worker: the sign-in error is then shot eight times, and locally every sign-in shares one limiter bucket, so each shot first signs in to empty it. Each shot is a full page, except `offline`, which shows the top of the page: below its banner it is the demo page, shot in full as `demo`. The demo's panel sticks, so a full-page shot shows it where it stands at the top of the page, its own scroll at the start; Ask's Sources card shows the start of its own scroll. `SCREENS_MOTION=1` (with `E2E_CHANNEL=msedge`, on a graphics card) shoots the desktop widths with motion allowed: each Ask screen then waits for the moving stage, and for its pulls to play. The screenshots come from Windows, so they show its fonts.
 
 Screens: `sign-in`, `sign-in-error`, `landing`, `ask`, `ask-draft`, `ask-numeric`, `ask-textual`, `ask-comparison`, `ask-calculation` (after the [3] marker's jump, so the panel shows the calculation card), `ask-warnings`, `ask-recent` (x04's answer, n01 in the list), `ask-stored` (n01 picked from the list), `ask-refusal`, `ask-error`, `ask-sources-failed`, `coverage`, `demo`, `demo-coverage`, `offline`, `not-found`, `error`, `config-error`.
 
 ## Known limits
 
-- When the answer column is shorter than the panel, the page can still scroll 48 px (main's bottom padding), and the panel moves up with it, so its bottom edge then sits 64 px above the window's. The end of a long page does the same.
+- On a desktop with a graphics card, a question sent within about a second of the page load can see its draft a moment late (290 ms, measured with the mock's quick draft) while the moving stage starts up: its WebGL, then the field's three.js.
+- When a new question follows an answer, the moving stage goes back to rest at once: the organisms leave the card's membrane without a beat of their own, while the card itself changes.
+- A desktop whose WebGL is drawn in software keeps the calm stage, at the moving stage's 40rem height, with room below the examples.
 - What the mockup shows and the app does not have (History, the pickers, "Read as", the number check, the Filings totals and detail panel, ingest jobs and more) is listed as candidates in `docs/todo.md`.
 - Fonts differ from system to system, by choice: no web font is downloaded.
 - From 641 px to about 690 px wide (measured with Windows fonts), the demo header's coverage line and its button wrap together below the tabs, so the header looks cramped there. Nothing overlaps.

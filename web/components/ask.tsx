@@ -1,8 +1,10 @@
 "use client";
-// Ask: streams a draft through the BFF, then shows the validated answer and its sources, and this
-// sign-in's recent questions, whose stored answers come back without a model call.
+// Ask, the live version of the landing hero: the stage at the top holds the question field, then the question in
+// its bubble, the draft, the checked answer and the passages it cites, each when the stream or the sources lookup
+// reports it. Below it, this sign-in's Recent questions and the answer's Sources, each in a card. On a desktop
+// with a graphics card the hero's moving story plays over the same states (stage-motion, ask-live.tsx).
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   answerWithSources,
@@ -14,8 +16,10 @@ import {
   type RecentAnswer,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
+import { citedThings, stagePhase, type Thing } from "../lib/stage.ts";
 import { AnswerCard } from "./answer-card.tsx";
 import { SourceList, sourceLabel } from "./answer-view.tsx";
+import { StageMotion } from "./hero-motion.tsx";
 import { QuoteInView } from "./quote-in-view.tsx";
 import { RecentQuestions } from "./recent-questions.tsx";
 
@@ -71,8 +75,16 @@ async function readEvents(body: ReadableStream<Uint8Array>, onDelta: (text: stri
 
 const sourceCount = (count: number) => `${count} source${count === 1 ? "" : "s"}`;
 
-/** `samples`: questions the filings can answer, offered under the empty box; a click only fills it. */
-export function Ask({ samples }: { samples: string[] }) {
+/** Enter sends, as the form's own submit (its length check first); Shift+Enter and an IME's Enter type on. */
+function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+  event.preventDefault();
+  event.currentTarget.form?.requestSubmit();
+}
+
+/** `samples`: questions the filings can answer, offered on the empty stage; a click only fills the field.
+    `covered`: the coverage list's filings, which float round the stage while an answer is on its way. */
+export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] }) {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
@@ -194,10 +206,13 @@ export function Ask({ samples }: { samples: string[] }) {
     }
   }
 
+  /** The question goes into the stage's bubble and the field clears: it shows once. */
   async function ask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    await run(String(new FormData(event.currentTarget).get("question") ?? "").trim());
+    const question = String(new FormData(event.currentTarget).get("question") ?? "").trim();
+    event.currentTarget.reset();
+    await run(question);
   }
 
   /** A recent question: its stored answer with its reading, number checks and sources, and no model call. */
@@ -205,7 +220,6 @@ export function Ask({ samples }: { samples: string[] }) {
     running.current?.abort(); // a sources lookup still running stops
     const controller = new AbortController();
     running.current = controller;
-    if (box.current) box.current.value = item.question;
     setTurn((n) => n + 1);
     setAsked(item.question);
     setProblem(null);
@@ -228,7 +242,7 @@ export function Ask({ samples }: { samples: string[] }) {
     }
   }
 
-  /** Back to an empty question box, with the focus in it; a sources lookup still running stops. */
+  /** Back to the empty stage, with the focus in the field; a sources lookup still running stops. */
   function startOver() {
     running.current?.abort();
     setBusy(false); // an aborted question leaves busy alone, so it is cleared here
@@ -245,24 +259,46 @@ export function Ask({ samples }: { samples: string[] }) {
 
   // The question on screen is left out of the list: by its words, or by its stored time for a repeat.
   const others = recent.filter((item) => item.question !== asked && item.answered_at !== storedAt);
+  const phase = stagePhase({ asked, answer, sources, sourcesFailed, problem: problem !== null });
+  // Kept between renders, so the moving stage re-plots only when the sources change.
+  const cited = useMemo(() => (answer && sources ? citedThings(answer, sources) : []), [answer, sources]);
 
-  // From 64rem the sources panel sits beside the whole column; the DOM order is the reading order.
+  // The DOM order is the reading order: the field, the stage's answer, then Recent questions and Sources.
   return (
     <div className="ask">
-      <div className="ask-main">
-        <form ref={form} onSubmit={ask} className="stack ask-form">
-          <label htmlFor="question">Your question</label>
-          <textarea ref={box} id="question" name="question" rows={3} required minLength={3} maxLength={1000} aria-describedby="question-help" />
+      <section className="stage" aria-label="Ask about the filings" data-phase={phase} data-motion="still">
+        <div className="stage-field" aria-hidden="true" />
+        <div className="stage-layer" aria-hidden="true" />
+        <form ref={form} onSubmit={ask} className="stage-ask">
+          <label htmlFor="question" className="visually-hidden">
+            Your question
+          </label>
+          <div className="stage-input">
+            <textarea
+              ref={box}
+              id="question"
+              name="question"
+              rows={2}
+              required
+              minLength={3}
+              maxLength={1000}
+              placeholder="Ask about a company's 10-K..."
+              aria-describedby="question-help"
+              onKeyDown={sendOnEnter}
+            />
+            {/* aria-disabled, not disabled: a disabled button would drop the keyboard user's focus */}
+            <button type="submit" className="stage-send" aria-disabled={busy || undefined}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+              <span className={busy ? undefined : "visually-hidden"}>{busy ? "Answering…" : "Ask"}</span>
+            </button>
+          </div>
           <p id="question-help" className="help">
-            About the tracked companies&apos; filings, such as &ldquo;What was Apple&apos;s total revenue in fiscal
-            2025?&rdquo; 3 to 1,000 characters.
+            About the tracked companies&apos; filings: 3 to 1,000 characters. Enter sends; Shift+Enter starts a new line.
           </p>
-          {/* aria-disabled, not disabled: a disabled button would drop the keyboard user's focus */}
-          <button type="submit" aria-disabled={busy || undefined}>
-            {busy ? "Answering…" : "Ask"}
-          </button>
         </form>
-        {samples.length > 0 && !answer && draft === null && (
+        {phase === "empty" && samples.length > 0 && (
           <section className="samples" aria-labelledby="samples-title" data-testid="samples">
             <h2 id="samples-title">Try a question the filings can answer</h2>
             <ul>
@@ -287,70 +323,101 @@ export function Ask({ samples }: { samples: string[] }) {
         <p role="status" className="status" data-testid="ask-status">
           {status}
         </p>
-        {asked !== null && (
-          <AnswerCard
-            key={turn}
-            question={asked}
-            draft={draft}
-            answer={answer}
-            sources={sources}
-            sourcesFailed={sourcesFailed}
-            still={storedAt !== null}
-            problem={
-              problem && (
-                <>
-                  <p>{problem.text}</p>
-                  {problem.demo && (
-                    <p>
-                      <Link href="/demo">See the saved answers</Link>
-                    </p>
-                  )}
-                </>
-              )
-            }
-            head={
-              storedAt ? (
-                <p className="timings" data-testid="stored">
-                  {storedLine(storedAt)}
-                </p>
-              ) : (
-                timing &&
-                answer && (
-                  <p className="timings" data-testid="timings">
-                    {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length, answer.checks.length > 0)}
-                  </p>
+        {/* Always there, empty until a question: the moving stage measures itself round it. */}
+        <div className="stage-panel">
+          {asked !== null && (
+            <AnswerCard
+              key={turn}
+              question={asked}
+              draft={draft}
+              answer={answer}
+              sources={sources}
+              sourcesFailed={sourcesFailed}
+              still={storedAt !== null}
+              problem={
+                problem && (
+                  <>
+                    <p>{problem.text}</p>
+                    {problem.demo && (
+                      <p>
+                        <Link href="/demo">See the saved answers</Link>
+                      </p>
+                    )}
+                  </>
                 )
-              )
-            }
-            actions={
-              answer && (
-                <>
-                  {answer.citations.length > 0 && (
-                    <button type="button" className="secondary small" onClick={() => copy(answer)}>
-                      Copy answer with sources
+              }
+              head={
+                storedAt ? (
+                  <p className="timings" data-testid="stored">
+                    {storedLine(storedAt)}
+                  </p>
+                ) : (
+                  timing &&
+                  answer && (
+                    <p className="timings" data-testid="timings">
+                      {timingLine(timing.firstWordsMs, timing.completeMs, answer.citations.length, answer.checks.length > 0)}
+                    </p>
+                  )
+                )
+              }
+              actions={
+                answer && (
+                  <>
+                    {answer.citations.length > 0 && (
+                      <button type="button" className="secondary small" onClick={() => copy(answer)}>
+                        Copy answer with sources
+                      </button>
+                    )}
+                    {storedAt && (
+                      <button
+                        type="button"
+                        className="secondary small"
+                        aria-disabled={busy || undefined}
+                        onClick={() => !busy && run(asked, true)}
+                      >
+                        Ask again
+                      </button>
+                    )}
+                    <button type="button" className="secondary small" onClick={startOver}>
+                      New question
                     </button>
-                  )}
-                  {storedAt && (
-                    <button
-                      type="button"
-                      className="secondary small"
-                      aria-disabled={busy || undefined}
-                      onClick={() => !busy && run(asked, true)}
-                    >
-                      Ask again
-                    </button>
-                  )}
-                  <button type="button" className="secondary small" onClick={startOver}>
-                    New question
-                  </button>
-                </>
-              )
-            }
-          />
+                  </>
+                )
+              }
+            />
+          )}
+        </div>
+        {/* While it reads: the coverage list's filings, none of them claimed; the moving stage floats them. */}
+        {phase === "reading" && (
+          <div className="stage-reading">
+            <p>Reading the filings…</p>
+            {covered.length > 0 && (
+              <ul className="stage-covered" aria-label="Filings FilingLens covers">
+                {covered.map((thing) => (
+                  <li key={thing.filing}>{thing.filing}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
-        <RecentQuestions items={others} busy={busy} onPick={pick} />
+        <StageMotion phase={phase} turn={turn} covered={covered} cited={cited} />
+      </section>
+      <div className="ask-below">
+        <div className="ask-card ask-recent" data-testid="recent-card">
+          {others.length > 0 ? (
+            <RecentQuestions items={others} busy={busy} onPick={pick} />
+          ) : (
+            <p className="help">Questions you ask will appear here.</p>
+          )}
+        </div>
+        <div className="ask-card ask-sources" data-testid="sources-card">
+          {answer && answer.citations.length > 0 ? (
+            <SourceList answer={answer} sources={sources} sourcesFailed={sourcesFailed} />
+          ) : (
+            <p className="help">{answer ? "This answer cites no sources." : "Sources for your answer appear here."}</p>
+          )}
+        </div>
       </div>
-      {answer && <SourceList answer={answer} sources={sources} sourcesFailed={sourcesFailed} />}
       <QuoteInView />
     </div>
   );

@@ -38,18 +38,27 @@ export function checkLine(answer: Answer): string | undefined {
   return `Checked: ${amounts ? `${amounts}, and ` : ""}every quote matches its passage word for word.`;
 }
 
-/** "AMZN 10-K FY2025": each filing the answer's sources come from, once they load, one per filing. FilingLens
-    holds 10-Ks and 10-Qs only, so a fact's period names its filing's form. */
+/** "AMZN 10-K FY2025", or "AMZN 10-Q FY2025 Q2": a filing by its form, fiscal year and quarter. */
+export const filingName = (ticker: string, form: string, year: number, period: string) =>
+  `${ticker} ${form} FY${year}${period === "FY" ? "" : ` ${period}`}`;
+
+/** The filing a citation's source comes from, once the sources load. FilingLens holds 10-Ks and 10-Qs only, so
+    a fact's period names its filing's form. */
+export function sourceFiling(citation: Citation, sources?: Sources): { name: string; accession: string } | undefined {
+  const { chunk, fact } = findSource(citation, sources);
+  const filing = chunk
+    ? { ...chunk.filing, ticker: chunk.filing.company.ticker, form: formLabel(chunk.filing.formType) }
+    : fact && { ...fact, ticker: fact.company.ticker, form: fact.fiscalPeriod === "FY" ? "10-K" : "10-Q" };
+  if (!filing) return undefined;
+  return { name: filingName(filing.ticker, filing.form, filing.fiscalYear, filing.fiscalPeriod), accession: filing.accessionNumber };
+}
+
+/** "AMZN 10-K FY2025": each filing the answer's sources come from, once they load, one per filing. */
 export function citedFilings(answer: Answer, sources?: Sources): string[] {
   const filings = new Map<string, string>();
   for (const citation of answer.citations) {
-    const { chunk, fact } = findSource(citation, sources);
-    const filing = chunk
-      ? { ...chunk.filing, ticker: chunk.filing.company.ticker, form: formLabel(chunk.filing.formType) }
-      : fact && { ...fact, ticker: fact.company.ticker, form: fact.fiscalPeriod === "FY" ? "10-K" : "10-Q" };
-    if (!filing || filings.has(filing.accessionNumber)) continue;
-    const period = filing.fiscalPeriod === "FY" ? "" : ` ${filing.fiscalPeriod}`;
-    filings.set(filing.accessionNumber, `${filing.ticker} ${filing.form} FY${filing.fiscalYear}${period}`);
+    const filing = sourceFiling(citation, sources);
+    if (filing && !filings.has(filing.accession)) filings.set(filing.accession, filing.name);
   }
   return [...filings.values()];
 }

@@ -391,22 +391,6 @@ button[aria-disabled="true"] {
   font-size: 0.875rem;
 }
 
-/* Ask's question box: a white card, its help text beside the button where there is room. */
-.ask-form {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 1.5rem;
-  padding: 1rem 1.25rem 1.25rem;
-  background: var(--sheet);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-card);
-}
-
-.ask-form > label,
-.ask-form > textarea {
-  grid-column: 1 / -1;
-}
-
 .help,
 .meta {
   color: var(--ink-3);
@@ -520,19 +504,13 @@ button[aria-disabled="true"] {
   color: var(--note-ink);
 }
 
-/* Ask, and each saved answer: one column, or the answer and its sources panel side by side from 64rem. */
-.ask,
+/* Each of the demo's saved answers: one column, or the answer and its sources panel side by side from 64rem. Ask
+   lays out its own (app/ask/ask.css). */
 .answer {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 1.25rem;
-}
-
-.ask-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
 }
 
 /* The answer card, in the landing hero's look (docs/design.md): the question in a bubble on the right, how it
@@ -1408,7 +1386,6 @@ main.landing {
 
 @media (width >= 64rem) {
   /* The mockup's split: the answer column about two thirds, the sources panel the rest. */
-  .ask,
   .answer {
     grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
     column-gap: 1.5rem;
@@ -1419,21 +1396,12 @@ main.landing {
   }
 
   /* The sources panel stays in view with its own scroll, so a long passage reads without moving the page. */
-  .ask > .sources,
   .answer > .sources {
     position: sticky;
     top: 1rem;
     max-height: calc(100dvh - 2rem);
     overflow-y: auto;
     overscroll-behavior: contain;
-  }
-
-  /* On Ask it sticks where it starts and runs to 1rem above the window's bottom, so it fits from the first
-     screen: its top is the header, main's top padding, the h1's line and the gap after it. */
-  .ask > .sources {
-    --panel-top: calc(3.5rem + 1.5rem + 1.375rem * 1.25 + 1.25rem);
-    top: var(--panel-top);
-    height: calc(100dvh - var(--panel-top) - 1rem);
   }
 }
 
@@ -1482,14 +1450,6 @@ main.landing {
   main.narrow {
     margin: 1.5rem 1rem;
     padding: 1.5rem 1.25rem;
-  }
-
-  .ask-form {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .ask-form > button {
-    justify-self: end;
   }
 
   .demo > h1 {

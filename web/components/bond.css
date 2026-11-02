@@ -1,0 +1,247 @@
+/* The moving story's engine (bond.tsx), after Prompt Bond's styles (Cojeev, MIT): the membrane and its riders, the
+   organisms' eyes and the things floating round the panel, over the landing's hero and Ask's stage alike. Loaded
+   with a moving story only, so phones and reduced motion never fetch it. */
+:is(.hero, .stage) {
+  --glass: light-dark(rgb(250 248 243 / 0.72), rgb(242 240 234 / 0.14));
+  --glass-edge: light-dark(rgb(15 27 45 / 0.16), rgb(242 240 234 / 0.4));
+  --eye: light-dark(#0f1b2d, rgb(242 240 234 / 0.92));
+}
+
+.pb-stage,
+.pb-membrane,
+.pb-riders {
+  position: absolute;
+  inset: 0;
+}
+
+.pb-membrane canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pb-icon {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pb-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.875rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: var(--glass);
+  color: var(--hero-ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.pb-control:hover {
+  background: color-mix(in srgb, var(--hero-paper) 92%, var(--hero-ink));
+}
+
+/* The riders: the organisms' eyes, and the filings and passages floating round the panel. */
+.pb-eyes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  gap: 6px;
+  translate: -50% -50%;
+  will-change: transform;
+}
+
+.pb-eyes i {
+  display: block;
+  width: 3px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eye);
+  transform: scaleY(calc(1 - var(--lid, 0)));
+  animation: pb-blink 5.4s infinite;
+}
+
+.pb-eyes[data-small="true"] {
+  gap: 4px;
+}
+
+.pb-eyes[data-small="true"] i {
+  width: 2px;
+  height: 4px;
+}
+
+.pb-eyes:nth-child(2) i {
+  animation-duration: 6.1s;
+  animation-delay: -2.7s;
+}
+
+.pb-thing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--hero-ink);
+  opacity: 0;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  --kind: light-dark(#4fb8a8, #2dd4bf);
+  --fill: light-dark(#bdebe1, #1e6f6a);
+}
+
+.pb-thing[data-kind="filing"] {
+  --kind: light-dark(#8ea8c4, #6b87a8);
+  --fill: light-dark(#dce5ef, #24405f);
+}
+
+.pb-thing[data-empty="true"] {
+  display: none;
+}
+
+.pb-thing[data-side="left"] {
+  flex-direction: row-reverse;
+}
+
+.pb-thing-shape {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 46% 54% 52% 48% / 56% 44% 56% 44%;
+  background: radial-gradient(
+    130% 120% at 28% 22%,
+    color-mix(in srgb, var(--fill) 45%, #fff) 0%,
+    var(--fill) 48%,
+    color-mix(in srgb, var(--fill) 72%, var(--kind)) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--kind) 55%, transparent),
+    0 10px 22px -12px color-mix(in srgb, var(--kind) 55%, #000);
+  color: var(--hero-ink);
+  animation: pb-blob 9s ease-in-out infinite;
+}
+
+.pb-thing-shape .pb-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.pb-thing-ring {
+  position: absolute;
+  inset: -8px;
+  border: 2px solid var(--kind);
+  border-radius: inherit;
+  opacity: calc((1 - var(--rip, 1)) * 0.9);
+  transform: scale(calc(1 + var(--rip, 1) * 0.9));
+}
+
+.pb-thing-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  opacity: calc(var(--flash, 0) * 0.65);
+}
+
+.pb-thing-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+  font:
+    700 12.5px/1.15 var(--sans);
+  opacity: var(--t, 1);
+}
+
+.pb-thing-label em {
+  color: var(--hero-ink-2);
+  font:
+    700 8.5px/1 var(--sans);
+  font-style: normal;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.pb-thing-label small {
+  color: var(--hero-ink-2);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.pb-thing[data-side="left"] .pb-thing-label {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.pb-stage[data-compact="true"] .pb-thing-label {
+  display: none;
+}
+
+.pb-stage[data-compact="true"] .pb-thing-shape {
+  width: 32px;
+  height: 31px;
+}
+
+/* Stillness: paused or quiet, everything keeps its place. */
+.pb-stage[data-moving="false"] * {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pb-stage * {
+    animation: none;
+    transition: none;
+  }
+}
+
+@keyframes pb-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pb-field-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pb-blink {
+  0%,
+  46%,
+  50%,
+  100% {
+    scale: 1 1;
+  }
+
+  48% {
+    scale: 1 0.1;
+  }
+}
+
+@keyframes pb-blob {
+  0%,
+  100% {
+    border-radius: 46% 54% 52% 48% / 56% 44% 56% 44%;
+  }
+
+  33% {
+    border-radius: 58% 42% 45% 55% / 42% 60% 40% 58%;
+  }
+
+  66% {
+    border-radius: 44% 56% 60% 40% / 54% 44% 56% 46%;
+  }
+}
