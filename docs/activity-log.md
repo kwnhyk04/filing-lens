@@ -15,6 +15,30 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-02: Landing round 2: the overview panel and four hero fixes (uncommitted, branch `landing-round-2`)
+
+- Changes, on `landing-round-2` from main at 6d273ef (#43 merged):
+  - **Inputs:** no line of the paste still started with ">>> PASTE". `_tmp/21st/steps-5.png`, How it works' reference, does not exist; the section was left out for another reason (below), so it was not needed. Hirael's licence came from its repository's LICENSE (curl into the scratchpad): MIT, Copyright (c) 2026 Mohammad Shehadeh.
+  - **Overview** (`components/overview.tsx`, styles in `app/landing.css`): Hirael's feature-10 in FilingLens's markup and tokens, with no Tailwind, shadcn or new package. The serif head "Where FilingLens stands."; x04's saved answer (Amazon's reportable segments) with its citation link and its passage's form, year and item; filings indexed (30, from the snapshot) and exact numbers (100%, 12 of 12 within 0.5%, in both official runs); Recent questions with a link to pull request #42; Ask, Cite and Check. It sits under the hero. `lib/story.ts` gained `QUOTE = "x04"`, which `heroStory` builds.
+  - **How it works:** left out. The hero's new subtitle and its story already show ask, find the passages, answer with citations; "How an answer is made" stays below.
+  - **Hero fixes** (`components/hero.tsx`, `app/page.tsx`, `app/landing.css`): the subtitle the user wrote; "Open the demo" (`/demo`) under it, with the offline note from before round 1 ("When the live backend is offline, the site serves 8 saved sample answers."); the still's `::before` and `::after` circles (Prompt Bond's two organisms' heads) removed.
+  - **Docs:** third-party.md (feature-10's row and MIT notice; Lucide's row gains `overview.tsx`), design.md (round 2), context.md, memory.md, todo.md, and the README's stale "Try the live demo".
+- Files: `web/components/overview.tsx` (new), `web/components/hero.tsx`, `web/app/page.tsx`, `web/app/landing.css`, `web/lib/story.ts`, `web/e2e/landing.spec.ts`, `docs/screenshots/ui/landing-{light,dark,phone}.png`, `README.md`, the docs above.
+- Validation:
+  - Tests first: `npx playwright test e2e/landing.spec.ts --project=live` against a build of the unchanged page: 3 failed (the hero's subtitle; its button and note, checked on the offline server; the overview) and 9 passed. After the change, 12 passed.
+  - Python: `make lint` clean, `make typecheck` 0 errors, `make test` 621 passed.
+  - Web: `npm run typecheck` clean, `npm test` 114, `npm run build`. `npx playwright test`: 107 passed in the bundled shell (software WebGL, so the still branch). `E2E_CHANNEL=msedge npx playwright test`: 107 passed on the RTX 3070 (the moving branch, with axe). `npx playwright test -c playwright.screens.config.ts -g landing` rewrote the three landing shots, each after axe; no other screenshot changed.
+  - Screenshots: 1280, 1440, 1920 and 390 px, light and dark, full pages with reduced motion, plus the moving hero's first screen at 1440 px in both themes (headless Edge on the GPU, after 25 s), in `H:\Projects\projects\_tmp\fl-landing-2` (scratchpad script). No page scrolled sideways.
+- Events, in order:
+  - GateGuard refused the session's first Bash call, and the first touch of 14 files, until their facts were stated.
+  - A command chain stopped after the web type check: `npm test | grep "^# tests"` matched nothing, since Node 24's runner prints "ℹ tests 114". The tests ran again with `tail`, then the e2e suite on its own.
+  - The first screenshots showed "Numeric accuracy" wrapping at 390 px, so its figure sat below the other one. The label became "Exact numbers".
+  - Element screenshots of the overview show the sticky header over their top edge; the full-page shots do not.
+- Outstanding:
+  - (user) ship.
+  - The moving story's membrane still shows Prompt Bond's two eyes; the user named only the still's circles.
+  - Round 1's optional item: `landing.css` into `globals.css`.
+
 ### 2026-11-02: CI fix: no moving hero on a software WebGL renderer
 
 - Changes:
