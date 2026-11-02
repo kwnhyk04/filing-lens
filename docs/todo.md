@@ -15,7 +15,10 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Screenshots: 176 at 1280, 1440, 1920 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-app`; the repo's 66 screens regenerated.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; `clients/ts` typecheck, 18 tests; web typecheck, `npm test` 120, build; Playwright 118 passed and 4 skipped without a GPU, 122 passed on Edge's GPU. `make test-int` (the user's go): 50 passed; the rate test's timing miss passed alone; the 2 egress errors are the subnet below.
   - [ ] (user) ship.
-- [ ] **Egress tests' subnet** (found 2026-11-03, `make test-int`): `infra/tests/test_egress.py` creates its network on 10.231.233.0/28, which Triage Copilot's production network `triagecopilot-prod_outbound` now holds, so Docker refuses ("Pool overlaps"). Its own small PR: a free test subnet (FreightAudit holds .231, FilingLens's production .232, Triage Copilot .233).
+- [ ] **Egress tests' subnet** (found 2026-11-03, `make test-int`): `infra/tests/test_egress.py` created its network on 10.231.233.0/28, which Triage Copilot's production network `triagecopilot-prod_outbound` now holds, so Docker refused ("Pool overlaps"). Own small PR, on branch `egress-test-subnet` from main at fbb22d2 (uncommitted).
+  - [x] The test network moves to 10.231.234.0/28, the user's pick ("10.231.234.0/28 is free; FA uses .231, FL .232, TC .233"). Red (both live tests errored in setup), then 7 passed.
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703, `make test-int` 53 passed.
+  - [ ] (user) ship; then the Ask redesign.
 - [x] (user, 2026-11-02) **Hero loop:** the moving story loops through three saved answers, merged as #47 (7812548, git log). Built on branch `hero-loop` from main at 3fd652d.
   - [x] Tests first: the loop's stories (`lib/story.test.ts`); on the GPU, the loop reaches the second answer after its hold, hover pauses it, and a hero scrolled away stops it (`e2e/landing.spec.ts`). Red, then green.
   - [x] `lib/story.ts`: answers that cite facts, and two filings; the loop x12, x04, n01, c02.
