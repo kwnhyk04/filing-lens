@@ -15,6 +15,66 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-02: The hero's loop drops Amazon's answer, three saved answers in turn (uncommitted, branch `hero-loop`)
+
+- Changes, on `hero-loop`, the same uncommitted work as the entry below; the user: "Drop Amazon (x04) from the hero loop and keep three: Eli Lilly, Apple, Alphabet vs Meta. Update the tests."
+  - `LOOP` in `web/lib/story.ts` is x12, n01, c02. x04 is also the overview's saved answer (`QUOTE`) just below the hero, so it showed twice; my report on the first build named that cost and offered three.
+  - The engine needed nothing: it wraps on the number of stories, and x12, the tallest, still sets the card's 462 px.
+  - Docs: design.md, context.md, memory.md, todo.md.
+- Files: `web/lib/{story.ts,story.test.ts}`, the docs above.
+- Validation:
+  - Tests first (`lib/story.test.ts`): the loop is x12, n01, c02 (LLY, AAPL, then GOOGL and META) and leaves out `QUOTE`. Red: two tests failed on the old `LOOP` (its four ids, and the second story's cue naming AMZN). Then the 8 passed. x04 is still called by id in the check line's test, as the passage answer with no amount to check.
+  - The e2e loop test takes its answers from `heroStories`, so its second answer is now n01; no spec changed.
+  - Web: `npm run typecheck` clean, `npm test` 118, `npm run build`. `E2E_ARGS="--disable-gpu" npx playwright test`: 107 passed, 3 skipped (the loop's). `E2E_CHANNEL=msedge npx playwright test`: 110 passed.
+  - JavaScript (the scratch script of the entry below): unchanged from the four-answer build, 141.5 KB gzip before the load event on both, 327.8 KB after it on the desktop (the story's chunk 45.5 KB), 0 on the phone.
+  - Not run again: Python (`make lint`, `make typecheck`, `make test`) and `clients/ts`, since nothing in them changed after the entry below (703 and 18 passed there). `make test-int` not run: Testcontainers needs the user's go.
+- Events, in order:
+  - GateGuard refused the first Bash call and the first edit of each file (two in `web/lib`, five docs) until their facts were stated.
+- Outstanding:
+  - (user) ship.
+  - (user, optional) `make test-int`, with your go for Testcontainers.
+  - Pre-existing: the find beat's label overlap (entry below); its own small PR if wanted.
+
+### 2026-11-02: The hero's moving story loops through four saved answers (uncommitted, branch `hero-loop`)
+
+- Changes, on `hero-loop` from main at 3fd652d (#46 merged):
+  - **Stories** (`web/lib/story.ts`): `heroStory` takes answers that cite XBRL facts (a fact's filing found by its accession number) and two filings. `LOOP` is x12, x04, n01, c02; `heroStories`, `storyBeats` (the caption's cues, counting passages or facts) and `checkLine` (only the amounts when no passage is cited) are new. `listed` is now exported from `lib/answer.ts` and used here, in place of the panel's own copy.
+  - **Panel** (`story-panel.tsx`): a fact's row is its name and value without quote marks; the check line comes from `checkLine`. x12's still reads as before.
+  - **Engine** (`hero-live.tsx`, `hero-live.css`):
+    - One plot per story in place of module constants.
+    - After the last beat, a 7 s hold, a 0.6 s fade out, then the next story fading in, round the loop.
+    - `useHeld` pauses while the pointer or keyboard focus is on the card.
+    - The caption and controls live in `HeroLive`; Replay restarts the current answer.
+    - The cue's live region is off while the loop turns.
+    - The membrane gives back its WebGL context when its canvas leaves.
+    - A shorter panel sits in the card's middle.
+  - **Docs:** design.md (the loop), third-party.md (Prompt Bond's row, Lucide's hash), context.md, memory.md, todo.md.
+- Files: `web/lib/{story.ts,story.test.ts,answer.ts}`, `web/components/{story-panel.tsx,hero-live.tsx,hero-live.css}`, `web/e2e/landing.spec.ts`, the docs above.
+- Validation:
+  - **Tests first, unit** (`lib/story.test.ts`): the loop's four stories (x12 first; LLY, AMZN, AAPL, then GOOGL and META, no company twice; each answered, with no warning, 300 characters or less), n01's fact and c02's two filings, every check against its quote or fact, and the cues and check lines. Red (the module lacked the exports), then 8 passed. One old row changed: "n01 cites a source that is not a passage" became a citation that is neither a passage nor a fact (a calculation).
+  - **Tests first, e2e on Edge's GPU** (`E2E_CHANNEL=msedge`; skipped on a software renderer): the next answer once x12 has held (more than 6 s), and Replay restarting it; hover and keyboard focus pausing, leaving resuming; a hero scrolled away stopping, with no WebGL draw in 4 s (draw calls counted by an init script), and going on when back. Red against the build without the loop: the loop and hover tests failed, and the scroll test passed (that stop existed already). Then all three passed.
+  - **Frames** (scratch script, Edge on the GPU, 1440×900, light and dark): each answer at its find and done beats, then back to x12. The card stays 462 px for all four (panels 462, 379, 302 and 416 px), so the page never shifts.
+  - **JavaScript** (scratch script; `next start` of each build; Edge on the GPU as the desktop, the bundled shell as a Pixel 7):
+
+    | | main | hero-loop |
+    | --- | --- | --- |
+    | Before the load event, gzip (raw), desktop and phone | 141.5 KB (466.9 KB), 8 files | 141.5 KB (466.9 KB), 8 files |
+    | After the load event, desktop | 327.0 KB (1,271.0 KB), 3 files | 327.8 KB (1,273.2 KB), 3 files |
+    | The moving story's chunk | 44.7 KB (133.3 KB) | 45.5 KB (135.5 KB) |
+    | After the load event, phone | 0 | 0 |
+
+  - Python: `make lint` clean, `make typecheck` 0 errors, `make test` 703 passed. `make test-int` not run: it starts Testcontainers, which needs the user's go (memory.md), and nothing in Python changed.
+  - `clients/ts`: `npm run typecheck` clean, `npm test` 18.
+  - Web: `npm run typecheck` clean, `npm test` 118, `npm run build`. `E2E_ARGS="--disable-gpu" npx playwright test` (the bundled shell on SwiftShader, as CI): 107 passed, 3 skipped (the loop's). `E2E_CHANNEL=msedge npx playwright test`: 110 passed.
+- Events, in order:
+  - GateGuard refused the session's first Bash call and the first touch of each file until their facts were stated.
+  - Round 1's JavaScript script was no longer in any scratchpad; a new one measured main's build first, then this branch's.
+  - `npx playwright test -c playwright.screens.config.ts -g landing` rewrote the three landing shots with one 13 px strip changed: the still's check line, now one text node instead of four, antialiased differently, with the same words. Nothing visible changed, so the three files were restored from HEAD (`git restore`).
+- Outstanding:
+  - (user) ship.
+  - (user, optional) `make test-int`, with your go for Testcontainers.
+  - Pre-existing, seen in the frames: in the find beat the pulled passage's label crosses a neighbouring filing's label for about a second (x12 on main too); its own small PR if wanted.
+
 ### 2026-11-02: Inline Sources blocks read as the Sources block, and the overview's new head (uncommitted, branch `inline-sources`)
 
 - Changes, on `inline-sources` from main at 99992d9 (#45 merged); the user asked for one PR, tests first:

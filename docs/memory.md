@@ -1018,6 +1018,20 @@ From the inline Sources fix (2026-11-02, branch `inline-sources` from main at 99
 - 2026-11-02: Pitfall, found by the replay: the stream (`Visible`) read a "Sources:" that ended the text received so far as the heading, since the line-alone pattern's `$` matches at the end of the text. It dropped the heading once a source followed on that line, then showed text twice: "...2025. [1]5. [1]" (n13 at 7 characters a chunk; on main at 6 sizes from 1 to 11). Now such a heading counts only once its line goes on. Check a stream at many chunk sizes, as the `test_a_stream_*` tests do.
 - 2026-11-02: The overview's head is the user's final copy: "At a glance.", then "A sourced answer, tested numbers, and the newest feature.", with no label. Their earlier draft, "Proof, not promises." over "A real answer with its source, and the numbers behind it.", was built first the same day and replaced.
 
+From the hero loop (2026-11-02, branch `hero-loop` from main at 3fd652d, uncommitted; the user: "the moving story plays once ... Make it loop through several real answers instead"):
+
+- 2026-11-02: The loop's answers, picked by me within the user's rules (3 or 4 of the 8, each from a different company, short and clean, x12 first): x12, x04, n01, c02.
+  - Why: only x02, x04 and x12 cite passages. x02 is 624 characters, was written twice and lost a sentence; c12 mixes facts and table rows in four citations; o02 and t01 are refusals. So two of the four cite XBRL facts, which `heroStory` refused until now.
+  - Costs: x04 is also the overview's answer, so it shows twice on the page. c02 names two companies, neither used elsewhere in the loop.
+- 2026-11-02: The user dropped x04 from the loop, in reply to my note that it shows twice on the page: "Drop Amazon (x04) from the hero loop and keep three: Eli Lilly, Apple, Alphabet vs Meta." The loop is x12, n01, c02. A unit test now keeps the overview's answer (`QUOTE`) out of `LOOP`; x04 stays in the check line's test, as the passage answer with no amount to check.
+- 2026-11-02: The 7 s hold and the 0.6 s fades run on the story's own clock, which the paint loop advances only while the story moves. Why: every stop (Pause, hover, focus, a hidden tab, a hero scrolled away, reduced motion) then stops the hold too, with no timer to pause and resume.
+- 2026-11-02: The hover and focus pause is watched on the figure, which stays while each answer's card replaces the last, and counts only the card (`.story-live`). Why: a card removed under the pointer sends no `pointerout`, so a listener on the card itself could stay paused; the caption is left out so Pause and Replay stay usable.
+- 2026-11-02: The caption and its controls moved from the story into `HeroLive`, so they stay across answers. Before, Replay rebuilt the story with its controls, and keyboard focus on Replay fell back to the page after each press (since round 1). It is fixed here, since the loop would drop it at every new answer.
+- 2026-11-02: The cue's live region is off while the loop turns and polite when it is paused (WAI-ARIA's carousel pattern). Why: a looping cue would be read out every few seconds for as long as the hero is in view.
+- 2026-11-02: Each story's membrane gives its WebGL context back when its canvas leaves the page (`WEBGL_lose_context`; not in React's dev double run, where the canvas stays). Why: every new answer mounts a new canvas, about every 27 s, and past its limit Chrome drops the oldest live context, which would be the field's.
+- 2026-11-02: The loop's e2e tests need the moving story, so they run only on a graphics card (`E2E_CHANNEL=msedge`) and skip on a software renderer, as on CI. CI checks the stories through the unit tests.
+- 2026-11-02: Pre-existing, not changed: in the find beat the pulled passage's label crosses the neighbouring filing's label for about a second (x12 on main too; seen in the loop's frames).
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

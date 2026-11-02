@@ -42,8 +42,11 @@
   height: 100%;
 }
 
+/* The card keeps the still's height; a shorter answer's panel sits in its middle, round the capsule's line. */
 .story-live {
   position: relative;
+  display: grid;
+  align-content: center;
 }
 
 .pb-panel {

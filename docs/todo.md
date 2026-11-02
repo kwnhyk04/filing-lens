@@ -6,13 +6,22 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-02) **Inline Sources blocks, and the overview's head**, one PR, on branch `inline-sources` from main at 99992d9 (uncommitted).
+- [ ] (user, 2026-11-02) **Hero loop:** the moving story loops through three saved answers, on branch `hero-loop` from main at 3fd652d (uncommitted).
+  - [x] Tests first: the loop's stories (`lib/story.test.ts`); on the GPU, the loop reaches the second answer after its hold, hover pauses it, and a hero scrolled away stops it (`e2e/landing.spec.ts`). Red, then green.
+  - [x] `lib/story.ts`: answers that cite facts, and two filings; the loop x12, x04, n01, c02.
+  - [x] The user's change, the same day: x04 (Amazon) out of the loop, since the overview just below shows it; the loop is x12, n01, c02, and a unit test keeps the overview's answer out of it. Tests first, red then green. Checks again: web typecheck, `npm test` 118, build; Playwright 107 passed and 3 skipped without a GPU, 110 passed on Edge's GPU; the JavaScript unchanged. Python and `clients/ts` not rerun (unchanged).
+  - [x] `hero-live.tsx`: one plot per story; a 7 s hold on the story's own clock, then a fade to the next answer, looping; hover or focus inside the card pauses; Replay restarts the current answer; the caption and its controls stay across answers.
+  - [x] JavaScript before and after: before the load event 141.5 KB gzip on both; after it, on the desktop, 327.0 KB became 327.8 KB (the story's chunk 44.7 to 45.5 KB); the phone loads nothing after it on both.
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; `clients/ts` typecheck, 18 tests; web typecheck, `npm test` 118, build; Playwright 107 passed and 3 skipped without a GPU (as CI), 110 passed on Edge's GPU.
+  - [ ] (user, optional) `make test-int`, with a go for Testcontainers.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-02) **Inline Sources blocks, and the overview's head**, one PR, merged as #46 (3fd652d, git log). Built on branch `inline-sources` from main at 99992d9.
   - [x] Tests first, red then green: c13's draft from E5 with its Sources block on the answer's line, and the same block starting its own line: the list leaves the answer, its three quotes are read, and the stream never shows it (1 to 39 characters a chunk); two rows the heading must leave alone; the overview's new head with no label.
   - [x] Validation reads such a block as the Sources block (`answer.py`), and the stream waits on a heading that ends the text received so far.
   - [x] Offline replay, no model call: 3 of the 875 cached drafts change (c13 and n14 from E5, n13 from 2026-10-16's dev ci run), each only losing its inline list; the other 872 keep their text, quotes and stream.
   - [x] Overview head, the user's final copy: "At a glance.", then "A sourced answer, tested numbers, and the newest feature.", with no label (it replaced their earlier draft, "Proof, not promises.").
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; web typecheck, `npm test` 114, build, Playwright 107; the three landing screens.
-  - [ ] (user) Confirm the `eval-calls-*` Actions cache, then ship. CI's eval runs, since `packages/llm/src` changed.
+  - [x] (user) Confirm the `eval-calls-*` Actions cache, then ship: merged as #46.
 - [x] (user, 2026-11-02) **Landing, round 2: the features panel, and four hero fixes**, merged as #45 (99992d9, git log). Built on branch `landing-round-2` from main at 6d273ef. Header and hero unchanged apart from the fixes.
   - [x] Tests first (`e2e/landing.spec.ts`), red against the current build (3 failed, 9 passed), then green (12): the new subtitle, the hero's "Open the demo" and its offline note (also on the offline server), the panel's answer and citation, its two figures against the snapshot and both official reports, the Recent questions link, and Ask, Cite and Check.
   - [x] Features panel after Hirael's feature-10 (MIT): rebuilt in FilingLens's markup and CSS tokens in `web/components/overview.tsx`, with no Tailwind, shadcn or new package (as round 1). "Where FilingLens stands."; x04's saved answer (Amazon, not the hero's Eli Lilly) with AMZN 10-K FY2025, Item 1; filings indexed (30) and exact numbers (100%, 12 of 12), each with its source in a comment; Recent questions (#42); Ask, Cite and Check.
