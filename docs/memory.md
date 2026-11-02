@@ -1008,6 +1008,16 @@ From landing round 2 (2026-11-02, branch `landing-round-2` from main at 6d273ef,
   - The still's two heads were removed (the CSS `::before` and `::after` that drew Prompt Bond's two organisms at the card's top corners). The moving story's membrane keeps its two eyes: they belong to Prompt Bond's engine, and the user named only the circles.
 - 2026-11-02: Discrepancy fixed: the README still said the landing's "Try the live demo" signs in and opens Ask. Round 1 had removed that button; the README now names "Open the demo" and Sign in.
 
+From the inline Sources fix (2026-11-02, branch `inline-sources` from main at 99992d9, uncommitted; the user: "FL, one PR, tests first"):
+
+- 2026-11-02: The inline Sources block (todo.md, found in E5's c13) is read as the Sources block, not refused; the user allowed either.
+  - Why: the list holds the quotes, so reading it keeps the answer and costs no regeneration. A refusal would send every such draft back, and a second inline draft would lose each sentence citing a passage, for want of its quote.
+  - The rule: a "Sources:" heading counts when its first source follows on the same line, after a sentence's end (c13: `... [K1]. Sources: [F1] ...`) or at a line's start (n13). Sources on one line split at ";" or "," before a source id.
+  - Cost if wrong: an answer sentence that begins "Sources:" with a source id right after it would be cut there. No cached draft has one.
+- 2026-11-02: The weakness was wider than todo.md said. The offline replay (main against this branch over all 875 cached drafts, no model call) changed c13, n14 (E5, Haiku) and n13 (2026-10-16 dev ci, the NVIDIA fallback). Each saved answer showed its list as "Sources: [1] ...". The other 872 kept their text, quotes and stream.
+- 2026-11-02: Pitfall, found by the replay: the stream (`Visible`) read a "Sources:" that ended the text received so far as the heading, since the line-alone pattern's `$` matches at the end of the text. It dropped the heading once a source followed on that line, then showed text twice: "...2025. [1]5. [1]" (n13 at 7 characters a chunk; on main at 6 sizes from 1 to 11). Now such a heading counts only once its line goes on. Check a stream at many chunk sizes, as the `test_a_stream_*` tests do.
+- 2026-11-02: The overview's head is the user's final copy: "At a glance.", then "A sourced answer, tested numbers, and the newest feature.", with no label. Their earlier draft, "Proof, not promises." over "A real answer with its source, and the numbers behind it.", was built first the same day and replaced.
+
 ## Preferences and Instructions
 
 - 2026-10-14: The three portfolio projects run in parallel Claude Code sessions on one PC, sharing Docker. Each project has its own port range and compose project name; never prune or remove another project's Docker resources (user setup).

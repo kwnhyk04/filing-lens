@@ -166,7 +166,12 @@ test("the hero's scope and story are the demo snapshot's: x12's question, passag
 test("the overview: another saved answer and its passage, two figures from the snapshot and both reports, #42, and the three jobs", async ({ page }) => {
   await page.goto("/");
   const overview = page.locator("section#overview");
-  await expect(overview.getByRole("heading", { level: 2 })).toHaveText("Where FilingLens stands.");
+  await expect(overview.getByRole("heading", { level: 2 })).toHaveText("At a glance.");
+  // The headline and the line under it, with no label above them.
+  await expect(overview.locator(".overview-head > *")).toHaveText([
+    "At a glance.",
+    "A sourced answer, tested numbers, and the newest feature.",
+  ]);
   expect(saved.filing).not.toBe(story.filing);
   await expect(overview).toContainText(saved.question);
   await expect(overview.locator("blockquote .answer-text")).toHaveText(saved.answer.answer);

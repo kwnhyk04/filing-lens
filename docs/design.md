@@ -129,7 +129,7 @@ The user's round 1; round 2 (the features and how it works) comes later, and tho
 The user's round 2. The header is unchanged; the hero changed only as the user's four review fixes asked.
 
 - **Overview** (`#overview`, right under the hero, on the paper band), after Hirael's feature-10 (MIT; `docs/third-party.md`), in FilingLens's tokens and markup:
-  - Head: a small "Overview" label, the serif headline "Where FilingLens stands." (36 px on a phone, 48 px from 40rem, line height 1.04), and one line on what the panel holds.
+  - Head: the serif headline "At a glance." (36 px on a phone, 48 px from 40rem, line height 1.04) and one line under it, "A sourced answer, tested numbers, and the newest feature." (the user's final copy, 2026-11-02; round 2 had a small "Overview" label over "Where FilingLens stands.").
   - One white sheet split by 1 px hairlines in `--rule`, with a 12 px corner: six columns from 64rem, otherwise full width, with the two figures side by side.
   - The answer (4 columns, 2 rows): x04 from golden v1's test run, "What are Amazon's reportable segments?", its answer in serif (24 px, 30 px from 40rem) with its citation boxes, and under it the source in place of the person: the citation's number in a grey circle, "AMZN 10-K FY2025, Item 1" (form, year and item) and "From golden v1's test run". No name, no quote from a person.
   - Two figures (2 columns each): "Filings indexed", 30 (the snapshot's filings, one per company); "Exact numbers", 100% (numeric exact match, 12 of 12 within 0.5%, the same in both official runs of 2026-10-31). Mono, 36 px, 48 px from 40rem. "Numeric accuracy", the results table's name, wrapped at 390 px and put its value out of line with the other figure.
