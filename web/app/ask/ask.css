@@ -62,10 +62,21 @@
   z-index: -1;
 }
 
-/* The question field: a glass pill, its send button a round arrow that says "Answering…" while it waits. */
+/* The stage's column, in DOM and reading order: the card, the status line, the field, the examples. Empty, the card
+   and the status line take no room, so the field sits at the top; while FilingLens answers the field hides, and the
+   card holds the top until the answer is done and the field comes back under it. */
+.stage > :is(.stage-panel, .status):empty {
+  position: absolute;
+}
+
+/* The question field: a glass pill, its send button a round arrow. */
 .stage-ask {
   display: grid;
   gap: 0.5rem;
+}
+
+.stage-ask[hidden] {
+  display: none;
 }
 
 .stage-input {
@@ -118,10 +129,6 @@
   border-radius: 999px;
 }
 
-.stage-send[aria-disabled="true"] {
-  padding-inline: 0.875rem 1.125rem;
-}
-
 .stage-send svg {
   width: 1.125rem;
   height: 1.125rem;
@@ -136,20 +143,16 @@
   padding-inline: 1.25rem;
 }
 
-/* While it reads: what FilingLens covers, none of it claimed. The moving stage floats these filings instead, so
-   there they are only for screen readers. */
-.stage-reading {
+/* While it reads, in the card under the question: the line, and what FilingLens covers, none of it claimed. The
+   moving stage floats these filings instead, so there they are only for screen readers. */
+.card-reading {
   display: grid;
-  justify-items: center;
   gap: 0.625rem;
-  color: var(--on-body-2);
-  font-size: 0.875rem;
 }
 
 .stage-covered {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 0.375rem;
   margin: 0;
   padding: 0;
@@ -209,10 +212,6 @@
   box-shadow: none;
 }
 
-.stage .answer-card [data-state="draft"] .story-bubble {
-  background: var(--row-bg);
-}
-
 .stage :is(.reply-head, .note) {
   padding: 0.375rem 0.625rem;
   border-radius: 10px;
@@ -231,19 +230,33 @@
   background: var(--row-bg);
 }
 
-/* A cited source the moving stage pulls onto its row lands with a ring off its number, as in the hero. */
-.stage[data-live="on"] .story-passages .story-n {
+/* On the moving stage, each passage the membrane pulled in arrives with a ring off its number, as in the hero. */
+.stage[data-live="on"] .answer-card:not([data-still]) .story-passages .story-n {
   position: relative;
 }
 
-.stage[data-live="on"] .story-passages .story-n::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border: 1.5px solid var(--hero-teal);
-  border-radius: 50%;
-  opacity: calc(var(--p, 0) * 0.8);
-  transform: scale(calc(1 + (1 - var(--p, 0)) * 1.2));
+@media (prefers-reduced-motion: no-preference) {
+  .stage[data-live="on"] .answer-card:not([data-still]) .story-passages .story-n::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 1.5px solid var(--hero-teal);
+    border-radius: 50%;
+    opacity: 0;
+    animation: passage-ring 0.85s ease-out 0.1s;
+  }
+}
+
+@keyframes passage-ring {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(2.2);
+  }
 }
 
 /* The moving stage: its riders and field fade in over the calm stage, its Pause button in the corner. */
@@ -303,6 +316,15 @@
 
 .ask-sources {
   order: -1;
+}
+
+/* Only the card that holds something shows; a lone one takes the row, its sources at a readable length. */
+.ask-below > .ask-card:only-child {
+  grid-column: 1 / -1;
+}
+
+.ask-sources:only-child > .sources > :not(h3) {
+  max-width: 72ch;
 }
 
 @media (width >= 64rem) {

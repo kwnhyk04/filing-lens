@@ -1,5 +1,5 @@
-// POST /logout: has the API forget this sign-in's answers, expires the session cookie and clears
-// the browser's cache of signed-in pages.
+// POST /logout: has the API forget this sign-in's answers, expires the session cookie, clears the
+// browser's cache of signed-in pages, and lands on the landing page with its signed-out notice.
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isSameOrigin } from "../../lib/guards.ts";
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   const signedIn = await session();
   if (signedIn) await clearRecent(signedIn.sid);
   // A relative Location: Next builds this handler's request URL on localhost, not the host asked.
-  const response = new NextResponse(null, { status: 303, headers: { Location: "/login" } });
+  const response = new NextResponse(null, { status: 303, headers: { Location: "/?signed-out=1" } });
   response.cookies.set(SESSION_COOKIE, "", { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 0 });
   response.headers.set("Clear-Site-Data", '"cache"');
   response.headers.set("Cache-Control", "no-store");

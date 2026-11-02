@@ -1,12 +1,13 @@
-// Ask's answer card, in the landing hero's look: each part shows when the stream or the sources lookup reports
-// it, never before. The same card holds a stored answer, an error, and each of the demo's saved answers; and the
-// app around it: the theme switch in its header, Coverage as cards on a phone, and no WebGL anywhere.
+// Ask's answer card, in the landing hero's look and order: it reads until the answer and its sources are both in,
+// then shows Read as, the passages, the answer and the check, one by one where motion is allowed and all at once on
+// a phone or under reduced motion. The same card holds a stored answer, an error, and each of the demo's saved
+// answers; and the app around it: the theme switch in its header, Coverage as cards on a phone, and no WebGL anywhere.
 import { randomUUID } from "node:crypto";
 
 import type { Page } from "@playwright/test";
 
 import { question, snapshot } from "./env.ts";
-import { ask, audit, expect, noSidewaysScroll, test } from "./fixtures.ts";
+import { ask, audit, expect, noSidewaysScroll, partsSeen, test, watchParts } from "./fixtures.ts";
 
 const N01 = question("n01");
 const X04 = question("x04");
@@ -15,52 +16,73 @@ const arrived = (page: Page) => card(page).locator(".story-passages li, [data-to
 const motionOf = (page: Page, selector: string) =>
   card(page).locator(selector).first().evaluate((element) => getComputedStyle(element).animationName);
 
-test("mid-stream the card holds the question and the draft only; the reading comes with the checked answer", async ({ page }) => {
-  const slow = `e2e: slow ${randomUUID()}`; // the mock drafts it for about 3 s, then completes it as o02's refusal
-  await ask(page, slow);
-  const draft = page.getByTestId("draft");
-  await expect(draft).toContainText("Still drafting.");
-  await expect(draft).toContainText("citations not checked yet");
-  await expect(card(page).locator(".story-sent")).toHaveText(slow);
-  await expect(page.getByTestId("read-as")).toBeHidden();
-  await expect(arrived(page)).toHaveCount(0);
-  await expect(page.getByTestId("answer")).toHaveCount(0);
-  await expect(page.getByTestId("answer")).toContainText("Not answered", { timeout: 15_000 });
-  await expect(draft).toHaveCount(0);
-  await expect(page.getByTestId("read-as").getByRole("listitem")).toHaveText(["Out of scope"]);
-  await expect(arrived(page)).toHaveCount(0); // a refusal cites and checks nothing
-});
-
-test("the passages and their filing arrive with the sources lookup, numbered, below the answer and its check", async ({ page }) => {
+/** Holds the sources lookup until `release` is called. */
+async function holdSources(page: Page) {
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
   await page.route("**/api/sources", async (route) => {
     await held;
     await route.continue();
   });
+  const looked = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/sources");
+  return { looked, release: () => release() };
+}
+
+test("while FilingLens reads, the card holds the question and the reading line only, never a draft", async ({ page }) => {
+  const slow = `e2e: slow ${randomUUID()}`; // the mock drafts it for about 3 s, then completes it as o02's refusal
+  await ask(page, slow);
+  await expect(card(page).locator(".story-sent")).toHaveText(slow);
+  await expect(card(page).getByTestId("reading")).toContainText("Reading the filings…");
+  await expect(page.getByTestId("draft")).toHaveCount(0);
+  await expect(page.getByTestId("read-as")).toHaveCount(0);
+  await expect(arrived(page)).toHaveCount(0);
+  await expect(page.getByTestId("answer")).toHaveCount(0);
+  await expect(page.getByTestId("answer")).toContainText("Not answered", { timeout: 15_000 });
+  await expect(card(page).getByTestId("reading")).toHaveCount(0);
+  await expect(page.getByTestId("read-as").getByRole("listitem")).toHaveText(["Out of scope"]);
+  await expect(arrived(page)).toHaveCount(0); // a refusal cites and checks nothing
+});
+
+test("the answer waits for its sources, then its parts arrive one by one in the hero's order", async ({ page }) => {
+  const sources = await holdSources(page);
   await ask(page, N01);
-  await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD");
-  await expect(card(page).locator("[data-tone='check']")).toHaveText("Checked: 416,161,000,000 matches source 1.");
-  await expect(card(page).locator(".story-passages li, .card-filings li")).toHaveCount(0);
-  release();
+  await sources.looked; // the checked answer is in: its sources are being looked up
+  await expect(card(page).getByTestId("reading")).toContainText("Reading the filings…");
+  await expect(page.getByTestId("answer")).toHaveCount(0);
+  await expect(page.getByTestId("read-as")).toHaveCount(0);
+  await watchParts(page);
+  sources.release();
   const row = card(page).locator(".story-passages li");
   await expect(row).toHaveCount(1);
   await expect(row.locator(".story-n")).toHaveText("1");
   await expect(row).toContainText("AAPL fact, Revenue from Contract with Customer, Excluding Assessed Tax, period ending 2025-09-27");
   await expect(row).toContainText("416,161,000,000 USD");
   await expect(card(page).locator(".card-filings li")).toHaveText(["AAPL 10-K FY2025"]);
-  const [reply, check, first] = await Promise.all(
-    [card(page).locator(".story-reply"), card(page).locator("[data-tone='check']"), row].map((part) => part.boundingBox()),
+  await expect(card(page).locator("[data-tone='check']")).toHaveText("Checked: 416,161,000,000 matches source 1.");
+  await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD");
+  await expect(card(page).getByTestId("reading")).toHaveCount(0);
+  const seen = await partsSeen(page);
+  expect(seen.read).toBeLessThan(seen.passages);
+  expect(seen.passages).toBeLessThan(seen.answer);
+  expect(seen.answer).toBeLessThan(seen.check);
+  expect(seen.check).toBeLessThan(2_000);
+  // Top to bottom in the same order, as the hero's panel.
+  const [read, first, reply, check] = await Promise.all(
+    [page.getByTestId("read-as"), row, card(page).locator(".story-reply"), card(page).locator("[data-tone='check']")].map((part) =>
+      part.boundingBox(),
+    ),
   );
+  expect(first!.y).toBeGreaterThanOrEqual(read!.y + read!.height);
+  expect(reply!.y).toBeGreaterThanOrEqual(first!.y + first!.height);
   expect(check!.y).toBeGreaterThanOrEqual(reply!.y + reply!.height);
-  expect(first!.y).toBeGreaterThanOrEqual(check!.y + check!.height);
 });
 
-test("an error sits in the card, under the question, with no draft", async ({ page }) => {
+test("an error sits in the card, under the question, and the field comes back", async ({ page }) => {
   await ask(page, "e2e: busy");
   await expect(card(page).locator(".story-sent")).toHaveText("e2e: busy");
   await expect(card(page).getByTestId("ask-error")).toContainText("The service is busy. Try again in 2 s.");
   await expect(page.getByTestId("draft")).toHaveCount(0);
+  await expect(page.getByLabel("Your question")).toBeVisible();
   await audit(page);
 });
 
@@ -80,15 +102,27 @@ test("what arrives moves in while motion is allowed; a stored answer from the li
   }
 });
 
+/** With motion off, every part shows in the same commit, and nothing in the card moves. */
+async function allAtOnce(page: Page) {
+  const sources = await holdSources(page);
+  await ask(page, X04);
+  await sources.looked;
+  await watchParts(page);
+  sources.release();
+  await expect(card(page).locator(".story-passages li")).toHaveCount(1);
+  const seen = await partsSeen(page);
+  const times = [seen.read, seen.passages, seen.answer, seen.check];
+  expect(Math.max(...times) - Math.min(...times)).toBeLessThan(50);
+  for (const part of [".story-passages li", ".card-filings li", "[data-tone='check']", ".story-reply", "[data-tone='read']"]) {
+    expect(await motionOf(page, part)).toBe("none");
+  }
+}
+
 test.describe("with reduced motion", () => {
   test.use({ reducedMotion: "reduce" });
 
-  test("nothing in the card moves", async ({ page }) => {
-    await ask(page, X04);
-    await expect(card(page).locator(".story-passages li")).toHaveCount(1);
-    for (const part of [".story-passages li", ".card-filings li", "[data-tone='check']", ".story-reply", "[data-tone='read']"]) {
-      expect(await motionOf(page, part)).toBe("none");
-    }
+  test("every part shows at once, in the same order, and nothing in the card moves", async ({ page }) => {
+    await allAtOnce(page);
   });
 });
 
@@ -152,9 +186,8 @@ test.describe("390 px", () => {
     await audit(page);
   });
 
-  test("the card fits a phone, with the header's theme switch", async ({ page }) => {
-    await ask(page, X04);
-    await expect(card(page).locator(".story-passages li")).toHaveCount(1);
+  test("on a phone every part shows at once, and the card fits, with the header's theme switch", async ({ page }) => {
+    await allAtOnce(page);
     await expect(page.getByRole("banner").getByRole("group", { name: "Theme" })).toBeVisible();
     await noSidewaysScroll(page);
     await audit(page);

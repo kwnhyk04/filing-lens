@@ -88,6 +88,40 @@ export async function stageReady(page: Page) {
   await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
 }
 
+/** From now on the page notes when each of the card's parts first shows, in ms from this call. */
+export async function watchParts(page: Page) {
+  await page.evaluate(() => {
+    const parts: Record<string, string> = { read: ".read-as", passages: ".story-passages", answer: ".story-reply", check: "[data-tone='check']" };
+    const seen: Record<string, number> = {};
+    const start = performance.now();
+    const look = () => {
+      for (const [name, selector] of Object.entries(parts)) {
+        if (!(name in seen) && document.querySelector(`.stage .answer-card ${selector}`)) seen[name] = performance.now() - start;
+      }
+    };
+    new MutationObserver(look).observe(document.body, { childList: true, subtree: true });
+    (window as unknown as { partsSeen: typeof seen }).partsSeen = seen;
+  });
+}
+
+export const partsSeen = (page: Page) =>
+  page.evaluate(() => (window as unknown as { partsSeen: Record<"read" | "passages" | "answer" | "check", number> }).partsSeen);
+
+/** From now on the page notes each phase Ask's stage passes through, in order. */
+export async function recordPhases(page: Page) {
+  await page.evaluate(() => {
+    const stage = document.querySelector(".stage")!;
+    const phases = [stage.getAttribute("data-phase") ?? ""];
+    new MutationObserver(() => {
+      const phase = stage.getAttribute("data-phase") ?? "";
+      if (phase !== phases.at(-1)) phases.push(phase);
+    }).observe(stage, { attributes: true, attributeFilter: ["data-phase"] });
+    (window as unknown as { phases: string[] }).phases = phases;
+  });
+}
+
+export const phasesSeen = (page: Page) => page.evaluate(() => (window as unknown as { phases: string[] }).phases);
+
 export async function ask(page: Page, question: string) {
   await page.goto("/ask");
   await stageReady(page);

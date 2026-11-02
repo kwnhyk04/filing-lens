@@ -6,7 +6,16 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-03) **Ask, the live version of the landing hero** (approved with the user's answers: the passage rows stay in the stage, the membrane pulling each cited source onto its row; the Sources card keeps the full passages; a go for `make test-int`), on branch `ask-stage` from main at 79ad003 (#49), uncommitted.
+- [ ] (user, 2026-11-03) **FL polish round**, approved with the user's four answers (the hero's layout: the field hides while answering and comes back under the card; the draft hidden; the `next=` fix folded into sign-in; a go for `make test-int`), on branch `fl-polish` from main at 8742283 (#50), uncommitted.
+  - [x] Sign-in and sign-out, tests first (red, then green): sign-out lands on the landing page with a notice; sign-in has a Back to home link; signed in, the logo, `/` and `/login` never show the form; an expired session shows Sign in, never Sign out; `next=` keeps pages only.
+  - [x] Ask, tests first (red, then green): no empty cards; the hero's sequence (send, reading, pull, reveal in the hero's order, leave), the same order at once on phones and under reduced motion.
+  - [x] Landing: How an answer is made centred; one comparison table for the evaluation; Architecture with its evidence (tests written first, but not run red before the code; activity-log.md).
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703, `make test-int` 53; `clients/ts` typecheck and 18 tests; web typecheck, `npm test` 146, build; Playwright 136 passed and 7 skipped without a GPU, 140 passed and 1 skipped on Edge's GPU.
+  - [x] Screenshots: 184 at 1280, 1440, 1920 and 390 px, light and dark, and 48 of the Ask sequence at each step, in `H:\Projects\projects\_tmp\fl-polish`; the repo's 69 screens regenerated.
+  - [x] Docs: context, design, memory, activity log, README, third-party.
+  - [ ] (user, optional) delete the three stale `docs/screenshots/ui/ask-draft-*.png`, which no screen writes now.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-03) **Ask, the live version of the landing hero** (approved with the user's answers: the passage rows stay in the stage, the membrane pulling each cited source onto its row; the Sources card keeps the full passages; a go for `make test-int`), on branch `ask-stage` from main at 79ad003 (#49), uncommitted.
   - [x] Tests first: units for the stage's things (covered filings keep their places, each cited source takes its filing's) and its phase; e2e for every state without a GPU, and on Edge's GPU for the moving stage.
   - [x] The stage: the hero's card at the top of Ask, the field inside it (Enter sends, Shift+Enter a new line), example chips, the question once in a bubble; Recent questions (60%) and Sources (40%) below, stacked Sources first under 1024 px.
   - [x] Covered filings from the Coverage query in place of Totals (one call, no API change).
@@ -14,9 +23,9 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] JavaScript before and after: before, `/ask` loads 147.1 KB gzip (484.5 KB raw, 8 files) before the load event and nothing after, on the desktop and the phone. After: 149.0 KB gzip (489.0 KB raw, 9 files) before the load event on both; after it, 314.1 KB gzip (1,223.6 KB raw, 3 files) on the desktop and nothing on the phone.
   - [x] Screenshots at 1280, 1440 and 390 px, light and dark (empty, loading, finished, error), in `H:\Projects\projects\_tmp\fl-ask`.
   - [x] Checks: Python, `clients/ts`, web, Playwright without a GPU and on Edge's GPU, `make test-int`.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #50 (8742283, git log).
   - Built and checked on 2026-11-03 (activity-log.md). The pause's handoff note is replaced: its decisions and traps are in memory.md.
-- [ ] (user, 2026-11-02) **App UI and the How section**, approved with the user's four answers (no API change; passages below the answer; only the cited filings; the theme switch in the app header), on branch `app-ui` from main at 7812548 (uncommitted). FreightAudit's files read only, never changed.
+- [x] (user, 2026-11-02) **App UI and the How section**, approved with the user's four answers (no API change; passages below the answer; only the cited filings; the theme switch in the app header), on branch `app-ui` from main at 7812548 (uncommitted). FreightAudit's files read only, never changed.
   - [x] Tests first for each part, red then green: 2 units (`lib/answer.test.ts`), 12 Playwright specs (`e2e/card.spec.ts`, two in `e2e/landing.spec.ts`), and the keyboard and coverage specs updated for the theme switch and the badge.
   - [x] Landing, "How an answer is made": FreightAudit's How it works layout in FilingLens's CSS and tokens (numbered circles joined by a line, an icon, a title, one line, two or three points); the four steps and their facts; stacked on phones.
   - [x] Ask in the hero card's look, showing each part only when the stream or the sources lookup reports it; errors, Recent questions, the demo's 8 answers, reduced motion, keyboard use and axe kept; no canvas or WebGL in the app (`components/answer-card.tsx`).
@@ -24,11 +33,11 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] The hero's find beat: a pulled source moves sideways only, so no label crosses another (red on the GPU for x12, n01 and c02, then green).
   - [x] Screenshots: 176 at 1280, 1440, 1920 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-app`; the repo's 66 screens regenerated.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703; `clients/ts` typecheck, 18 tests; web typecheck, `npm test` 120, build; Playwright 118 passed and 4 skipped without a GPU, 122 passed on Edge's GPU. `make test-int` (the user's go): 50 passed; the rate test's timing miss passed alone; the 2 egress errors are the subnet below.
-  - [ ] (user) ship.
-- [ ] **Egress tests' subnet** (found 2026-11-03, `make test-int`): `infra/tests/test_egress.py` created its network on 10.231.233.0/28, which Triage Copilot's production network `triagecopilot-prod_outbound` now holds, so Docker refused ("Pool overlaps"). Own small PR, on branch `egress-test-subnet` from main at fbb22d2 (uncommitted).
+  - [x] (user) ship: merged as #48 (fbb22d2, git log).
+- [x] **Egress tests' subnet** (found 2026-11-03, `make test-int`): `infra/tests/test_egress.py` created its network on 10.231.233.0/28, which Triage Copilot's production network `triagecopilot-prod_outbound` now holds, so Docker refused ("Pool overlaps"). Own small PR, on branch `egress-test-subnet` from main at fbb22d2 (uncommitted).
   - [x] The test network moves to 10.231.234.0/28, the user's pick ("10.231.234.0/28 is free; FA uses .231, FL .232, TC .233"). Red (both live tests errored in setup), then 7 passed.
   - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 703, `make test-int` 53 passed.
-  - [ ] (user) ship; then the Ask redesign.
+  - [x] (user) ship: merged as #49 (79ad003, git log).
 - [x] (user, 2026-11-02) **Hero loop:** the moving story loops through three saved answers, merged as #47 (7812548, git log). Built on branch `hero-loop` from main at 3fd652d.
   - [x] Tests first: the loop's stories (`lib/story.test.ts`); on the GPU, the loop reaches the second answer after its hold, hover pauses it, and a hero scrolled away stops it (`e2e/landing.spec.ts`). Red, then green.
   - [x] `lib/story.ts`: answers that cite facts, and two filings; the loop x12, x04, n01, c02.

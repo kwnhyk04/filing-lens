@@ -10,7 +10,7 @@ export const metadata = { title: "Coverage" };
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 export default async function CoveragePage({ searchParams }: Props) {
-  await requireSession();
+  const { expiresAt } = await requireSession();
   const { after } = await searchParams;
   const cursor = typeof after === "string" ? after : undefined;
   const page = await coveragePage(cursor);
@@ -20,7 +20,7 @@ export default async function CoveragePage({ searchParams }: Props) {
     if (failure.kind === "misconfigured") {
       return (
         <>
-          <LiveHeader page="coverage" />
+          <LiveHeader page="coverage" expiresAt={expiresAt} />
           <ConfigError requestId={failure.requestId} />
         </>
       );
@@ -32,7 +32,7 @@ export default async function CoveragePage({ searchParams }: Props) {
   const { companies, filings } = page.data.totals;
   return (
     <>
-      <LiveHeader page="coverage" line={coverageLine(companies, filings)} />
+      <LiveHeader page="coverage" line={coverageLine(companies, filings)} expiresAt={expiresAt} />
       <main id="main">
         <h1>Coverage</h1>
         <CoverageTable

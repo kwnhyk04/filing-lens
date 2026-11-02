@@ -83,13 +83,17 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
     await expect(page.getByTestId("sign-in-error")).toHaveText("Wrong password.");
   },
   landing: (page) => signedOut(page, "/"),
+  "landing-signed-out": async (page) => {
+    await signedOut(page, "/?signed-out=1");
+    await expect(page.getByRole("status").filter({ hasText: "You're signed out." })).toBeVisible();
+  },
   ask: async (page) => {
     await openAsk(page);
     await rested(page);
   },
-  "ask-draft": async (page) => {
+  "ask-reading": async (page) => {
     await ask(page, `e2e: slow ${randomUUID()}`);
-    await expect(page.getByTestId("draft")).toContainText("Still drafting.");
+    await expect(page.getByTestId("reading")).toContainText("Reading the filings…");
   },
   "ask-numeric": (page) => answered(page, question("n01"), 1, "AAPL"),
   "ask-textual": (page) => answered(page, question("x04"), 1, "AMZN"),
@@ -149,6 +153,52 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
     await expect(page.getByTestId("config-error")).toBeVisible();
   },
 };
+
+/** Ask's sequence on the moving stage, one shot a step: Playwright's clock holds the page's timers and frames still
+    between shots, so each step is caught where it is (CSS and Web Animations run on, and are shot finished). */
+async function sequence(page: Page, name: string) {
+  const shot = (step: string) => page.screenshot({ path: `${DIR}/ask-sequence-${step}-${name}.png`, animations: "disabled" });
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/sources", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.clock.install();
+  await openAsk(page);
+  await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
+  const looked = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/sources");
+  await page.getByLabel("Your question").fill(question("x04"));
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await looked;
+  await page.clock.runFor(1500); // the membrane gathers round the card while the sources are held
+  await shot("1-reading");
+  // Just ahead of the page's own clock: a longer jump would run the sources lookup's 6 s timeout out.
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50);
+  release();
+  await expect(page.locator(".stage")).toHaveAttribute("data-phase", "pulling");
+  for (const [step, ms] of [["2-pull", 400], ["3-read-as", 420], ["4-passages", 220], ["5-answer", 220], ["6-check", 220], ["7-done", 1500]] as const) {
+    await page.clock.runFor(ms);
+    await shot(step);
+  }
+  await page.getByLabel("Your question").fill(question("n01"));
+  await page.getByLabel("Your question").press("Enter");
+  await page.clock.runFor(200);
+  await shot("8-leaving");
+}
+
+if (MOTION && WIDTHS) {
+  for (const width of WIDTHS.filter((each) => each >= 1024)) {
+    for (const colorScheme of ["light", "dark"] as const) {
+      test(`ask-sequence ${width}-${colorScheme}`, async ({ page }) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
+        await sequence(page, `${width}-${colorScheme}`);
+      });
+    }
+  }
+}
 
 for (const variant of VARIANTS) {
   test.describe(variant.name, () => {

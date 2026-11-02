@@ -7,7 +7,8 @@ import { type ComponentType, useEffect, useState } from "react";
 import { softwareRenderer } from "../lib/motion.ts";
 import type { StageProps } from "../lib/stage.ts";
 
-const DESKTOP = "(min-width: 64rem) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
+/** A desktop that allows motion: where the moving stories may load, and where Ask's sequence plays. */
+export const DESKTOP = "(min-width: 64rem) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
 
 /** WebGL that a graphics card draws: refused when the browser reports a major performance caveat, or when
     the renderer is a software one (SwiftShader, llvmpipe, Windows' basic driver), which the flag lets by. */

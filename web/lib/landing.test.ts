@@ -1,8 +1,9 @@
 // The landing page's figures under `node --test`: the eval report's table as the page shows it.
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { test } from "node:test";
 
-import { evalDate, resultRows } from "./landing.ts";
+import { comparisonRows, EVIDENCE, evalDate, modelName, REPO, resultRows, sourceLink } from "./landing.ts";
 
 // Rows as the harness writes them, CRLF included; the order differs from the page's on purpose.
 const TABLE = [
@@ -60,6 +61,42 @@ test("a metric the report could not measure says so", () => {
 test("a report without one of the page's rows fails, naming the row", () => {
   const without = TABLE.replace(/\| False refusal \|[^\r\n]*/, "");
   assert.throws(() => resultRows(without), /False refusal/);
+});
+
+test("one comparison table: each metric's target, then each run's result and status from its own report", () => {
+  const claude = TABLE.replace("| 0.950 | 0.944 | 0.833 to 1.000 | 20 | fail |", "| 0.950 | 0.980 | 0.900 to 1.000 | 20 | pass |");
+  const rows = comparisonRows(claude, TABLE);
+  assert.deepEqual(
+    rows.map((row) => row.label),
+    resultRows(TABLE).map((row) => row.label),
+  );
+  assert.deepEqual(
+    rows.find((row) => row.label === "Citation precision"),
+    { label: "Citation precision", target: "95%", claude: { result: "98%", status: "Met" }, free: { result: "94.4%", status: "Below target" } },
+  );
+  // A row the two runs share in full stays as it is.
+  assert.deepEqual(rows[0], { label: "Numeric accuracy (exact match)", target: "92%", claude: { result: "100%", status: "Met" }, free: { result: "100%", status: "Met" } });
+});
+
+test("the comparison fails the build when the two runs' targets differ", () => {
+  const moved = TABLE.replace("| Correct refusal | 0.900 |", "| Correct refusal | 0.950 |");
+  assert.throws(() => comparisonRows(moved, TABLE), /targets differ.*Correct refusals/);
+});
+
+test("each measured model by its name; one it does not know fails the build", () => {
+  assert.equal(modelName("anthropic:claude-haiku-5-5"), "Claude Haiku 5.5");
+  assert.equal(modelName("gemini:gemini-3.5-flash-lite"), "Gemini 3.5 Flash-Lite");
+  assert.equal(modelName("groq:openai/gpt-oss-20b"), "gpt-oss-20b on Groq");
+  assert.throws(() => modelName("anthropic:claude-sonnet-5-5"), /No name for the measured model/);
+});
+
+test("every file the Architecture section links to is in the repository, each claim with one to three", () => {
+  for (const { claim, line, paths } of EVIDENCE) {
+    assert.ok(line.length > 0, claim);
+    assert.ok(paths.length >= 1 && paths.length <= 3, claim);
+    for (const path of paths) assert.ok(existsSync(new URL(`../../${path}`, import.meta.url)), path);
+  }
+  assert.equal(sourceLink("evals/judge.py"), `${REPO}/blob/main/evals/judge.py`);
 });
 
 test("the run's date is its UTC day, wherever the build runs", () => {

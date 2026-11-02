@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 
 import type { Snapshot } from "../lib/demo.ts";
-import { evalDate, resultRows } from "../lib/landing.ts";
+import { comparisonRows, EVIDENCE, evalDate, modelName, resultRows, sourceLink } from "../lib/landing.ts";
 import { softwareRenderer } from "../lib/motion.ts";
 import { heroStories, heroStory, QUOTE } from "../lib/story.ts";
 import { LIVE, OFFLINE, snapshot } from "./env.ts";
@@ -80,9 +80,7 @@ test("/ needs no API: it renders while the API is off, with no detour to the dem
   const response = await page.goto(`${OFFLINE}/`);
   expect(response?.status()).toBe(200);
   await expect(page).toHaveURL(`${OFFLINE}/`);
-  await expect(page.locator("#results tbody tr")).toHaveCount(
-    resultRows(claudeTable).length + resultRows(table).length,
-  );
+  await expect(page.locator("#results tbody tr")).toHaveCount(resultRows(table).length);
   await expect(page.getByTestId("demo-banner")).toHaveCount(0);
   await heroOffersTheDemo(page);
 });
@@ -110,17 +108,27 @@ test("the header's links lead where they say, and Sign in comes back to Ask", as
   await expect(page.getByRole("heading", { level: 1, name: "Ask" })).toBeVisible();
 });
 
-test("the evaluation's tables, date, models and notes are the newest reports'", async ({ page }) => {
+test("the evaluation's one comparison table, its runs' models and dates, and its notes are the newest reports'", async ({ page }) => {
   await page.goto("/");
   const results = page.locator("#results");
-  for (const [id, run, markdown] of RUNS) {
-    const block = page.locator(`#results-${id}`);
-    const rows = await block
-      .locator("tbody tr")
-      .evaluateAll((trs) => trs.map((tr) => [...(tr as HTMLTableRowElement).cells].map((cell) => cell.textContent?.trim())));
-    expect(rows).toEqual(resultRows(markdown).map((row) => [row.label, row.target, row.result, row.status]));
+  await expect(results.locator("table")).toHaveCount(1);
+  const rows = await results
+    .locator("tbody tr")
+    .evaluateAll((trs) => trs.map((tr) => [...(tr as HTMLTableRowElement).cells].map((cell) => cell.textContent?.trim())));
+  expect(rows).toEqual(
+    comparisonRows(claudeTable, table).map((row) => [
+      row.label,
+      row.target,
+      `${row.claude.result} ${row.claude.status}`,
+      `${row.free.result} ${row.free.status}`,
+    ]),
+  );
+  const head = results.locator("thead");
+  await expect(head.locator("th")).toHaveText([/^Metric/, /^Target/, /^Claude first/, /^Free models only/]);
+  for (const [, run] of RUNS) {
+    await expect(head).toContainText(`${modelName(run.config.primary)} · ${evalDate(run.created_at)}`);
     for (const text of [run.config.primary, `thinking ${run.config.thinking}`, run.config.router]) {
-      await expect(block).toContainText(text);
+      await expect(results).toContainText(text);
     }
   }
   const { config, judge_calibration: judge } = report;
@@ -226,6 +234,39 @@ test("How an answer is made: four numbered steps joined by a line, each an icon,
   expect(new Set((await boxes()).map((box) => box.left)).size).toBe(1);
   expect(await lines()).toEqual([false, false, false, false]);
   await noSidewaysScroll(page);
+});
+
+test("How an answer is made is centred: its heading, the row of steps, each number over its card's middle", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const how = page.locator("#how");
+  const [section, title, list] = await Promise.all([how, how.locator("h2"), how.locator("ol.how-steps")].map((part) => part.boundingBox()));
+  const middle = (box: { x: number; width: number }) => box.x + box.width / 2;
+  expect(Math.abs(middle(title!) - middle(section!))).toBeLessThan(2);
+  expect(Math.abs(middle(list!) - middle(section!))).toBeLessThan(2);
+  for (const step of await how.locator("ol.how-steps > li").all()) {
+    const [card, number] = await Promise.all([step.boundingBox(), step.locator(".step-number").boundingBox()]);
+    expect(Math.abs(middle(number!) - middle(card!))).toBeLessThan(2);
+  }
+  const heights = await how.locator("ol.how-steps > li").evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().height)));
+  expect(new Set(heights).size).toBe(1);
+  expect(await how.locator("ol.how-steps > li").first().evaluate((item) => getComputedStyle(item).textAlign)).toBe("left");
+});
+
+test("Architecture: each claim says what it means and links the files that prove it, one a line, the stack under it", async ({ page }) => {
+  await page.goto("/");
+  const section = page.locator("#architecture");
+  await expect(section.locator(".evidence dt")).toHaveText(EVIDENCE.map((item) => item.claim));
+  for (const [i, item] of EVIDENCE.entries()) {
+    const entry = section.locator(".evidence dd").nth(i);
+    await expect(entry).toContainText(item.line);
+    const links = entry.locator("a");
+    await expect(links).toHaveText(item.paths);
+    for (const [j, path] of item.paths.entries()) await expect(links.nth(j)).toHaveAttribute("href", sourceLink(path));
+    const tops = await links.evaluateAll((all) => all.map((link) => Math.round(link.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(tops.length); // one file a line
+  }
+  await expect(section.locator("ul.chips li").first()).toHaveText("Python");
 });
 
 test("the theme toggle keeps Light or Dark in a cookie the server reads, and System clears it", async ({ page, context }) => {

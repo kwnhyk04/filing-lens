@@ -1,7 +1,7 @@
 "use server";
 // Sign-in: the limiter runs before argon2, and a success sets the session cookie.
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, RedirectType } from "next/navigation";
 
 import { safeNext } from "../../lib/guards.ts";
 import { log } from "../../lib/log.ts";
@@ -44,5 +44,6 @@ export async function signIn(state: SignInState, form: FormData): Promise<SignIn
   (await cookies()).set(SESSION_COOKIE, token, cookie);
   log("signed_in");
   const next = form.get("next");
-  redirect(safeNext(typeof next === "string" ? next : null) ?? "/ask");
+  // Replace, not push: Back then skips the sign-in page instead of returning to its form.
+  redirect(safeNext(typeof next === "string" ? next : null) ?? "/ask", RedirectType.replace);
 }

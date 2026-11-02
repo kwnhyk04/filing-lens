@@ -1,15 +1,14 @@
 "use client";
 // The landing page's header, after the 21st.dev hero the user picked for it (hero4's header only), in
-// FilingLens's colours: the mark and the name, the page's sections, then the theme, Sign in and the demo.
-// It sticks to the top, see-through over the hero until the page scrolls; below 64rem the sections, the
-// theme and Sign in fold into a menu.
+// FilingLens's colours: the mark and the name, the page's sections, then the theme, Sign in (Open Ask while
+// signed in) and the demo. It sticks to the top, see-through over the hero until the page scrolls; below 64rem
+// the sections, the theme and Sign in fold into a menu.
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { REPO } from "../lib/landing.ts";
 import type { Theme } from "../lib/theme.ts";
 import { ThemeToggle } from "./theme-toggle.tsx";
-
-const REPO = "https://github.com/kwnhyk04/filing-lens";
 const SECTIONS: [href: string, label: string][] = [
   ["#how", "How it works"],
   ["#results", "Results"],
@@ -17,7 +16,8 @@ const SECTIONS: [href: string, label: string][] = [
   [REPO, "GitHub"],
 ];
 
-export function LandingHeader({ theme }: { theme: Theme }) {
+/** `signedIn`: a sign-in the server checked, expiry included, so an expired one is offered Sign in. */
+export function LandingHeader({ theme, signedIn }: { theme: Theme; signedIn: boolean }) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -69,8 +69,8 @@ export function LandingHeader({ theme }: { theme: Theme }) {
         </nav>
         <div className="landing-actions">
           <ThemeToggle theme={theme} />
-          <Link href="/login" className="sign-in" prefetch={false} onClick={shut}>
-            Sign in
+          <Link href={signedIn ? "/ask" : "/login"} className="sign-in" prefetch={false} onClick={shut}>
+            {signedIn ? "Open Ask" : "Sign in"}
           </Link>
         </div>
       </div>

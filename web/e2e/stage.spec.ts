@@ -1,13 +1,14 @@
-// Ask's stage, the live version of the landing hero: the field inside it, the question shown once, each part
-// only when it is reported, Recent questions and Sources below. On a graphics card the moving stage plays over
-// the same states; elsewhere (CI's software renderer, phones, reduced motion) the calm version stays.
+// Ask's stage, the live version of the landing hero: the field at its top while it is empty; on send the field
+// hides and the question takes the top in the card's bubble; once the answer is done the field comes back under the
+// card. Recent questions and Sources sit below only when they hold something. On a graphics card the moving stage
+// plays the same sequence; elsewhere (CI's software renderer, phones, reduced motion) the calm version stays.
 import { randomUUID } from "node:crypto";
 
 import type { Page } from "@playwright/test";
 
 import { softwareRenderer } from "../lib/motion.ts";
 import { question, snapshot } from "./env.ts";
-import { ask, audit, expect, noSidewaysScroll, test } from "./fixtures.ts";
+import { ask, audit, expect, noSidewaysScroll, partsSeen, phasesSeen, recordPhases, test, watchParts } from "./fixtures.ts";
 
 const N01 = question("n01");
 const X04 = question("x04");
@@ -15,6 +16,7 @@ const EXAMPLES = snapshot.answers.filter((item) => !item.answer.refused).map((it
 const READING = "Reading the filings…";
 const stage = (page: Page) => page.locator(".stage");
 const box = (page: Page) => page.getByLabel("Your question");
+const top = async (page: Page, selector: string) => (await stage(page).locator(selector).boundingBox())!.y - (await stage(page).boundingBox())!.y;
 
 /** The WebGL renderer the page would draw with, or null without WebGL. */
 const rendererOf = (page: Page) =>
@@ -24,30 +26,42 @@ const rendererOf = (page: Page) =>
     return gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : null;
   });
 
-test("empty: example questions as chips and the field inside the stage; Sources says what will appear there", async ({ page }) => {
+/** The second question of a page, from the field under the answer. */
+async function askAgain(page: Page, text: string) {
+  await box(page).fill(text);
+  await box(page).press("Enter");
+}
+
+test("empty: example questions as chips and the field at the top of the stage; no empty cards below", async ({ page }) => {
   await page.goto("/ask");
   await expect(stage(page).getByTestId("samples").getByRole("button")).toHaveText(EXAMPLES);
-  await expect(stage(page).getByLabel("Your question")).toHaveAttribute("placeholder", "Ask about a company's 10-K...");
+  await expect(box(page)).toHaveAttribute("placeholder", "Ask about a company's 10-K...");
   await expect(stage(page).getByRole("button", { name: "Ask", exact: true })).toBeVisible();
-  await expect(page.getByTestId("sources-card")).toHaveText(/Sources for your answer appear here\./);
+  expect(await top(page, ".stage-input")).toBeLessThan(60);
+  await expect(page.getByTestId("sources-card")).toHaveCount(0);
+  await expect(page.getByTestId("recent-card")).toHaveCount(0); // a new sign-in has asked nothing
   await audit(page);
 });
 
-test("on send the question shows once, in the stage's bubble; the field clears; nothing is claimed while it reads", async ({ page }) => {
+test("on send the field hides and the question takes the top in its bubble; nothing is claimed while it reads; then the field comes back under the card", async ({ page }) => {
   const slow = `e2e: slow ${randomUUID()}`; // the mock drafts it for about 3 s, then completes it as o02's refusal
   await page.goto("/ask");
   await box(page).fill(slow);
   await box(page).press("Enter");
   await expect(stage(page).locator(".story-sent")).toHaveText(slow);
-  await expect(box(page)).toHaveValue("");
+  await expect(box(page)).toBeHidden();
+  await expect(stage(page)).toHaveAttribute("data-phase", "reading");
   await expect(stage(page).getByText(READING)).toBeVisible();
-  await expect(stage(page).getByRole("button", { name: "Answering…" })).toBeVisible();
   await expect(stage(page).locator(".stage-covered li")).toHaveCount(11); // the coverage list's filings, none lit
   await expect(stage(page).locator(".story-passages li, .card-filings li")).toHaveCount(0);
-  await expect(page.getByTestId("draft")).toContainText("Still drafting.");
+  await expect(page.getByTestId("draft")).toHaveCount(0);
+  expect(await top(page, ".story-sent")).toBeLessThan(100);
   await expect(page.getByTestId("answer")).toContainText("Not answered", { timeout: 15_000 });
   await expect(stage(page).getByText(READING)).toHaveCount(0);
-  await expect(stage(page).getByRole("button", { name: "Ask", exact: true })).toBeVisible();
+  await expect(box(page)).toBeVisible();
+  await expect(box(page)).toHaveValue("");
+  const [card, field] = await Promise.all([stage(page).locator(".answer-card"), stage(page).locator(".stage-input")].map((part) => part.boundingBox()));
+  expect(field!.y).toBeGreaterThan(card!.y + card!.height);
 });
 
 test("Enter sends and Shift+Enter starts a new line; under 3 characters nothing is sent", async ({ page }) => {
@@ -70,7 +84,7 @@ test("Enter sends and Shift+Enter starts a new line; under 3 characters nothing 
   await expect.poll(() => sent.length).toBe(1);
 });
 
-test("the answer fills the stage and its sources the Sources card; New question empties the stage; a recent question fills it again", async ({ page }) => {
+test("the answer fills the stage and its sources the Sources card; New question brings the field back at the top; a recent question fills the stage again", async ({ page }) => {
   await ask(page, N01);
   await expect(stage(page).getByTestId("answer")).toContainText("416,161,000,000 USD");
   await expect(stage(page).getByTestId("read-as")).toBeVisible();
@@ -80,20 +94,54 @@ test("the answer fills the stage and its sources the Sources card; New question 
   await page.getByRole("button", { name: "New question" }).click();
   await expect(stage(page).locator(".story-sent")).toHaveCount(0);
   await expect(stage(page).getByTestId("samples")).toBeVisible();
-  await expect(page.getByTestId("sources-card")).toHaveText(/Sources for your answer appear here\./);
+  await expect(box(page)).toBeFocused();
+  expect(await top(page, ".stage-input")).toBeLessThan(60);
+  await expect(page.getByTestId("sources-card")).toHaveCount(0);
   await page.getByTestId("recent").getByRole("button").filter({ hasText: N01 }).click();
   await expect(stage(page).locator(".story-sent")).toHaveText(N01);
   await expect(box(page)).toHaveValue("");
   await expect(page.getByTestId("stored")).toBeVisible();
+  await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
 });
 
-test("Recent questions and Sources sit under the stage, 60 to 40 and top-aligned; under 1024 px Sources comes first", async ({ page }) => {
+test("a new question after an answer: the card clears first, then the new question takes the top", async ({ page }) => {
+  await ask(page, N01);
+  await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+  await recordPhases(page);
+  await askAgain(page, X04);
+  await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AMZN");
+  await expect(stage(page).locator(".story-sent")).toHaveText(X04);
+  const phases = await phasesSeen(page);
+  expect(phases.slice(0, 3)).toEqual(["done", "leaving", "reading"]);
+  expect(phases.at(-1)).toBe("done");
+});
+
+test.describe("with reduced motion", () => {
+  test.use({ reducedMotion: "reduce" });
+
+  test("a new question replaces the answer at once, with no leave", async ({ page }) => {
+    await ask(page, N01);
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+    await recordPhases(page);
+    await askAgain(page, X04);
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AMZN");
+    expect(await phasesSeen(page)).not.toContain("leaving");
+  });
+});
+
+test("Recent questions and Sources sit under the stage, 60 to 40 and top-aligned; a lone one takes the row; under 1024 px Sources comes first", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto("/ask");
+  await ask(page, N01);
+  await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+  const [below, lone] = await Promise.all([page.locator(".ask-below"), page.getByTestId("sources-card")].map((part) => part.boundingBox()));
+  expect(lone!.width).toBeCloseTo(below!.width, 0);
+  await askAgain(page, X04);
+  await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AMZN");
+  await expect(page.getByTestId("recent").getByRole("button")).toHaveCount(1);
   const boxes = () =>
     Promise.all([stage(page), page.getByTestId("recent-card"), page.getByTestId("sources-card")].map((part) => part.boundingBox()));
-  const [top, recent, sources] = await boxes();
-  expect(recent!.y).toBeGreaterThan(top!.y + top!.height);
+  const [stageBox, recent, sources] = await boxes();
+  expect(recent!.y).toBeGreaterThan(stageBox!.y + stageBox!.height);
   expect(sources!.y).toBeCloseTo(recent!.y, 0);
   expect(sources!.x).toBeGreaterThan(recent!.x + recent!.width);
   expect(recent!.width / (recent!.width + sources!.width)).toBeCloseTo(0.6, 1);
@@ -132,57 +180,78 @@ test.describe("on a desktop with a graphics card", () => {
     await expect(stage(page)).toHaveAttribute("data-motion", "live", { timeout: 15_000 });
   }
 
-  test("while it reads only covered filings float; with the sources only the cited one is pulled in, with its item", async ({ page }) => {
+  /** Holds the sources lookup until `release` is called. */
+  async function holdSources(page: Page) {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/api/sources", async (route) => {
+      await held;
+      await route.continue();
+    });
+    const looked = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/sources");
+    return { looked, release: () => release() };
+  }
+
+  const things = (page: Page) => page.locator(".stage .pb-thing:not([data-empty='true'])");
+
+  test("while it reads only covered filings float, none reached or lit; once the sources are in, the cited one is pulled in and the parts follow in order", async ({ page }) => {
     test.setTimeout(60_000);
-    await moving(page);
-    await box(page).fill(`e2e: slow ${randomUUID()}`);
-    await box(page).press("Enter");
-    await expect(stage(page).getByText(READING)).toBeVisible();
-    const things = page.locator(".stage .pb-thing:not([data-empty='true'])");
-    await expect(things.filter({ hasNotText: "Filing" })).toHaveCount(0);
-    await expect(things).toHaveCount(11);
-    await expect(page.getByTestId("answer")).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "New question" }).click();
+    await moving(page); // first: a skip must come before any request is awaited
+    const sources = await holdSources(page);
+    await recordPhases(page);
     await box(page).fill(X04);
     await box(page).press("Enter");
+    await sources.looked; // the checked answer is in; its sources are held
+    await expect(stage(page)).toHaveAttribute("data-phase", "reading");
+    await expect(stage(page).getByText(READING)).toBeVisible();
+    await expect(things(page)).toHaveCount(11);
+    await expect(things(page).filter({ hasNotText: "Filing" })).toHaveCount(0);
+    await expect(page.getByTestId("answer")).toHaveCount(0);
+    await watchParts(page);
+    sources.release();
     await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AMZN");
+    const seen = await partsSeen(page);
+    expect(seen.read).toBeLessThan(seen.passages);
+    expect(seen.passages).toBeLessThan(seen.answer);
+    expect(seen.answer).toBeLessThan(seen.check);
+    expect(seen.check).toBeLessThan(2_500);
+    const phases = await phasesSeen(page);
+    for (const [before, after] of [["reading", "pulling"], ["pulling", "revealing"], ["revealing", "done"]]) {
+      expect(phases.indexOf(before)).toBeLessThan(phases.indexOf(after));
+    }
     const cited = page.locator(".stage .pb-thing[data-kind='passage']");
     await expect(cited).toHaveCount(1);
     await expect(cited).toContainText("Item 1");
     await expect(cited).toContainText("AMZN 10-K FY2025");
   });
 
-  test("the answer shows the moment the stream completes, never after an animation", async ({ page }) => {
-    // Both times taken in the page: when the answer stream's last byte is read, and when the answer is on screen.
-    // (Playwright's own end of a streamed response came 30 s late, or never, under the full suite's load.)
-    await page.addInitScript(() => {
-      const times: { ended?: number; shown?: number } = {};
-      (window as unknown as { times: typeof times }).times = times;
-      const original = window.fetch;
-      window.fetch = async (...args: Parameters<typeof fetch>) => {
-        const response = await original(...args);
-        if (!String(args[0]).endsWith("/api/answers") || !response.body) return response;
-        const reader = response.body.getReader();
-        const body = new ReadableStream<Uint8Array>({
-          async pull(controller) {
-            const { done, value } = await reader.read();
-            if (done) {
-              times.ended = performance.now();
-              controller.close();
-            } else controller.enqueue(value);
-          },
-        });
-        return new Response(body, { status: response.status, headers: response.headers });
-      };
-      new MutationObserver(() => {
-        if (document.querySelector("[data-testid='answer']")) times.shown ??= performance.now();
-      }).observe(document, { childList: true, subtree: true });
-    });
+  test("Pause during the reveal shows the whole answer at once", async ({ page }) => {
+    test.setTimeout(60_000);
     await moving(page);
+    const sources = await holdSources(page);
     await box(page).fill(X04);
     await box(page).press("Enter");
-    await expect(page.getByTestId("answer")).toBeVisible();
-    const { ended, shown } = await page.evaluate(() => (window as unknown as { times: { ended: number; shown: number } }).times);
-    expect(shown - ended).toBeLessThan(1_000);
+    await sources.looked;
+    sources.release();
+    await expect(stage(page)).toHaveAttribute("data-phase", "pulling");
+    await page.getByRole("button", { name: "Pause motion" }).click();
+    await expect(stage(page)).toHaveAttribute("data-phase", "done", { timeout: 600 });
+    await expect(stage(page).locator("[data-tone='check']")).toBeVisible();
+  });
+
+  test("a recent question shows its card whole, with no pull", async ({ page }) => {
+    test.setTimeout(60_000);
+    await moving(page);
+    await askAgain(page, N01);
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+    await askAgain(page, X04);
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AMZN");
+    await recordPhases(page);
+    await page.getByTestId("recent").getByRole("button").filter({ hasText: N01 }).click();
+    await expect(page.getByTestId("stored")).toBeVisible();
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+    const phases = await phasesSeen(page);
+    expect(phases).not.toContain("pulling");
+    expect(phases).not.toContain("revealing");
   });
 });

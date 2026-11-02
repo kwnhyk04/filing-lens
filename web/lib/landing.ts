@@ -57,6 +57,91 @@ export function resultRows(markdown: string): ResultRow[] {
   });
 }
 
+/** One run's result in a row of the comparison. */
+export interface RunCell {
+  result: string;
+  status: ResultRow["status"];
+}
+
+/** A metric's row in the comparison: its target, then each official run's result. */
+export interface ComparisonRow {
+  label: string;
+  target: string;
+  claude: RunCell;
+  free: RunCell;
+}
+
+/** The two official runs side by side, each from its own report; runs held to different targets fail the build. */
+export function comparisonRows(claudeMarkdown: string, freeMarkdown: string): ComparisonRow[] {
+  const free = resultRows(freeMarkdown);
+  return resultRows(claudeMarkdown).map((row, i): ComparisonRow => {
+    const other = free[i];
+    if (other.target !== row.target) throw new Error(`The runs' targets differ for "${row.label}": ${row.target}, ${other.target}`);
+    return {
+      label: row.label,
+      target: row.target,
+      claude: { result: row.result, status: row.status },
+      free: { result: other.result, status: other.status },
+    };
+  });
+}
+
+// The models the official runs measured, by name; a run with another fails the build until it is named here.
+const MODELS: Record<string, string> = {
+  "anthropic:claude-haiku-5-5": "Claude Haiku 5.5",
+  "gemini:gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "groq:openai/gpt-oss-20b": "gpt-oss-20b on Groq",
+};
+
+/** "Claude Haiku 5.5": a run's `provider:model` by its name. */
+export function modelName(id: string): string {
+  const name = MODELS[id];
+  if (!name) throw new Error(`No name for the measured model "${id}"`);
+  return name;
+}
+
+export const REPO = "https://github.com/kwnhyk04/filing-lens";
+export const sourceLink = (path: string) => `${REPO}/blob/main/${path}`;
+
+/** The Architecture section's claims, each with what it means and the files that prove it; a unit test checks
+    every path is in the repository. */
+export const EVIDENCE: { claim: string; line: string; paths: string[] }[] = [
+  {
+    claim: "Rate-limited SEC ingestion",
+    line: "Every worker shares one rate limiter in Redis that keeps under SEC's request limit, with retries and dead-letter queues.",
+    paths: [
+      "packages/core/src/filinglens_core/ratelimit.py",
+      "packages/sec_client/src/filinglens_sec_client/__init__.py",
+      "services/ingest/src/filinglens_ingest/replay.py",
+    ],
+  },
+  {
+    claim: "Hybrid retrieval",
+    line: "PostgreSQL full-text search and pgvector similarity, fused by reciprocal rank, then reranked by a cross-encoder on the CPU.",
+    paths: ["packages/retrieval/src/filinglens_retrieval/__init__.py", "packages/llm/src/filinglens_llm/local.py"],
+  },
+  {
+    claim: "Grounded generation",
+    line: "Quotes must match the passage word for word, and amounts the fact or passage they cite. Unsupported sentences are removed.",
+    paths: ["packages/llm/src/filinglens_llm/validate.py", "services/api/src/filinglens_api/answering.py"],
+  },
+  {
+    claim: "Reproducible evaluation",
+    line: "A frozen test set, a calibrated judge, and reports fingerprinted with the exact code and prompt versions they measured.",
+    paths: ["evals/golden/v2/manifest.json", "evals/judge.py", "evals/harness.py"],
+  },
+  {
+    claim: "Quality gates in CI",
+    line: "Pull requests that change the answer pipeline rerun the retrieval and answer evals against floors. A provider's quota stop fails the check instead of passing silently.",
+    paths: [".github/workflows/ci.yml", "evals/thresholds.json"],
+  },
+  {
+    claim: "End-to-end tracing",
+    line: "One OpenTelemetry trace per question, with a span for each stage: routing, facts, search and generation.",
+    paths: ["packages/telemetry/src/filinglens_telemetry/otel.py", "services/api/src/filinglens_api/answering.py"],
+  },
+];
+
 const day = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
 
 /** "October 17, 2026": a report's `created_at` as its UTC day. */

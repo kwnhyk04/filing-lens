@@ -1,10 +1,13 @@
 "use client";
-// Ask, the live version of the landing hero: the stage at the top holds the question field, then the question in
-// its bubble, the draft, the checked answer and the passages it cites, each when the stream or the sources lookup
-// reports it. Below it, this sign-in's Recent questions and the answer's Sources, each in a card. On a desktop
-// with a graphics card the hero's moving story plays over the same states (stage-motion, ask-live.tsx).
+// Ask, the live version of the landing hero's story (docs/design.md). The field sits at the top of the empty stage.
+// On send it hides, and the card, with the question's bubble, takes the top: "Reading the filings…" until the
+// checked answer and its sources are both in. Then, on a desktop that allows motion, the parts arrive one by one in
+// the hero's order (Read as, the passages, the answer, the check) while the moving stage (ask-live.tsx) pulls the
+// cited filings in; phones, reduced motion and Pause get the same order at once. Once the answer is done the field
+// comes back under the card. Below the stage, Recent questions and Sources, each only when it holds something.
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 
 import {
   answerWithSources,
@@ -16,12 +19,13 @@ import {
   type RecentAnswer,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
-import { citedThings, stagePhase, type Thing } from "../lib/stage.ts";
+import { citedThings, FLY_MS, landed, LEAVE_MS, revealParts, revealTimes, stagePhase, stageView, type Thing } from "../lib/stage.ts";
 import { AnswerCard } from "./answer-card.tsx";
 import { SourceList, sourceLabel } from "./answer-view.tsx";
-import { StageMotion } from "./hero-motion.tsx";
+import { DESKTOP, StageMotion } from "./hero-motion.tsx";
 import { QuoteInView } from "./quote-in-view.tsx";
 import { RecentQuestions } from "./recent-questions.tsx";
+import { Glyph, GLYPHS } from "./story-panel.tsx";
 
 interface Problem {
   code?: string;
@@ -54,12 +58,12 @@ function notice(status: number, problem: Problem): Notice {
   return { text: problem.detail ?? `The answer failed (HTTP ${status}).` };
 }
 
-/** Reads the event stream; deltas go to `onDelta` as they arrive. `storedAt` marks an answer from earlier. */
-async function readEvents(body: ReadableStream<Uint8Array>, onDelta: (text: string) => void) {
+/** Reads the event stream; `onDelta` hears each piece of the draft. `storedAt` marks an answer from earlier. */
+async function readEvents(body: ReadableStream<Uint8Array>, onDelta: () => void) {
   const result: { answer?: Answer; storedAt?: string | null; failed?: string } = {};
   const push = createSseParser((data) => {
     const event = JSON.parse(data) as AnswerEvent;
-    if (event.type === "delta") onDelta(event.text);
+    if (event.type === "delta") onDelta();
     else if (event.type === "completed") {
       result.answer = event.answer;
       result.storedAt = event.stored_at ?? null; // an API from before recent questions sends none
@@ -75,6 +79,25 @@ async function readEvents(body: ReadableStream<Uint8Array>, onDelta: (text: stri
 
 const sourceCount = (count: number) => `${count} source${count === 1 ? "" : "s"}`;
 
+/** The status line once an answer is on screen. */
+function readyLine(done: Answer, storedAt: string | null, sourcesFailed: boolean): string {
+  if (done.refused) return "Not answered; the reason is below.";
+  const ready = storedAt ? "Answer from earlier in this session" : "Answer ready";
+  return `${ready}, with ${sourceCount(done.citations.length)}.${sourcesFailed ? " Sources could not be loaded." : ""}`;
+}
+
+/** Where any BFF call's 401 sends the page: the session ended, so sign in again and come back. */
+const SIGN_IN = "/login?next=%2Fask";
+/** The sources lookup gives up after this: the answer waits for it, and the BFF's own call stops at 5 s. */
+const SOURCES_TIMEOUT_MS = 6_000;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** An element's top left on the page, so a scroll in between does not move it. */
+const onPage = (element: Element) => {
+  const { left, top } = element.getBoundingClientRect();
+  return { x: left + scrollX, y: top + scrollY };
+};
+
 /** Enter sends, as the form's own submit (its length check first); Shift+Enter and an IME's Enter type on. */
 function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
   if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -86,24 +109,50 @@ function sendOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
     `covered`: the coverage list's filings, which float round the stage while an answer is on its way. */
 export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] }) {
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<string | null>(null);
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const [asked, setAsked] = useState<string | null>(null); // the question whose answer is on screen
+  const [asked, setAsked] = useState<string | null>(null); // the question whose card is on screen
   const [storedAt, setStoredAt] = useState<string | null>(null); // when that answer is from earlier
+  const [whole, setWhole] = useState(false); // a recent question's answer: shown whole, never the sequence
   const [recent, setRecent] = useState<RecentAnswer[]>([]);
   const [sources, setSources] = useState<Sources>();
   const [sourcesFailed, setSourcesFailed] = useState(false);
   const [problem, setProblem] = useState<Notice | null>(null);
   const [status, setStatus] = useState("");
   const [timing, setTiming] = useState<Timing | null>(null);
-  const [turn, setTurn] = useState(0); // each question's card is a new one, so what arrives moves in afresh
+  const [turn, setTurn] = useState(0); // each question's card is a new one
+  const [reveal, setReveal] = useState<{ turn: number; pull: boolean; moving: boolean } | null>(null); // this turn's
+  const [step, setStep] = useState(Infinity); // how many of the card's parts show
+  const [leaving, setLeaving] = useState(false);
+  const [paused, setPaused] = useState(false);
   const running = useRef<AbortController | null>(null);
+  const timers = useRef<number[]>([]);
   const focusAnswer = useRef(false);
+  const flyFrom = useRef<{ x: number; y: number } | null>(null);
+  const stage = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
+  const phase = stagePhase({ asked, answer, sources, sourcesFailed, problem: problem !== null });
+  const parts = answer ? revealParts(answer, landed(answer, sources, sourcesFailed)) : [];
+  const started = whole || reveal?.turn === turn; // the reveal has begun, or there is none to wait for
+  const view = stageView(whole ? "done" : phase === "done" && !started ? "reading" : phase, {
+    step: whole ? Infinity : step,
+    parts: parts.length,
+    pull: reveal?.pull ?? false,
+    leaving,
+  });
+  const answering = view === "reading" || view === "pulling" || view === "revealing"; // the field hides
+  // Kept between renders, so the moving stage re-plots only when the sources change; it gets them from the pull on.
+  const cited = useMemo(() => (answer && sources ? citedThings(answer, sources) : []), [answer, sources]);
+
   // Leaving Ask, through a header link, stops its answer stream and its sources lookup.
-  useEffect(() => () => running.current?.abort(), []);
+  useEffect(
+    () => () => {
+      running.current?.abort();
+      timers.current.forEach(clearTimeout);
+    },
+    [],
+  );
   // In the browser only, so the times read in its time zone and the server renders no list.
   useEffect(() => void loadRecent(), []);
   // A recent question's answer takes the focus once it is on screen, as Back to the answer does.
@@ -113,10 +162,73 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
     document.getElementById("answer-text")?.focus();
   }, [answer]);
 
-  /** This sign-in's recent questions. Any failure hides the list, an API without them included. */
+  /** Whether the sequence plays: a desktop that allows motion, a visible tab, the stage in view, and no Pause. */
+  function motionOk(): boolean {
+    const element = stage.current;
+    if (!element || paused || document.visibilityState !== "visible" || !matchMedia(DESKTOP).matches) return false;
+    const { top, bottom, height } = element.getBoundingClientRect();
+    return Math.min(bottom, innerHeight) - Math.max(top, 0) >= Math.min(height, innerHeight) * 0.1;
+  }
+
+  /** Every part at once, and the status line says so: no motion, or Pause during the reveal. */
+  function showWhole(done: Answer) {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setReveal((current) => (current ? { ...current, moving: false } : current));
+    setStep(Infinity);
+    setStatus(readyLine(done, storedAt, sourcesFailed));
+  }
+
+  // The checked answer and its sources are in: the pull, then the parts a step apart; or all at once.
+  const dataIn = !whole && phase === "done" && answer ? turn : -1;
+  useEffect(() => {
+    if (dataIn < 0 || !answer) return;
+    const moving = motionOk();
+    const pull = moving && cited.length > 0 && stage.current?.dataset.live === "on";
+    setReveal({ turn: dataIn, pull, moving });
+    if (!moving) return showWhole(answer);
+    setStep(0);
+    const ready = readyLine(answer, storedAt, sourcesFailed);
+    timers.current = revealTimes(parts.length, pull).map((at, i, all) =>
+      window.setTimeout(() => {
+        setStep(i + 1);
+        if (i === all.length - 1) setStatus(ready);
+      }, at),
+    );
+    // Once per answer: its data coming in starts it, and a new question's turn clears it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataIn]);
+  // Pause during the reveal shows the rest at once.
+  useEffect(() => {
+    if (paused && answer && started && !whole && step < parts.length) showWhole(answer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
+
+  // A new card: the focus moves to its question (the field that had it hides), the stage's top comes into view,
+  // and the question flies there from the field.
+  useLayoutEffect(() => {
+    const sent = stage.current?.querySelector<HTMLElement>(".story-sent");
+    if (!sent || whole) return; // a recent question's answer takes the focus instead
+    sent.focus({ preventScroll: true });
+    const from = flyFrom.current;
+    flyFrom.current = null;
+    const moving = motionOk();
+    if (stage.current!.getBoundingClientRect().top < 0) stage.current!.scrollIntoView({ block: "start", behavior: moving ? "smooth" : "auto" });
+    const bubble = sent.firstElementChild;
+    if (!from || !moving || !bubble) return;
+    const to = onPage(bubble);
+    bubble.animate([{ transform: `translate(${from.x - to.x}px, ${from.y - to.y}px)` }, { transform: "none" }], {
+      duration: FLY_MS,
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turn]);
+
+  /** This sign-in's recent questions. Any failure but a 401 hides the list, an API without them included. */
   async function loadRecent() {
     try {
       const found = await fetch("/api/recent");
+      if (found.status === 401) return window.location.assign(SIGN_IN);
       setRecent(found.ok ? ((await found.json()) as { items: RecentAnswer[] }).items : []);
     } catch {
       setRecent([]);
@@ -124,22 +236,13 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
   }
 
   function fail(failure: Notice) {
-    setDraft(null);
     setProblem(failure);
     setStatus(failure.text);
   }
 
-  /** An answer on screen: a new one, or one from earlier (stored), whose header then says when it was given. */
-  function show(done: Answer, stored: string | null) {
-    setDraft(null);
-    setAnswer(done);
-    setStoredAt(stored);
-    const ready = stored ? "Answer from earlier in this session" : "Answer ready";
-    setStatus(done.refused ? "Not answered; the reason is below." : `${ready}, with ${sourceCount(done.citations.length)}.`);
-  }
-
-  /** The cited chunks and facts. A failure keeps the answer and adds a note; it never throws. */
-  async function showSources(done: Answer, signal: AbortSignal) {
+  /** The cited chunks and facts. A failure keeps the answer and adds a note; it never throws. An answer already
+      whole on screen (`now`) says so in the status line at once; a revealed one says it when the reveal ends. */
+  async function showSources(done: Answer, signal: AbortSignal, now: boolean) {
     const chunkIds = done.citations.flatMap((c) => (c.chunk_id ? [c.chunk_id] : []));
     const factIds = done.citations.flatMap((c) => (c.fact_id ? [c.fact_id] : []));
     if (!chunkIds.length && !factIds.length) return;
@@ -148,56 +251,70 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chunkIds, factIds }),
-        signal,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(SOURCES_TIMEOUT_MS)]),
       });
+      if (found.status === 401) return window.location.assign(SIGN_IN);
       if (found.ok) return setSources((await found.json()) as Sources);
     } catch {
       if (signal.aborted) return;
     }
     setSourcesFailed(true);
-    setStatus((ready) => `${ready} Sources could not be loaded.`);
+    if (now) setStatus((line) => `${line} Sources could not be loaded.`);
   }
 
-  /** Asks through the BFF; `fresh` (Ask again) answers anew instead of giving back the earlier answer. */
+  /** Asks through the BFF; `fresh` (Ask again) answers anew instead of giving back the earlier answer. The request
+      starts at once; where motion is allowed the answer on screen first clears (the leave), then the new card shows. */
   async function run(question: string, fresh = false) {
     running.current?.abort(); // a new question stops the one before
+    timers.current.forEach(clearTimeout);
     const controller = new AbortController();
     running.current = controller;
     const { signal } = controller;
+    const leave = answer !== null && motionOk();
     setBusy(true);
+    setStatus("Answering.");
+    if (leave) setLeaving(true);
+    const sentAt = performance.now();
+    let firstWordsMs: number | undefined;
+    const reply = fetch("/api/answers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, fresh }),
+      signal,
+    });
+    reply.catch(() => {}); // read below, after the leave
+    if (leave) await wait(LEAVE_MS);
+    if (signal.aborted) return;
+    // The new question's card: the field clears and hides, and the question takes the top of the stage.
+    form.current?.reset();
+    setLeaving(false);
     setTurn((n) => n + 1);
     setAsked(question);
-    setDraft("");
     setAnswer(null);
     setStoredAt(null);
+    setWhole(false);
     setSources(undefined);
     setSourcesFailed(false);
     setProblem(null);
     setTiming(null);
-    setStatus("Answering.");
-    const started = performance.now();
-    let firstWordsMs: number | undefined;
+    setReveal(null);
+    setStep(0);
     try {
-      const response = await fetch("/api/answers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, fresh }),
-        signal,
-      });
-      if (response.status === 401) return window.location.assign("/login?next=%2Fask");
+      const response = await reply;
+      if (response.status === 401) return window.location.assign(SIGN_IN);
       if (!response.ok || !response.body) {
         return fail(notice(response.status, await response.json().catch(() => ({}))));
       }
-      const result = await readEvents(response.body, (text) => {
-        firstWordsMs ??= performance.now() - started;
-        setDraft((sofar) => (sofar ?? "") + text);
+      const result = await readEvents(response.body, () => {
+        firstWordsMs ??= performance.now() - sentAt;
       });
       if (!result.answer) return fail({ text: result.failed ?? "The answer stopped before it finished." });
       const done = result.answer;
-      show(done, result.storedAt ?? null);
-      if (!result.storedAt) setTiming({ firstWordsMs, completeMs: performance.now() - started });
+      setAnswer(done);
+      setStoredAt(result.storedAt ?? null);
+      if (!result.storedAt) setTiming({ firstWordsMs, completeMs: performance.now() - sentAt });
       if (!result.storedAt && !done.refused) void loadRecent(); // the API has just kept it
-      await showSources(done, signal);
+      await showSources(done, signal, false);
     } catch {
       // Only the stream lands here, since showSources keeps its own failures; an abort shows nothing.
       if (!signal.aborted) fail({ text: "The web server could not be reached.", demo: true });
@@ -206,29 +323,36 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
     }
   }
 
-  /** The question goes into the stage's bubble and the field clears: it shows once. */
-  async function ask(event: FormEvent<HTMLFormElement>) {
+  /** The question flies from the field to the card's bubble; the field keeps it until the card on screen clears. */
+  function ask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     const question = String(new FormData(event.currentTarget).get("question") ?? "").trim();
-    event.currentTarget.reset();
-    await run(question);
+    flyFrom.current = box.current ? onPage(box.current) : null;
+    void run(question);
   }
 
-  /** A recent question: its stored answer with its reading, number checks and sources, and no model call. */
+  /** A recent question: its stored answer whole, with its reading, number checks and sources, and no model call. */
   function pick(item: RecentAnswer) {
     running.current?.abort(); // a sources lookup still running stops
+    timers.current.forEach(clearTimeout);
     const controller = new AbortController();
     running.current = controller;
+    setLeaving(false);
     setTurn((n) => n + 1);
     setAsked(item.question);
+    setWhole(true);
     setProblem(null);
     setTiming(null);
     setSources(undefined);
     setSourcesFailed(false);
-    show(item.answer, item.answered_at);
+    setAnswer(item.answer);
+    setStoredAt(item.answered_at);
+    setReveal(null);
+    setStep(Infinity);
+    setStatus(readyLine(item.answer, item.answered_at, false));
     focusAnswer.current = true;
-    void showSources(item.answer, controller.signal);
+    void showSources(item.answer, controller.signal, true);
   }
 
   /** The answer and its sources on the clipboard, as plain text; the status line says how it went. */
@@ -242,98 +366,76 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
     }
   }
 
-  /** Back to the empty stage, with the focus in the field; a sources lookup still running stops. */
-  function startOver() {
-    running.current?.abort();
-    setBusy(false); // an aborted question leaves busy alone, so it is cleared here
-    setAnswer(null);
-    setAsked(null);
-    setStoredAt(null);
-    setSources(undefined);
-    setSourcesFailed(false);
-    setTiming(null);
-    setStatus("");
+  /** Back to the empty stage, the field at its top with the focus; the card clears first where motion is allowed. */
+  async function startOver() {
+    running.current?.abort(); // a sources lookup still running stops
+    const controller = new AbortController();
+    running.current = controller;
+    if (answer !== null && motionOk()) {
+      setLeaving(true);
+      await wait(LEAVE_MS);
+      if (controller.signal.aborted) return; // a new question or a recent one came first
+    }
+    flushSync(() => {
+      setBusy(false); // an aborted question leaves busy alone, so it is cleared here
+      setLeaving(false);
+      setAnswer(null);
+      setAsked(null);
+      setStoredAt(null);
+      setWhole(false);
+      setSources(undefined);
+      setSourcesFailed(false);
+      setProblem(null);
+      setTiming(null);
+      setReveal(null);
+      setStep(Infinity);
+      setStatus("");
+    });
     form.current?.reset();
     box.current?.focus();
   }
 
   // The question on screen is left out of the list: by its words, or by its stored time for a repeat.
   const others = recent.filter((item) => item.question !== asked && item.answered_at !== storedAt);
-  const phase = stagePhase({ asked, answer, sources, sourcesFailed, problem: problem !== null });
-  // Kept between renders, so the moving stage re-plots only when the sources change.
-  const cited = useMemo(() => (answer && sources ? citedThings(answer, sources) : []), [answer, sources]);
+  // Sources once the answer is whole on screen, so the keyboard never reaches them before it.
+  const sourcesShown = answer !== null && answer.citations.length > 0 && !answering;
+  const shown = whole ? Infinity : phase === "done" && started ? step : 0;
 
-  // The DOM order is the reading order: the field, the stage's answer, then Recent questions and Sources.
+  // The DOM order is the reading order: the card, the status line, the field (at the top while there is no card),
+  // the examples, then Recent questions and Sources.
   return (
     <div className="ask">
-      <section className="stage" aria-label="Ask about the filings" data-phase={phase} data-motion="still">
+      <section ref={stage} className="stage" aria-label="Ask about the filings" data-phase={view} data-step={Math.min(shown, parts.length)} data-motion="still">
         <div className="stage-field" aria-hidden="true" />
         <div className="stage-layer" aria-hidden="true" />
-        <form ref={form} onSubmit={ask} className="stage-ask">
-          <label htmlFor="question" className="visually-hidden">
-            Your question
-          </label>
-          <div className="stage-input">
-            <textarea
-              ref={box}
-              id="question"
-              name="question"
-              rows={2}
-              required
-              minLength={3}
-              maxLength={1000}
-              placeholder="Ask about a company's 10-K..."
-              aria-describedby="question-help"
-              onKeyDown={sendOnEnter}
-            />
-            {/* aria-disabled, not disabled: a disabled button would drop the keyboard user's focus */}
-            <button type="submit" className="stage-send" aria-disabled={busy || undefined}>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
-              <span className={busy ? undefined : "visually-hidden"}>{busy ? "Answering…" : "Ask"}</span>
-            </button>
-          </div>
-          <p id="question-help" className="help">
-            About the tracked companies&apos; filings: 3 to 1,000 characters. Enter sends; Shift+Enter starts a new line.
-          </p>
-        </form>
-        {phase === "empty" && samples.length > 0 && (
-          <section className="samples" aria-labelledby="samples-title" data-testid="samples">
-            <h2 id="samples-title">Try a question the filings can answer</h2>
-            <ul>
-              {samples.map((sample) => (
-                <li key={sample}>
-                  <button
-                    type="button"
-                    className="secondary small"
-                    onClick={() => {
-                      if (!box.current) return;
-                      box.current.value = sample;
-                      box.current.focus();
-                    }}
-                  >
-                    {sample}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        <p role="status" className="status" data-testid="ask-status">
-          {status}
-        </p>
-        {/* Always there, empty until a question: the moving stage measures itself round it. */}
+        {/* Empty until a question, and then out of the way: the moving stage measures itself round it. */}
         <div className="stage-panel">
           {asked !== null && (
             <AnswerCard
               key={turn}
               question={asked}
-              draft={draft}
               answer={answer}
               sources={sources}
               sourcesFailed={sourcesFailed}
-              still={storedAt !== null}
+              shown={shown}
+              leaving={leaving}
+              still={whole || !reveal?.moving}
+              waiting={
+                <div className="card-reading" data-testid="reading">
+                  <p className="story-row" data-tone="reading">
+                    <Glyph d={GLYPHS.read} />
+                    <span>Reading the filings…</span>
+                  </p>
+                  {/* What FilingLens covers, none of it claimed; the moving stage floats these instead. */}
+                  {covered.length > 0 && (
+                    <ul className="stage-covered" aria-label="Filings FilingLens covers">
+                      {covered.map((thing) => (
+                        <li key={thing.filing}>{thing.filing}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              }
               problem={
                 problem && (
                   <>
@@ -378,7 +480,7 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
                         Ask again
                       </button>
                     )}
-                    <button type="button" className="secondary small" onClick={startOver}>
+                    <button type="button" className="secondary small" onClick={() => void startOver()}>
                       New question
                     </button>
                   </>
@@ -387,37 +489,83 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
             />
           )}
         </div>
-        {/* While it reads: the coverage list's filings, none of them claimed; the moving stage floats them. */}
-        {phase === "reading" && (
-          <div className="stage-reading">
-            <p>Reading the filings…</p>
-            {covered.length > 0 && (
-              <ul className="stage-covered" aria-label="Filings FilingLens covers">
-                {covered.map((thing) => (
-                  <li key={thing.filing}>{thing.filing}</li>
-                ))}
-              </ul>
-            )}
+        <p role="status" className="status" data-testid="ask-status">
+          {status}
+        </p>
+        <form ref={form} onSubmit={ask} className="stage-ask" hidden={answering}>
+          <label htmlFor="question" className="visually-hidden">
+            Your question
+          </label>
+          <div className="stage-input">
+            <textarea
+              ref={box}
+              id="question"
+              name="question"
+              rows={2}
+              required
+              minLength={3}
+              maxLength={1000}
+              placeholder="Ask about a company's 10-K..."
+              aria-describedby="question-help"
+              onKeyDown={sendOnEnter}
+            />
+            {/* aria-disabled, not disabled: a disabled button would drop the keyboard user's focus */}
+            <button type="submit" className="stage-send" aria-disabled={busy || undefined}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+              <span className="visually-hidden">Ask</span>
+            </button>
           </div>
+          <p id="question-help" className="help">
+            About the tracked companies&apos; filings: 3 to 1,000 characters. Enter sends; Shift+Enter starts a new line.
+          </p>
+        </form>
+        {view === "empty" && samples.length > 0 && (
+          <section className="samples" aria-labelledby="samples-title" data-testid="samples">
+            <h2 id="samples-title">Try a question the filings can answer</h2>
+            <ul>
+              {samples.map((sample) => (
+                <li key={sample}>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={() => {
+                      if (!box.current) return;
+                      box.current.value = sample;
+                      box.current.focus();
+                    }}
+                  >
+                    {sample}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
-        <StageMotion phase={phase} turn={turn} covered={covered} cited={cited} />
+        <StageMotion
+          phase={view}
+          turn={turn}
+          covered={covered}
+          cited={view === "reading" || view === "empty" ? [] : cited}
+          paused={paused}
+          onPause={setPaused}
+        />
       </section>
-      <div className="ask-below">
-        <div className="ask-card ask-recent" data-testid="recent-card">
-          {others.length > 0 ? (
-            <RecentQuestions items={others} busy={busy} onPick={pick} />
-          ) : (
-            <p className="help">Questions you ask will appear here.</p>
+      {(others.length > 0 || sourcesShown) && (
+        <div className="ask-below">
+          {others.length > 0 && (
+            <div className="ask-card ask-recent" data-testid="recent-card">
+              <RecentQuestions items={others} busy={busy} onPick={pick} />
+            </div>
+          )}
+          {sourcesShown && (
+            <div className="ask-card ask-sources" data-testid="sources-card">
+              <SourceList answer={answer} sources={sources} sourcesFailed={sourcesFailed} />
+            </div>
           )}
         </div>
-        <div className="ask-card ask-sources" data-testid="sources-card">
-          {answer && answer.citations.length > 0 ? (
-            <SourceList answer={answer} sources={sources} sourcesFailed={sourcesFailed} />
-          ) : (
-            <p className="help">{answer ? "This answer cites no sources." : "Sources for your answer appear here."}</p>
-          )}
-        </div>
-      </div>
+      )}
       <QuoteInView />
     </div>
   );

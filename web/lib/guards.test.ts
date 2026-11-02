@@ -29,6 +29,24 @@ for (const next of LEAVING) {
   });
 }
 
+// Routes that are no page: signing in must never land on a 405, a JSON reply or a probe.
+const NOT_PAGES = ["/logout", "/logout?x=1", "/logout/", "/api", "/api/answers", "/api/recent?x=1", "/healthz", "/readyz", "/_next/static/x.js"];
+
+for (const next of NOT_PAGES) {
+  test(`next= refuses ${next}, which is no page`, () => {
+    assert.equal(safeNext(next, ORIGIN), null);
+  });
+}
+
+// Pages whose paths only look like those routes stay.
+const PAGES = ["/logouts", "/apiary", "/healthzone", "/demo/api", "/ask?next=/logout", "/coverage#api"];
+
+for (const next of PAGES) {
+  test(`next= keeps the page ${next}`, () => {
+    assert.equal(safeNext(next, ORIGIN), next);
+  });
+}
+
 // Next builds a route handler's URL on localhost, so the rule compares Origin with Host.
 const HOST = { Host: "127.0.0.1:3100" };
 const ORIGINS: [string, Record<string, string>, boolean][] = [

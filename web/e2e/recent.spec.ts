@@ -86,14 +86,13 @@ test("the same question again, in other letter case and spacing, comes back from
   await expect(page.getByTestId("recent")).toHaveCount(0); // its one entry is the answer on screen
 });
 
-test("Ask again answers anew, with a draft and its timings, and the list keeps one entry", async ({ page }) => {
+test("Ask again answers anew, with its timings, and the list keeps one entry", async ({ page }) => {
   await ask(page, N01);
   await expect(page.getByTestId("timings")).toBeVisible();
   await ask(page, N01);
   await expect(page.getByTestId("stored")).toBeVisible();
   const posted = answerPosts(page);
   await page.getByRole("button", { name: "Ask again" }).click();
-  await expect(page.getByTestId("draft")).toBeVisible();
   await expect(page.getByTestId("timings")).toBeVisible();
   await expect(page.getByTestId("stored")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Ask again" })).toHaveCount(0);
@@ -106,10 +105,11 @@ test("while an answer is on its way, the list's questions wait", async ({ page }
   await ask(page, N01);
   await expect(page.getByTestId("timings")).toBeVisible();
   await ask(page, `e2e: slow ${randomUUID()}`); // the mock drafts it for about 3 s
-  await expect(page.getByTestId("draft")).toBeVisible();
+  const reading = page.locator(".stage").getByText("Reading the filings…");
+  await expect(reading).toBeVisible();
   await expect(items(page)).toHaveAttribute("aria-disabled", "true");
   await items(page).click({ force: true }); // Playwright would wait for aria-disabled to go
-  await expect(page.getByTestId("draft")).toBeVisible();
+  await expect(reading).toBeVisible();
   await expect(page.getByTestId("stored")).toHaveCount(0);
 });
 
@@ -143,7 +143,7 @@ test("signing out has the API forget the list, so the old cookie brought back fi
   await expect(page.getByTestId("timings")).toBeVisible();
   const old = (await context.cookies()).find((cookie) => cookie.name === SESSION_COOKIE)!;
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page).toHaveURL("/login");
+  await expect(page).toHaveURL("/?signed-out=1");
   await context.addCookies([old]); // a saved copy still signs in: sessions are stateless
   await openAsk(page);
   await expect(page.getByTestId("recent")).toHaveCount(0);
@@ -151,7 +151,7 @@ test("signing out has the API forget the list, so the old cookie brought back fi
   await expect(page.getByTestId("timings")).toBeVisible();
 });
 
-test("from a stored answer, Tab goes through Copy, Ask again and New question to the list", async ({ page }) => {
+test("from a stored answer, Tab goes through Copy, Ask again, New question and the field under the card to the list", async ({ page }) => {
   await twoAnswered(page);
   await items(page).filter({ hasText: N01 }).click();
   await expect(page.locator("#answer-text")).toBeFocused();
@@ -164,10 +164,12 @@ test("from a stored answer, Tab goes through Copy, Ask again and New question to
   }
   const copy = order.indexOf("Copy answer with sources");
   expect(copy).toBeGreaterThan(0); // the answer's citation first
-  expect(order.slice(copy, copy + 4)).toEqual([
+  expect(order.slice(copy, copy + 6)).toEqual([
     "Copy answer with sources",
     "Ask again",
     "New question",
+    "question",
+    "Ask",
     expect.stringContaining(X04),
   ]);
 });

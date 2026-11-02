@@ -51,7 +51,7 @@ test("ask, jump to a citation and back, then sign out, by keyboard alone", async
   await tab(page, 6);
   expect(await focused(page)).toBe("Sign out");
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL("/login");
+  await expect(page).toHaveURL("/?signed-out=1");
 });
 
 test("after an answer, Tab goes from its citations to Copy and New question, which returns to the question box", async ({ page }) => {
@@ -78,6 +78,8 @@ test.describe("signed out", () => {
   test("sign in by keyboard alone", async ({ page }) => {
     await page.goto("/login");
     await tab(page, 2);
+    expect(await focused(page)).toBe("Back to home");
+    await tab(page);
     expect(await focused(page)).toBe("password");
     await page.keyboard.type(PASSWORD);
     await page.keyboard.press("Enter");

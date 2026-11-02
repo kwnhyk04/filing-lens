@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 
 import { demo, demoCoverageLine } from "../lib/demo.ts";
-import { hasSession } from "../lib/server.ts";
+import { session } from "../lib/server.ts";
 import { THEME_COOKIE, themeOf } from "../lib/theme.ts";
+import { SignOut } from "./sign-out.tsx";
 import { ThemeToggle } from "./theme-toggle.tsx";
 
 const current = (on: boolean) => (on ? ("page" as const) : undefined);
@@ -15,18 +16,9 @@ async function Theme() {
   return <ThemeToggle theme={themeOf((await cookies()).get(THEME_COOKIE)?.value)} />;
 }
 
-function SignOut() {
-  return (
-    <form action="/logout" method="post">
-      <button type="submit" className="secondary small">
-        Sign out
-      </button>
-    </form>
-  );
-}
-
-/** `line`: what the API's totals say is covered; left out when the API did not answer. */
-export function LiveHeader({ page, line }: { page: "ask" | "coverage"; line?: string }) {
+/** `line`: what the API's totals say is covered; left out when the API did not answer. `expiresAt`: when this
+    sign-in ends, after which Sign out gives way to Sign in. */
+export function LiveHeader({ page, line, expiresAt }: { page: "ask" | "coverage"; line?: string; expiresAt: number }) {
   return (
     <header className="site">
       <Link href="/" className="brand" prefetch={false}>
@@ -43,7 +35,7 @@ export function LiveHeader({ page, line }: { page: "ask" | "coverage"; line?: st
       <div className="site-end">
         {line && <p>{line}</p>}
         <Theme />
-        <SignOut />
+        <SignOut expiresAt={expiresAt} />
       </div>
     </header>
   );
@@ -51,7 +43,7 @@ export function LiveHeader({ page, line }: { page: "ask" | "coverage"; line?: st
 
 /** Signed in, it offers Sign out: while the API is offline, the demo is the only page there is. */
 export async function DemoHeader({ page }: { page: "answers" | "coverage" }) {
-  const signedIn = await hasSession();
+  const signedIn = await session();
   return (
     <header className="site">
       <Link href="/demo" className="brand">
@@ -70,7 +62,7 @@ export async function DemoHeader({ page }: { page: "answers" | "coverage" }) {
         <p>{demoCoverageLine}</p>
         <Theme />
         {signedIn ? (
-          <SignOut />
+          <SignOut expiresAt={signedIn.expiresAt} />
         ) : (
           <Link href="/login" className="button small" prefetch={false}>
             Sign in
