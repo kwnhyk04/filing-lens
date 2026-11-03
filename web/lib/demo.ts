@@ -25,18 +25,15 @@ export interface Snapshot {
 }
 
 export const demo = snapshot as unknown as Snapshot;
-const PAGE = 20;
 
 const listed = demo.companies.reduce((sum, company) => sum + company.filings.edges.length, 0);
 const unlisted = demo.companies.some((company) => company.filings.pageInfo.hasNextPage);
 /** "30 companies · 30 filings": what the snapshot covers, with "+" when it left older filings out. */
 export const demoCoverageLine = coverageLine(demo.companies.length, listed, unlisted);
 
-/** The page of companies after the one with CIK `after`; null for a cursor the snapshot lacks. */
-export function demoCoverage(after?: string): { companies: Company[]; next?: string } | null {
+/** The companies, from the one after CIK `after` when an old pager's link carries one; null for a cursor the
+    snapshot lacks. The page pages them itself (components/coverage-table.tsx). */
+export function demoCoverage(after?: string): Company[] | null {
   const start = after === undefined ? 0 : demo.companies.findIndex((c) => String(c.cik) === after) + 1;
-  if (after !== undefined && start === 0) return null;
-  const companies = demo.companies.slice(start, start + PAGE);
-  const more = start + PAGE < demo.companies.length;
-  return { companies, next: more ? String(companies.at(-1)?.cik) : undefined };
+  return after !== undefined && start === 0 ? null : demo.companies.slice(start);
 }

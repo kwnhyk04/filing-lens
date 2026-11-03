@@ -11,6 +11,34 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Coverage's table and pager (2026-11-03, branch `fl-coverage-table`)
+
+The user's brief: restyle Coverage with 21st.dev's table with numeric pagination (Origin UI, MIT), ported faithfully into FilingLens's CSS: its sizes, spacing, hover, focus and disabled states, its colours in the app's tokens in both modes, with no Tailwind, shadcn or TanStack. Every column, value and link stays. This supersedes the list-table and pager notes below for Coverage.
+
+- **The table** (`components/coverage-table.tsx`, the `.data-*` rules in `app/globals.css`):
+  - A frame with a 1 px `--rule` border and an 8 px radius on `--sheet`.
+  - A plain head, 44 px tall, in `--ink-3` at weight 500.
+  - Cells with 12 px padding, text at 14/20 px.
+  - A rule between rows, none under the last; a row tints to half `--sunk` on hover (150 ms).
+  - Company names at weight 500.
+  - Fixed columns (38%, 9rem, the rest), so no page moves them.
+  - The caption is visually hidden; it still names the table and its scroll region.
+- **The pager:**
+  - Left: "Page 1 of 3", 14 px in `--ink-3`, the numbers in `--ink`; a polite live region.
+  - Middle: Previous, at most five page numbers with a gap mark (Lucide's ellipsis) for pages left out, then Next. Each is a 40 px square with a 6 px radius, 4 px apart. The current page, Previous and Next are outlined (`--field` on `--sheet`), the other pages plain. All tint to `--sunk` on hover, take a 2 px `--accent` ring 2 px out on focus, and fall to half opacity when disabled.
+  - Right: "10 / page", the component's select trigger (40 px, 6 px radius, `--field` border, a chevron at half opacity) as the browser's own select, with 10, 20 and 50.
+- **State:**
+  - `?page=&size=` in the URL (`history.pushState`, which Next's router follows), kept by a refresh, Back and a shared link. The size is also kept in `localStorage` (`fl-coverage-size`, read and written inside try/catch).
+  - A new size goes to the page that holds the first row on screen, and keeps that row where it was.
+  - A page past the end shows the last; any other page or size falls back to 1 and 10.
+- **Phones (from 40rem down):** each company is a card (from 45rem down, as before). The pager keeps "Page 2 of 3", Previous, Next and the size on one row; the page numbers hide.
+- **Loading:** the header and a skeleton in the table's shape (the frame, the head and ten rows of bars, the pager's parts; cards on a phone) stream at once, and the companies follow when the API answers. The bars pulse unless reduced motion is asked.
+- **Left out:** the component's row selection, sortable headers, status badge and credit line. Coverage has no sort or filter, so nothing goes back to page 1.
+- **Accessibility:**
+  - A real table, with column and row headers.
+  - Real buttons named "Go to previous page", "Page 2" and "Go to next page", with `aria-current="page"` on the current one.
+  - Previous and Next are `aria-disabled` at the ends, so focus never drops.
+
 ## Ask's stage lets go and comes to rest (2026-11-03, branch `fl-ask-release`)
 
 The user's brief, from their test on production (Alphabet against Meta, asked as the second question in a row): the two pulled-in sources stayed attached to the membrane after the answer finished. About 1 s after the card has fully settled, the sources must let go, the membrane's bridges retract and the bubbles drift back into the orbit, so a new question starts from a clean orbit. Ask's Pause button goes, so the ambient drift must stop by itself within 5 s of the card settling, and within 5 s of the page load when idle (WCAG 2.2.2); motion plays only while a question is answered and during that short settle. Phones and reduced motion stay still; the landing hero keeps its own Pause. This supersedes the sections below where they differ.

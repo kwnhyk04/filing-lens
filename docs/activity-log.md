@@ -15,6 +15,45 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-03: Coverage's table and pager after Origin UI's table with numeric pagination (uncommitted, branch `fl-coverage-table`)
+
+- Brief: restyle Coverage and give it a pager with 21st.dev's component (MIT), ported into FilingLens's CSS:
+  - its sizes, spacing, hover, focus and disabled states, its colours mapped to the theme in both modes, with no Tailwind, shadcn or TanStack;
+  - every column, value, link and sort kept;
+  - "Page 1 of 3", Previous, the page numbers with "…", Next, and "10 / page" with 10, 20 and 50;
+  - `?page=&size=` kept by refresh, Back and shared links, the size remembered in localStorage (inside try/catch), the first visible row kept on screen;
+  - accessibility, a readable phone layout and the skeleton kept in the new shape;
+  - screenshots in `H:\Projects\projects\_tmp\fl-coverage-table`;
+  - the credit in `docs/third-party.md`.
+- Where:
+  1. A git worktree at `.claude/worktrees/fl-coverage-table` (already in `.git/info/exclude`), on a branch from main at 976175e, since `fl-ask-release` waited uncommitted in the main folder and each part needs its own commit. `npm ci` ran in its `web/`.
+  2. After #53 merged (the user's word): Part 2 was stashed by tag in the worktree, the worktree removed, the branch made again from main at 8036435 in the main folder, and the stash applied by its hash.
+  3. The five shared docs conflicted (activity log, context, design, memory, todo). Each took main's side (`git checkout --ours`), and Part 2's text was added back. The code, `screens.ts` included, merged cleanly.
+  4. `git reset` left plain unstaged changes, and the stash entry was dropped.
+- Found first: Coverage had no skeleton (no `loading.tsx`, nothing in git's history); one was added (memory.md).
+- Tests first, red on main's code: units for `lib/pager.ts` (red: no module). The e2e specs were rewritten or updated, and 12 of the changed specs failed on main's build:
+  - `coverage.spec.ts` rewritten: the pager, the URL, Back, refresh, a shared link, the size kept and remembered, blocked storage, the fallbacks, the skeleton and the phone.
+  - `offline.spec.ts` and `card.spec.ts` updated.
+  - The unit test was moved out of the tree for that build (`next build` type-checks tests) and moved back.
+- Event: the first red build failed on the spec's types, since `e2e/env.ts`'s snapshot type lacked `name`; it was added.
+- Changes:
+  - `lib/pager.ts`: the sizes, the page and size from the URL, and Origin UI's `usePagination` with its gap-mark fix.
+  - `lib/server.ts`: `coverageAll` reads every company 100 at a time. `lib/demo.ts`: `demoCoverage` returns the whole list.
+  - `components/coverage-table.tsx`: a client table and pager (`history.pushState`, `localStorage`, the kept row) and `CoverageSkeleton`.
+  - `app/coverage/page.tsx`: the header and the skeleton in a Suspense fallback. `app/demo/coverage/page.tsx` follows.
+  - `app/globals.css`: the `.data-*`, `.pager-*` and `.skeleton*` rules; the old pager rules removed; the phone cards' spacing.
+  - `e2e/mock-api.ts`: the `e2e-slow` cursor, 3 s.
+  - `e2e/screens.ts`: page 2, the size change and the skeleton, live and demo.
+  - `docs/third-party.md`: the component's row, the MIT notice and the Lucide glyphs.
+- Validation:
+  - In the worktree: typecheck clean, `npm test` 151, build; the changed specs 51 passed; Playwright without a GPU 142 passed, 10 skipped.
+  - Screenshots: 42 at 1280, 1440 and 390 px, light and dark (Coverage and the demo's: page 1, page 2, the size change, the skeleton), looked at. The phone skeleton's pager wrapped; fixed and shot again.
+  - The first GPU run and `npm run screens` ran in one background job, which Claude Code stopped for low memory (5.4 GB free of 32.6 GB; Edge workers exited 0xC0000142). Neither was started again until the user asked.
+  - After the move, on main with #53 (5.0 GB free), run in the foreground: typecheck clean, `npm test` 152, build; Edge's GPU suite with `--workers=2` 152 passed, 1 skipped.
+  - `npm run screens`: 85 passed. 15 new files (the five new Coverage screens) and 25 changed: Coverage and the demo's, plus run-to-run changes in the error, configuration-error and Ask screens (request ids, timings, times).
+  - Not run: Python and `clients/ts` (none changed), and the suite without a GPU after the move.
+- Outstanding: the user ships.
+
 ### 2026-11-03: Ask's sources let go a second after the card settles, the stage comes to rest by itself, and Ask has no Pause (uncommitted, branch `fl-ask-release`)
 
 - Brief: the user's test on production (Alphabet against Meta, the second question in a row): the two pulled-in sources stayed attached after the answer. About 1 s after the card has settled they must let go, the bridges retract and the bubbles drift back, so a new question starts from a clean orbit. Remove Ask's Pause/Play button, so the ambient drift stops by itself within 5 s of the card settling and of the page load when idle (WCAG 2.2.2); phones and reduced motion stay still; the landing hero keeps its Pause. Tests first, the GPU suite with 2 workers, screenshots in `H:\Projects\projects\_tmp\fl-ask-release`, no commit.

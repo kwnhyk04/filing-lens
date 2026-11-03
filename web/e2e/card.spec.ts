@@ -185,7 +185,7 @@ test.describe("390 px", () => {
 
   test("Coverage shows each company as a card, its filings with Indexed badges, and nothing scrolls sideways", async ({ page }) => {
     await page.goto("/coverage");
-    await expect(page.locator("tbody tr")).toHaveCount(20);
+    await expect(page.locator("tbody tr")).toHaveCount(10);
     const table = page.getByRole("region", { name: "Companies and their indexed filings" });
     expect(await table.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expect(page.locator("tbody tr").first().locator(".card-label")).toHaveText("CIK");

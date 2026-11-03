@@ -36,7 +36,7 @@ export interface DemoAnswer {
 
 export const snapshot = JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as {
   answers: DemoAnswer[];
-  companies: { cik: number; filings: { edges: unknown[] } }[];
+  companies: { cik: number; name: string; filings: { edges: unknown[] } }[];
   sources: { chunks: { id: string }[]; facts: { id: string }[] };
 };
 
