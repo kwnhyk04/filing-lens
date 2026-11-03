@@ -6,12 +6,15 @@ import { test } from "node:test";
 
 import type { Snapshot } from "./demo.ts";
 import {
+  CALM_MS,
+  calmPace,
   citedThings,
   coveredThings,
   ENTER_MS,
   landed,
   PULL_MS,
   placeThings,
+  RELEASE_MS,
   revealParts,
   revealTimes,
   sentences,
@@ -76,6 +79,17 @@ test("the reveal: the pull, then about 0.3 s between parts, the last in place wi
   }
   const apple = revealTimes(8, true); // n01's eight parts after the pull keep near 0.3 s
   assert.ok(apple[1] - apple[0] >= 250, `${apple[1] - apple[0]} ms`);
+});
+
+test("the stage comes to rest by itself within 5 s (WCAG 2.2.2): the sources let go a second after the card settles, then the drift slows to a stop", () => {
+  // Rest starts at the page load, or as the last part starts; the card is in place ENTER_MS after that.
+  assert.equal(RELEASE_MS, 1_000);
+  assert.ok(CALM_MS <= 5_000, `still ${CALM_MS} ms after the page load`);
+  assert.equal(calmPace(0), 1);
+  assert.equal(calmPace(ENTER_MS + RELEASE_MS + 1_200), 1, "the sources let go and drift home at full pace");
+  assert.equal(calmPace(CALM_MS), 0);
+  assert.equal(calmPace(60_000), 0);
+  for (let ms = 0; ms < CALM_MS; ms += 50) assert.ok(calmPace(ms + 50) <= calmPace(ms), `slows, never speeds up, at ${ms} ms`);
 });
 
 test("the stage's view: the data's phase, then the pull and the reveal, and the leave over all of them", () => {

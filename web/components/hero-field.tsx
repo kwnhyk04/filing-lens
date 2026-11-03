@@ -2,7 +2,7 @@
 // The hero's moving field: ShaderGradient (MIT, by ruucm; docs/third-party.md) on three.js, with Prompt
 // Bond's two fields recoloured. Light: warm paper, soft grey-blue and a pale teal. Dark: ink navy with a
 // muted teal glow. "3d" lighting needs no environment map, so nothing loads from ShaderGradient's site.
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { ShaderGradient, ShaderGradientCanvas } from "@shadergradient/react";
 import { useEffect } from "react";
 
@@ -65,14 +65,22 @@ export const FIELDS = {
   },
 } as const;
 
-/** Frames only while the hero moves; paused, it paints once on demand. */
+type Timed = { material?: { userData?: { uTime?: { value: number } } } };
+
+/** Frames only while the hero moves; paused, it paints once on demand. The field's time runs only while it moves, so
+    it goes on from where it stopped: ShaderGradient's own clock runs on with no frame drawn, then jumps ahead. */
 function FramePolicy({ moving, mode }: { moving: boolean; mode: string }) {
   const setFrameloop = useThree((state) => state.setFrameloop);
   const invalidate = useThree((state) => state.invalidate);
+  const scene = useThree((state) => state.scene);
   useEffect(() => {
     setFrameloop(moving ? "always" : "demand");
     invalidate();
   }, [moving, mode, setFrameloop, invalidate]);
+  useFrame((_, delta) => {
+    const time = moving ? (scene.getObjectByName("shadergradient-mesh") as Timed | undefined)?.material?.userData?.uTime : undefined;
+    if (time) time.value += Math.min(delta, 0.1); // the first frame after a stop counts as one
+  });
   return null;
 }
 
@@ -86,7 +94,8 @@ export default function Field({ mode, moving }: { mode: "light" | "dark"; moving
       powerPreference="low-power"
       lazyLoad={false}
     >
-      <ShaderGradient {...FIELDS[mode]} animate="on" />
+      {/* From 0, as ShaderGradient's own clock started it; the settings' uTime only ever held a still field. */}
+      <ShaderGradient {...FIELDS[mode]} uTime={0} animate="off" />
       <FramePolicy moving={moving} mode={mode} />
     </ShaderGradientCanvas>
   );

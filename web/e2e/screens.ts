@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 
 import type { Page } from "@playwright/test";
 
+import { ENTER_MS, LEAVE_MS, RELEASE_MS } from "../lib/stage.ts";
 import { OFFLINE, question } from "./env.ts";
 import { audit, expect, signIn, test } from "./fixtures.ts";
 
@@ -50,13 +51,13 @@ const moving = (page: Page) =>
     () => matchMedia("(min-width: 64rem) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)").matches,
   );
 
-/** The moving stage settled, its field faded in, the reveal over and its last beat played (the filings drift on);
+/** The moving stage at rest: its field faded in, the reveal over, the sources let go and nothing moving any more;
     the calm stage at once. */
 async function rested(page: Page) {
   if (!(await moving(page))) return;
   await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
   await expect(page.locator(".stage")).toHaveAttribute("data-phase", /^(empty|done|failed)$/, { timeout: 30_000 });
-  await page.waitForTimeout(1_500);
+  await expect(page.locator(".stage .pb-stage")).toHaveAttribute("data-calm", "", { timeout: 15_000 });
 }
 
 /** An answer whose card `n` has loaded its source, which names `ticker`. */
@@ -216,6 +217,39 @@ async function sequence(page: Page, name: string, id: string) {
   await shot("leaving");
 }
 
+/** Two questions in a row on the moving stage (Apple, then the user's Alphabet against Meta), each answer shot as its
+    card settles with its sources held, as they let go a second later, once they have drifted home, and 5 s after the
+    card settled, when nothing moves. The page's clock is held between shots, as in `sequence`. */
+async function twoInARow(page: Page, name: string) {
+  let shots = 0;
+  const shot = async (step: string) => {
+    await page.waitForTimeout(500); // CSS and Web Animations run on real time
+    await page.clock.runFor(60); // a few frames: the membrane and the field paint as they now are
+    const at = String(++shots).padStart(2, "0");
+    await page.screenshot({ path: `${DIR}/ask-release-${name}-${at}-${step}.png`, animations: "disabled", fullPage: true });
+  };
+  const stage = page.locator(".stage");
+  await page.clock.install();
+  await openAsk(page);
+  await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50); // just ahead: see `sequence`
+  for (const id of ["n01", "c02"]) {
+    await page.getByLabel("Your question").fill(question(id));
+    await page.getByLabel("Your question").press("Enter");
+    await page.clock.runFor(LEAVE_MS + 50); // the card on screen clears first
+    await expect(stage).toHaveAttribute("data-phase", /^(pulling|revealing)$/); // the answer and its sources are in
+    for (let i = 0; i < 200 && (await stage.getAttribute("data-phase")) !== "done"; i++) await page.clock.runFor(50);
+    await page.clock.runFor(ENTER_MS + 300); // the card in place 0.3 s
+    await shot(`${id}-held`);
+    await page.clock.runFor(RELEASE_MS); // the let-go 0.36 s under way
+    await shot(`${id}-letting-go`);
+    await page.clock.runFor(1_300); // let go and drifted home
+    await shot(`${id}-released`);
+    await page.clock.runFor(2_600); // 5.4 s after the card settled
+    await shot(`${id}-still`);
+  }
+}
+
 if (MOTION && WIDTHS) {
   for (const width of WIDTHS.filter((each) => each >= 1024)) {
     for (const colorScheme of ["light", "dark"] as const) {
@@ -227,6 +261,12 @@ if (MOTION && WIDTHS) {
           await sequence(page, `${width}-${colorScheme}`, id);
         });
       }
+      test(`ask-release ${width}-${colorScheme}`, async ({ page }) => {
+        test.setTimeout(120_000);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
+        await twoInARow(page, `${width}-${colorScheme}`);
+      });
     }
   }
 }

@@ -7,7 +7,7 @@ import { animate, type AnimationPlaybackControls, type AnimationSequence, cancel
 import * as React from "react";
 import { createPortal } from "react-dom";
 
-import { type Kind, PULL_MS, SLOTS } from "../lib/stage.ts";
+import { calmPace, ENTER_MS, type Kind, PULL_MS, RELEASE_MS, SLOTS } from "../lib/stage.ts";
 import type { HeroStory } from "../lib/story.ts";
 import { appearance, themeOf } from "../lib/theme.ts";
 import "./bond.css";
@@ -426,12 +426,14 @@ function Membrane({ ref, mode, onMeasure }: { ref: React.Ref<MembraneHandle>; mo
 /* ── What a story plays ── */
 
 /** The hero's beats run 0 (the question is typed) to LAST; Ask's follow its page: 0 (rest), GATHER (round the card
-    while it reads), FIND (its sources pulled in and held), LAST (settled round the answer as it grows), RELEASE (the
-    held sources let go before the next question). */
+    while it reads), FIND (its sources pulled in and held), LAST (settled round the answer as it grows), FREE (a second
+    after the card is in place, the held sources let go and drift home), RELEASE (any still held let go quickly as the
+    page clears the card for the next question). */
 export const LAST = 5;
 export const FIND = 3;
 export const GATHER = 6;
 export const RELEASE = 7;
+const FREE = 8;
 /** The membrane's pockets and messengers: at most this many sources are pulled in (c12 cites 4). */
 export const PULLS = 4;
 const START_MS = 900; // the page starts typing the question this long after the hero is ready
@@ -873,18 +875,20 @@ function settled(w: World, L: Layout, roam: Roam[]): Beat {
   const gathering = gather(w, L, roam);
   return { still: 1.8, seq: [...(gathering?.seq ?? []), ...blink(w, gathering ? 1.3 : 0.1)], span: gathering ? 0.4 : undefined };
 }
-/** Ask's leave: each held source flashes and is let go back to its place, while the page clears the card. */
-function release(w: World, L: Layout, plot: Plot): Beat | null {
-  if (!plot.pulls.length) return null;
-  const seq = plot.pulls.flatMap((slot, i): AnimationSequence => {
-    const n = w.nodes[slot], S = w.strands[i], t = i * 0.06;
+/** Ask's let-go: each source still held flashes, its tendril draws back to the card and it floats home; at its own pace
+ * a second after the card is in place, or quickly (`quick`) while the page clears the card for the next question. */
+function release(w: World, L: Layout, plot: Plot, quick: boolean): Beat | null {
+  const held = plot.pulls.flatMap((slot, i) => (w.nodes[slot].free < 1 ? [{ slot, i }] : []));
+  if (!held.length) return null;
+  const seq = held.flatMap(({ slot, i }, j): AnimationSequence => {
+    const n = w.nodes[slot], S = w.strands[i], t = j * 0.12;
     return [
       [n, { flash: 0.8 }, { duration: 0.08, at: t }],
       [n, { flash: 0 }, { duration: 0.3, ease: out, at: t + 0.1 }],
       ...letGo(w, L, S, w.K[i], slot, t, { x: S.ax, y: S.ay }),
     ];
   });
-  return { still: 1.1, seq, span: 0.4 };
+  return { still: 1.1, seq, span: quick ? 0.4 : undefined };
 }
 /** Ask's way back to rest after New question: every cell eases into its rest pose rather than jumping there. */
 function toRest(w: World, L: Layout, roam: Roam[]): Beat {
@@ -943,7 +947,8 @@ function buildBeat(beat: number, w: World, L: Layout, sizes: Size[], plot: Plot,
     case 4: return answer(w, L, plot);
     case LAST: return ask ? settled(w, L, roam) : { still: 0.5, seq: [...blink(w, 0.1), home(w, L, 0.1)] };
     case GATHER: return gather(w, L, roam);
-    case RELEASE: return release(w, L, plot);
+    case FREE: return release(w, L, plot, false);
+    case RELEASE: return release(w, L, plot, true);
     // Ask's rest: eased into from a membrane still round a card, else nothing to play.
     case 0: return ask && w.env.free < 1 ? toRest(w, L, roam) : null;
     default: return null;
@@ -964,6 +969,7 @@ type StoryProps = {
   heads: Element[]; // what floating things keep clear of: the hero's headline and lead
   page?: Page; // Ask's; without it the story brings the hero's panel and capsule
   target?: number; // Ask's beat, from its phase
+  rest?: boolean; // Ask's: nothing in play (the empty stage, an answer done, an error), so it comes to rest
   moving: boolean;
   quiet: boolean;
   mode: Mode;
@@ -976,7 +982,7 @@ type StoryProps = {
 /** A box's edges, left, top, right and bottom, against the host. */
 type Edges = { l: number; t: number; r: number; b: number };
 
-export function Story({ plot, host, layer, heads, page, target, moving, quiet, mode, onReady, onBeat, onDone, onIdle }: StoryProps) {
+export function Story({ plot, host, layer, heads, page, target, rest, moving, quiet, mode, onReady, onBeat, onDone, onIdle }: StoryProps) {
   const story = plot.story;
   const [beat, setBeat] = React.useState(0);
   const [typed, setTyped] = React.useState("");
@@ -994,6 +1000,8 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   const played = React.useRef<number | null>(null); // the beat last built
   const hull = React.useRef<Edges | null>(null); // Ask's card as the membrane holds it
   const idle = React.useRef(false), idling = React.useRef(onIdle); // Ask's stage with nothing to play but the drift
+  const restSince = React.useRef<number | null>(rest ? 0 : null); // Ask at rest since, in page ms (0: the page load)
+  const drifted = React.useRef(0), calm = React.useRef(false); // the things' own clock, and whether it has stopped
   const clock = React.useRef(0), pointer = React.useRef<Point | null>(null);
   const typing = React.useRef<{ at: number; n: number } | null>(null), started = React.useRef(false), readyOnce = React.useRef(false);
   const scene = React.useRef({
@@ -1006,6 +1014,10 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     finish.current = onDone;
     idling.current = onIdle;
   }, [moving, quiet, beat, target, onDone, onIdle]);
+  React.useLayoutEffect(() => {
+    if (!rest) restSince.current = null;
+    else restSince.current ??= performance.now();
+  }, [rest]);
   React.useEffect(() => onBeat?.(beat), [beat, onBeat]);
   const rowRef = React.useMemo(() => {
     const refs = Array.from({ length: plot.rows }, (_, i) => (el: HTMLElement | null) => { rowRefs.current[i] = el; });
@@ -1083,6 +1095,15 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       el.style.setProperty("--rip", n.rip.toFixed(3));
       el.style.setProperty("--flash", n.flash.toFixed(3));
     });
+  }, []);
+
+  /* The things' drift pace: full while Ask answers, slowing to a stop CALM_MS after its stage came to rest. */
+  const pace = React.useCallback(() => (restSince.current === null ? 1 : calmPace(performance.now() - restSince.current)), []);
+  /* Once the drift has stopped, the eyes and blobs leave off their loops too (bond.css), and nothing moves. */
+  const settle = React.useCallback((p: number) => {
+    if (calm.current === (p === 0)) return;
+    calm.current = p === 0;
+    stageBox.current?.toggleAttribute("data-calm", calm.current);
   }, []);
 
   /* Paint one frame: the membrane, then the DOM that rides on it. */
@@ -1170,7 +1191,10 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       el.style.opacity = String(e.o);
       el.style.setProperty("--lid", e.lid.toFixed(3));
     });
-    floatThings(L, t, still);
+    const pc = pace();
+    drifted.current += dt * pc;
+    floatThings(L, drifted.current, still);
+    settle(pc);
     w.rows.forEach((r, i) => {
       const el = rowRefs.current[i];
       if (!el) return;
@@ -1222,15 +1246,19 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       left.current = true;
       finish.current?.();
     }
-  }, [story, page, host, stepRoam, floatThings]);
-  /* While Ask's stage idles, only the things drift, on the paint's own clock. */
+  }, [story, page, host, stepRoam, floatThings, pace, settle]);
+  /* While Ask's stage idles, only the things drift, on their own clock; once they have stopped, nothing is written. */
   const drift = React.useCallback((delta: number) => {
     const L = layout.current;
     if (!L) return;
     const { moving: live, quiet: still } = state.current;
-    clock.current += live && !still ? Math.min(delta, 40) / 1000 : 0;
-    floatThings(L, clock.current, still);
-  }, [floatThings]);
+    const dt = live && !still ? Math.min(delta, 40) / 1000 : 0, pc = pace();
+    if (pc === 0 && calm.current) return;
+    clock.current += dt;
+    drifted.current += dt * pc;
+    floatThings(L, drifted.current, still);
+    settle(pc);
+  }, [floatThings, pace, settle]);
 
   /* One clock, painting after Motion's own render step, so seeks and completions are already written. */
   const paintSoon = React.useCallback((frames = 4) => {
@@ -1251,7 +1279,7 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   }, [moving, quiet, paint, drift, paintSoon, beat, ready]);
 
   /* Ask's plot follows its answer: cited sources take their filings' places. A new plot drops the old one's held
-   * sources (a recent question, New question, or a change while paused); after a release there are none. */
+   * sources (a recent question, or New question); after a let-go there are none. */
   React.useEffect(() => {
     if (!page) return;
     const w = world.current, L = layout.current;
@@ -1334,6 +1362,12 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   React.useEffect(() => {
     if (target !== undefined) setBeat(target);
   }, [target]);
+  /* A second after Ask's card is in place (ENTER_MS after the page says done), the membrane lets go of its sources. */
+  React.useEffect(() => {
+    if (!page || !rest || beat !== LAST) return;
+    const timer = window.setTimeout(() => setBeat(FREE), ENTER_MS + RELEASE_MS);
+    return () => window.clearTimeout(timer);
+  }, [page, rest, beat]);
 
   /* Build the current beat's timeline; play, pause or seek according to the motion gates. */
   React.useEffect(() => {

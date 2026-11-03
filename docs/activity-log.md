@@ -15,6 +15,46 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-03: Ask's sources let go a second after the card settles, the stage comes to rest by itself, and Ask has no Pause (uncommitted, branch `fl-ask-release`)
+
+- Brief: the user's test on production (Alphabet against Meta, the second question in a row): the two pulled-in sources stayed attached after the answer. About 1 s after the card has settled they must let go, the bridges retract and the bubbles drift back, so a new question starts from a clean orbit. Remove Ask's Pause/Play button, so the ambient drift stops by itself within 5 s of the card settling and of the page load when idle (WCAG 2.2.2); phones and reduced motion stay still; the landing hero keeps its Pause. Tests first, the GPU suite with 2 workers, screenshots in `H:\Projects\projects\_tmp\fl-ask-release`, no commit.
+- Reproduction on main (976175e), tests first: the new tests ran against main's code on a production build in Edge on the GPU, with 2 workers. The build type-checks test files, so the new unit test was set aside for it (`git stash push -- lib/stage.test.ts`, `npm run build`, `git stash pop`). Four specs failed and 24 passed:
+  - n01's fact and c02's two facts (the user's question) were still held 2.8 s after their cards settled. Held means the membrane's pocket at the bubble and its tendril halfway to the card, read pixel by pixel.
+  - The first answer's sources did let go, but only at the next question's leave: while c02 read, every bubble was a filing and none was held.
+  - The empty stage still moved 5 s after the page load (two screenshots a second apart differed).
+  - Ask's Pause button was there, and Tab still stopped on "Pause motion".
+  - The units failed on the missing exports.
+- Changes:
+  - `components/bond.tsx`: a `FREE` beat, set off `ENTER_MS + RELEASE_MS` after the page's done. Each source still held flashes, its tendril draws back to where it left the card and it floats home at its own pace. The leave's quick let-go stays for a source still held, and both take only the sources still held. The bubbles' drift runs on its own clock, whose pace `calmPace` eases to 0 by `CALM_MS` after the stage came to rest: the page load for the empty stage, done for an answer, an error. `data-calm` then stops the eyes' and blobs' CSS loops. A `rest` prop comes from `ask-live.tsx` (empty, done, failed).
+  - `components/ask-live.tsx`, `components/ask.tsx`, `lib/stage.ts`: the Pause button, its state and its props are gone. Motion follows the gates alone: a desktop that allows motion, a visible tab and the stage in view. New constants `RELEASE_MS` (1 s) and `CALM_MS` (4.5 s), and `calmPace`.
+  - `components/hero-field.tsx`: the field's time runs only while it moves, starting at 0, with `animate="off"` and its own `useFrame` adding each frame's delta (at most 0.1 s) to the mesh's `uTime`. The first reshoot showed why: ShaderGradient's clock runs on while no frame is drawn, so the field jumped from teal to pink at the let-go. I first started the field at the settings' `uTime` (8 in dark), then moved it to 0 after comparing with `fl-ask-reveal`'s dark shots: 8 showed a look the page never had.
+  - CSS: `.pb-stage[data-calm] * { animation: none }` in `bond.css`; Ask's `.stage .pb-controls` rule removed from `ask.css` (the hero's own rule in `hero-live.css` stays).
+  - Tests:
+    - `lib/stage.test.ts`: the rest within 5 s.
+    - `e2e/stage.spec.ts`:
+      - Two questions in a row, read pixel by pixel: held as each card settles, let go 2.8 s later, and a clean orbit while the next one reads.
+      - The stage still 5 s after the load and 5 s after the card settled, by two screenshots a second apart; it moves while reading, and stops for a stage scrolled away and for a hidden tab.
+      - No Pause on Ask.
+      - The membrane's cover checked again after the let-go.
+      - The Pause-only specs removed.
+    - `e2e/recent.spec.ts`: Tab order with no stop for the stage.
+    - `e2e/screens.ts`: `ask-release-*`, two questions in a row on the page's held clock; `rested()` waits for the stage to rest.
+- Events, in order:
+  - A throwaway probe spec measured the stage's arrival 0.2 to 0.4 s after navigation and the field's 0.3 to 0.5 s after, so its 1.6 s fade-in ends inside the empty stage's 4.5 s. The probe was deleted after the run.
+  - I deleted the first two screenshot sets in `_tmp\fl-ask-release`, my own output, before each reshoot.
+  - GateGuard refused each file's first edit. I stated its facts and sent the edit again.
+- Validation:
+  - Web: typecheck clean, `npm test` 148, build.
+  - Playwright without a GPU: 136 passed and 11 skipped.
+  - Edge's GPU with `--workers=2`: 146 passed and 1 skipped, on the build before the field's start moved to 0. On the final build the stage, landing and recent specs passed again: 46 passed, 1 skipped.
+  - Python: `make lint` clean, `make typecheck` 0, `make test` 703. `clients/ts`: typecheck and 18 tests.
+  - Screenshots: 16 at 1440 px in light and dark, n01 then c02, each held, letting go, let go and still 5.4 s after the card settled; all looked at.
+  - Not run: `make test-int` (no Python change, and it needs a container go) and `npm run screens` (the repo's screens use reduced motion, where the moving stage never loads, so none changes).
+- Files: `web/components/bond.tsx`, `web/components/bond.css`, `web/components/ask-live.tsx`, `web/components/ask.tsx`, `web/components/hero-field.tsx`, `web/lib/stage.ts`, `web/lib/stage.test.ts`, `web/app/ask/ask.css`, `web/e2e/stage.spec.ts`, `web/e2e/recent.spec.ts`, `web/e2e/screens.ts`, `docs/design.md`, `docs/context.md`, `docs/memory.md`, `docs/todo.md`, `docs/activity-log.md`.
+- Outstanding:
+  - The user ships.
+  - Seen in the screenshots and not changed: a pulled source's tendril leaves the card where its edge was when the pull began. For c02, META's runs down from the card's top corner.
+
 ### 2026-11-03: Ask's reveal part by part, the membrane holding the card, the bubbles' drift, the cost's 4 decimals (uncommitted, branch `fl-ask-reveal`)
 
 - Brief: the user's own test on production in Edge ("What was Apple's total revenue in fiscal 2025?"): the membrane left the check line and the footer outside; the parts appeared all at once; the cost read "$0.00"; the filing bubbles drifted only while one was pulled. Find the cause first (production build, real streamed answer, Edge with a GPU), with a test that fails on main for it, then fix. Branch `fl-ask-reveal` from main at c241033 (#51), which `git pull --ff-only` found current.

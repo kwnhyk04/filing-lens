@@ -159,8 +159,7 @@ test("from a stored answer, Tab goes through Copy, Ask again, New question and t
   const order: string[] = [];
   for (let i = 0; i < 9; i++) {
     await page.keyboard.press("Tab");
-    const name = await focused(page);
-    if (name !== "Pause motion") order.push(name); // on a graphics card, the moving stage's last stop
+    order.push(await focused(page)); // the moving stage adds no stop of its own
   }
   const copy = order.indexOf("Copy answer with sources");
   expect(copy).toBeGreaterThan(0); // the answer's citation first

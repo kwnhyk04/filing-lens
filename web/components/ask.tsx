@@ -3,9 +3,9 @@
 // On send it hides, and the card, with the question's bubble, takes the top: "Reading the filings…" until the
 // checked answer and its sources are both in. Then, on a desktop that allows motion, the moving stage (ask-live.tsx)
 // pulls the cited filings in and the parts arrive one by one in the hero's order (Read as, each source, the filing
-// tags, the heading, each sentence, the check, the numbers, the foot), each growing the card to take it; phones,
-// reduced motion and Pause get the same order at once. Once the answer is done the field comes back under the
-// card. Below the stage, Recent questions and Sources, each only when it holds something.
+// tags, the heading, each sentence, the check, the numbers, the foot), each growing the card to take it; phones and
+// reduced motion get the same order at once. Once the answer is done the field comes back under the card. Below the
+// stage, Recent questions and Sources, each only when it holds something.
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -124,7 +124,6 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
   const [reveal, setReveal] = useState<{ turn: number; pull: boolean; moving: boolean } | null>(null); // this turn's
   const [step, setStep] = useState(Infinity); // how many of the card's parts show
   const [leaving, setLeaving] = useState(false);
-  const [paused, setPaused] = useState(false);
   const running = useRef<AbortController | null>(null);
   const timers = useRef<number[]>([]);
   const focusAnswer = useRef(false);
@@ -165,15 +164,15 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
     document.getElementById("answer-text")?.focus();
   }, [answer]);
 
-  /** Whether the sequence plays: a desktop that allows motion, a visible tab, the stage in view, and no Pause. */
+  /** Whether the sequence plays: a desktop that allows motion, a visible tab, and the stage in view. */
   function motionOk(): boolean {
     const element = stage.current;
-    if (!element || paused || document.visibilityState !== "visible" || !matchMedia(DESKTOP).matches) return false;
+    if (!element || document.visibilityState !== "visible" || !matchMedia(DESKTOP).matches) return false;
     const { top, bottom, height } = element.getBoundingClientRect();
     return Math.min(bottom, innerHeight) - Math.max(top, 0) >= Math.min(height, innerHeight) * 0.1;
   }
 
-  /** Every part at once, and the status line says so: no motion, or Pause during the reveal. */
+  /** Every part at once, and the status line says so: where there is no motion. */
   function showWhole(done: Answer) {
     timers.current.forEach(clearTimeout);
     timers.current = [];
@@ -201,11 +200,6 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
     // Once per answer: its data coming in starts it, and a new question's turn clears it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataIn]);
-  // Pause during the reveal shows the rest at once.
-  useEffect(() => {
-    if (paused && answer && started && !whole && step < parts.length) showWhole(answer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused]);
 
   // A new card: the focus moves to its question (the field that had it hides), the stage's top comes into view,
   // and the question flies there from the field.
@@ -564,13 +558,7 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
             </ul>
           </section>
         )}
-        <StageMotion
-          phase={view}
-          covered={covered}
-          cited={view === "reading" || view === "empty" ? [] : cited}
-          paused={paused}
-          onPause={setPaused}
-        />
+        <StageMotion phase={view} covered={covered} cited={view === "reading" || view === "empty" ? [] : cited} />
       </section>
       {(others.length > 0 || sourcesShown) && (
         <div className="ask-below">

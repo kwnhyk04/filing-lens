@@ -199,6 +199,11 @@
   animation-play-state: paused;
 }
 
+/* Ask's stage at rest: its drift has stopped, and the eyes and blobs leave off their loops too (WCAG 2.2.2). */
+.pb-stage[data-calm] * {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pb-stage * {
     animation: none;

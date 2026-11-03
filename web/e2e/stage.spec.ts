@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 
 import { softwareRenderer } from "../lib/motion.ts";
+import { ENTER_MS } from "../lib/stage.ts";
 import { question, snapshot } from "./env.ts";
 import { ask, audit, expect, inOrder, noSidewaysScroll, partsSeen, phasesSeen, recordPhases, test, watchParts } from "./fixtures.ts";
 
@@ -276,7 +277,7 @@ test.describe("on a desktop with a graphics card", () => {
   const uncovered = (page: Page) => page.evaluate(() => (window as unknown as { uncovered: () => string[] }).uncovered());
 
   for (const id of ["n01", "x04"]) {
-    test(`the membrane wraps the whole card at every step of the reveal and after it, paused too (${id})`, async ({ page }) => {
+    test(`the membrane wraps the whole card at every step of the reveal, after it, and once its sources let go (${id})`, async ({ page }) => {
       test.setTimeout(60_000);
       await keepFrames(page);
       await moving(page);
@@ -291,60 +292,113 @@ test.describe("on a desktop with a graphics card", () => {
       await page.waitForTimeout(1_500); // the membrane long settled round the answer
       expect(await misses(page)).toEqual([]);
       expect(await uncovered(page)).toEqual([]);
-      await page.getByRole("button", { name: "Pause motion" }).click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(2_500); // its sources let go, and the stage comes to rest
+      expect(await misses(page)).toEqual([]);
       expect(await uncovered(page)).toEqual([]);
     });
   }
 
-  test("the filings drift the whole time the stage is open, and stop for Pause, a stage scrolled away and a hidden tab", async ({ page }) => {
-    test.setTimeout(60_000);
+  /** Each floating bubble and whether the membrane holds it: the alpha drawn at its blob (the pocket a held source
+      sits in) and halfway between it and the card's nearer edge (the tendril). Needs keepFrames. */
+  const holds = (page: Page) =>
+    page.evaluate(() => {
+      const stage = document.querySelector<HTMLElement>(".stage")!;
+      const canvas = stage.querySelector<HTMLCanvasElement>(".pb-membrane canvas")!;
+      const gl = canvas.getContext("webgl")!;
+      const box = canvas.getBoundingClientRect(), card = stage.querySelector(".answer-card")!.getBoundingClientRect();
+      const pixel = new Uint8Array(4);
+      const covered = (x: number, y: number) => {
+        gl.readPixels(Math.round(((x - box.left) * canvas.width) / box.width), Math.round(canvas.height - ((y - box.top) * canvas.height) / box.height), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return pixel[3] > 200;
+      };
+      return Array.from(stage.querySelectorAll<HTMLElement>(".pb-thing:not([data-empty='true'])"), (thing) => {
+        const blob = thing.querySelector(".pb-thing-shape")!.getBoundingClientRect();
+        const x = blob.left + blob.width / 2, y = blob.top + blob.height / 2;
+        const edge = { x: x < card.left ? card.left : card.right, y: Math.min(card.bottom - 16, Math.max(card.top + 16, y)) };
+        return { kind: thing.dataset.kind, pocket: covered(x, y), tendril: covered((x + edge.x) / 2, (y + edge.y) / 2) };
+      });
+    });
+  const cited = async (page: Page) => (await holds(page)).filter((thing) => thing.kind !== "filing");
+
+  test("two questions in a row: about a second after each card settles its sources let go, the tendrils draw back and the bubbles drift home, so the next question starts from a clean orbit", async ({ page }) => {
+    test.setTimeout(90_000);
+    await keepFrames(page);
+    await moving(page);
+    // The user's production check: an answer first, then Alphabet against Meta, whose two facts stayed held.
+    for (const [id, count] of [["n01", 1], ["c02", 2]] as const) {
+      const sources = await holdSources(page);
+      await box(page).fill(question(id));
+      await box(page).press("Enter");
+      await sources.looked;
+      await page.waitForTimeout(1_500); // the membrane gathered round the card, or kept it
+      const free = { kind: "filing", pocket: false, tendril: false };
+      expect.soft(await holds(page), `${id} while it reads: every bubble a filing, none held`).toEqual(Array(11).fill(free));
+      sources.release();
+      await expect(stage(page)).toHaveAttribute("data-phase", "done");
+      const done = Date.now();
+      await page.waitForTimeout(ENTER_MS + 300); // the card in place, its sources still held
+      expect.soft(await cited(page), `${id}: held as its card settles`).toEqual(Array(count).fill({ kind: "fact", pocket: true, tendril: true }));
+      await page.waitForTimeout(done + ENTER_MS + 2_800 - Date.now()); // a second more, then the let-go
+      expect.soft(await cited(page), `${id}: let go about a second after its card settled`).toEqual(Array(count).fill({ kind: "fact", pocket: false, tendril: false }));
+      await page.unroute("**/api/sources");
+    }
+  });
+
+  /** Whether the floating bubbles moved over 0.7 s, once what changed them has settled. */
+  async function drifting(page: Page) {
+    await page.waitForTimeout(300);
+    const spots = () => things(page).evaluateAll((all) => all.map((thing) => (thing as HTMLElement).style.transform));
+    const before = await spots();
+    await page.waitForTimeout(700);
+    return JSON.stringify(await spots()) !== JSON.stringify(before);
+  }
+
+  /** Whether nothing on screen moves: the membrane, the field, the bubbles, the eyes. Two pictures a second apart. */
+  async function still(page: Page) {
+    const first = await page.screenshot();
+    await page.waitForTimeout(1_000);
+    return first.equals(await page.screenshot());
+  }
+
+  test("the stage moves only while it answers and as the answer settles: still within 5 s of the page load and of the card settling; scrolled away or in a hidden tab it stops", async ({ page }) => {
+    test.setTimeout(90_000);
     await moving(page);
     await expect(stage(page)).toHaveAttribute("data-live", "on");
-    /** Whether the floating filings moved over 0.7 s, once what changed them has settled. */
-    const drifting = async () => {
-      await page.waitForTimeout(300);
-      const spots = () => things(page).evaluateAll((all) => all.map((thing) => (thing as HTMLElement).style.transform));
-      const before = await spots();
-      await page.waitForTimeout(700);
-      return JSON.stringify(await spots()) !== JSON.stringify(before);
-    };
-    await page.waitForTimeout(2_000); // the empty stage, long after its first frames
-    expect(await drifting(), "on the empty stage").toBe(true);
+    await page.waitForFunction(() => performance.now() > 5_000, undefined, { timeout: 15_000 });
+    expect(await still(page), "the empty stage, 5 s after the page loaded").toBe(true);
+    const sources = await holdSources(page);
     await askAgain(page, N01);
-    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
-    await page.waitForTimeout(2_000); // the answer settled
-    expect(await drifting(), "round a finished answer").toBe(true);
-    await page.getByRole("button", { name: "Pause motion" }).click();
-    expect(await drifting(), "paused").toBe(false);
-    await page.getByRole("button", { name: "Resume motion" }).click();
-    expect(await drifting(), "resumed").toBe(true);
+    await sources.looked;
+    expect(await drifting(page), "while it reads").toBe(true);
     await page.evaluate(() => {
       document.body.style.paddingBottom = "300vh";
       window.scrollTo(0, document.body.scrollHeight);
     });
-    expect(await drifting(), "scrolled away").toBe(false);
+    expect(await drifting(page), "scrolled away").toBe(false);
     await page.evaluate(() => window.scrollTo(0, 0));
-    expect(await drifting(), "back in view").toBe(true);
-    await page.evaluate(() => {
-      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    expect(await drifting(), "a hidden tab").toBe(false);
+    expect(await drifting(page), "back in view").toBe(true);
+    const visibility = (state: string) =>
+      page.evaluate((value) => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => value });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, state);
+    await visibility("hidden");
+    expect(await drifting(page), "a hidden tab").toBe(false);
+    await visibility("visible");
+    expect(await drifting(page), "visible again").toBe(true);
+    sources.release();
+    await expect(stage(page)).toHaveAttribute("data-phase", "done");
+    const done = Date.now();
+    await page.waitForTimeout(1_500);
+    expect(await drifting(page), "as its sources let go").toBe(true);
+    await page.waitForTimeout(done + ENTER_MS + 5_000 - Date.now());
+    expect(await still(page), "5 s after the card settled").toBe(true);
   });
 
-  test("Pause during the reveal shows the whole answer at once", async ({ page }) => {
-    test.setTimeout(60_000);
+  test("Ask's stage has no Pause button: its motion stops by itself", async ({ page }) => {
     await moving(page);
-    const sources = await holdSources(page);
-    await box(page).fill(X04);
-    await box(page).press("Enter");
-    await sources.looked;
-    sources.release();
-    await expect(stage(page)).toHaveAttribute("data-phase", "pulling");
-    await page.getByRole("button", { name: "Pause motion" }).click();
-    await expect(stage(page)).toHaveAttribute("data-phase", "done", { timeout: 600 });
-    await expect(stage(page).locator("[data-tone='check']")).toBeVisible();
+    await expect(stage(page)).toHaveAttribute("data-live", "on");
+    await expect(page.getByRole("button", { name: /motion/i })).toHaveCount(0);
   });
 
   test("a recent question shows its card whole, with no pull", async ({ page }) => {
