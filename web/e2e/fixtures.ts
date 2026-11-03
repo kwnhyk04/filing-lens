@@ -15,9 +15,9 @@ export async function audit(page: Page) {
   expect(violations.map((v) => `${v.id}: ${v.nodes.map((node) => node.target.join(" ")).join(", ")}`)).toEqual([]);
 }
 
-/** The page fits a 390 px phone without scrolling sideways. */
+/** The page fits its phone's width (390 px unless the test sets another) without scrolling sideways. */
 export async function noSidewaysScroll(page: Page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()?.width ?? 390);
 }
 
 /**

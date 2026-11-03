@@ -656,6 +656,71 @@ html:has(.landing-head) {
   gap: 0.25rem 0.5rem;
 }
 
+/* A cell's label, which names it in a phone's card, where no column head shows. */
+.cell-label {
+  display: none;
+}
+
+/* Below 40rem each metric is a card, after FreightAudit's landing: its name with its target at the top right, then
+   a line per run, the run's name, model and date over its value and badge. The heads stay for screen readers. */
+@media (width <= 40rem) {
+  #results .scroll {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .compare {
+    display: block;
+  }
+
+  .compare thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .compare tbody {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .compare tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 0.75rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-card);
+    background: var(--sheet);
+  }
+
+  .compare tbody :is(th, td) {
+    padding: 0;
+    border: 0;
+    font-size: 0.875rem;
+  }
+
+  .compare tbody td:not(.num) {
+    grid-column: 1 / -1;
+    margin-top: 0.375rem;
+  }
+
+  .compare .cell-label {
+    display: block;
+    margin-bottom: 0.125rem;
+    color: var(--ink-3);
+    font-size: 0.8125rem;
+  }
+
+  .cell-label .date {
+    white-space: nowrap;
+  }
+}
+
 .results-notes {
   display: grid;
   gap: 0.5rem;

@@ -6,14 +6,22 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-03) **Coverage's table and pager** (21st.dev's table with numeric pagination, Origin UI, MIT), on branch `fl-coverage-table`, built in a worktree from main at 976175e (#52) and moved into the main folder on main at 8036435 (#53), uncommitted.
+- [ ] (user, 2026-11-03) **Phone polish from the user's iPhone**: on branch `fl-mobile-polish` from main at bf593ba (#54), uncommitted.
+  - [x] Tests first, red on main: the evaluation results as one card per metric below 40rem (its target at the top right, a line per run with its name, model and date, the value and its badge; nothing cut off, no sideways scroll), the table unchanged at 1440 px; every icon the pages link served without a session, as the type and size the link says; `favicon.ico` equal to what the script draws.
+  - [x] Cause of the globe, from real requests: the sign-in gate sent a signed-out browser's `/icon.svg` and `/apple-icon` to `/login` (307), and `/favicon.ico` was a 404.
+  - [x] Fix: the cards in the landing's CSS, after FreightAudit's card table; the icons public; a `favicon.ico` at 16, 32 and 48 px drawn from the mark; the SVG icon and the home-screen icon kept (its PNG byte-identical).
+  - [x] Checks: web typecheck, `npm test` 153, build; Playwright with 2 workers: 148 passed and 11 skipped without a GPU, 158 passed and 1 skipped on Edge's GPU (the landing, icons, gate, axe and phone specs again on the final build: 52 passed); the icons fetched with real requests. Python and `clients/ts` not run (unchanged).
+  - [x] Screenshots at 390 and 430 px, light and dark, and 1440 px, in `H:\Projects\projects\_tmp\fl-mobile-polish`, each looked at; main's results section in `before\`, its 1440 px shots byte-identical to the new ones. The repo's landing screens regenerated (2 changed, 3 new).
+  - [x] Docs: design, context, memory, activity log.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-03) **Coverage's table and pager** (21st.dev's table with numeric pagination, Origin UI, MIT), on branch `fl-coverage-table`, built in a worktree from main at 976175e (#52) and moved into the main folder on main at 8036435 (#53), uncommitted.
   - [x] Tests first, red on main: units for the pager; e2e for the pager, the URL, the size kept and remembered, blocked storage, the fallbacks, the skeleton and the phone.
   - [x] The table and pager in the app's CSS, the skeleton (none existed), the credit in `docs/third-party.md`.
   - [x] Checks before the move: web typecheck, `npm test` 151, build; Playwright 142 passed and 10 skipped without a GPU.
   - [x] After the move, on main with #53: typecheck, `npm test` 152, build; Edge's GPU suite (2 workers) 152 passed, 1 skipped; `npm run screens` 85 passed (15 new, 25 changed). The first try was stopped by Claude Code for low memory.
   - [x] Screenshots: 42 at 1280, 1440 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-coverage-table`, each looked at.
   - [x] Docs: design, context, memory, activity log, third-party.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #54 (bf593ba, git log).
 - [x] (user, 2026-11-03) **Ask: the sources let go, the stage comes to rest, no Pause on Ask**: on branch `fl-ask-release` from main at 976175e (#52), uncommitted.
   - [x] Reproduced on main first (production build, Edge's GPU, the mock's n01, then c02, the user's question): each answer's sources stayed held until the next question's leave; the stage still moved 5 s after the load; Tab met Ask's Pause.
   - [x] Tests first, red on main: the let-go about a second after each card settles (read pixel by pixel), a clean orbit for the next question, the stage still within 5 s of the load and of the card settling, no Pause on Ask, the tab order without it; units for `RELEASE_MS`, `CALM_MS` and `calmPace`.

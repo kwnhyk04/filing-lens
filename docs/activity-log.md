@@ -15,6 +15,56 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-03: Phone polish: the evaluation results as cards, and the site icons served to a signed-out browser (uncommitted, branch `fl-mobile-polish`)
+
+- Brief, from the user's iPhone (Safari):
+  1. Below about 640 px, each evaluation metric as a card, as FreightAudit's landing does. The cards: the metric with its target at the top right, then a row per run with its label and date, the value and its Met or Below target badge. Nothing cut off, no sideways scroll; desktop keeps the table.
+  2. FilingLens shows a globe in Safari's tab and bookmarks where FreightAudit shows its logo. Compare with FreightAudit's icon files, add what Safari needs from the mark, keep the SVG, and check the served icons with real requests.
+  3. Screenshots at 390 and 430 px in both themes and at 1440 px, in `H:\Projects\projects\_tmp\fl-mobile-polish`.
+- Where: branch `fl-mobile-polish` from main at bf593ba (#54), after `git pull --ff-only` (already up to date).
+- Read, at the user's request, without changing anything there:
+  - FreightAudit's `components/landing.tsx` (its Results section), `components/ui.tsx` (`Table` and `Td` with their card roles) and its card CSS in `app/globals.css`.
+  - Its icons: `app/icon.svg`, `app/apple-icon.png` (180 px, RGB) and `app/layout.tsx`.
+  - Its `proxy.ts` was not read.
+- Cause of the globe, found with real requests to main's production build, signed out (e2e port 3102, the test settings):
+  - The landing links `/icon.svg` and `/apple-icon`, and both answered 307 to `/login?next=...`.
+  - `/favicon.ico` was a 404.
+  - The sign-in gate (`PUBLIC` in `proxy.ts`) listed neither icon. The built home-screen icon itself drew correctly.
+- Tests first, red on main's build:
+  - `e2e/icons.spec.ts` (new): the three icons every page links, each fetched signed out with redirects off, and `/favicon.ico` unlinked. Each must answer 200 with the type its link says; the SVG must equal `faviconSvg()`, and the PNG and ICO sizes are read from their headers. Red: no ICO link, `/icon.svg` 307, `/favicon.ico` 404.
+  - `e2e/landing.spec.ts`, red on main: a card per metric at 390 and 430 px. It checks each cell's text as shown, the target level with the name at the card's right edge, and each run on a line of its own. Nothing may sit outside its card or the screen or run past its box, and neither the page nor the region scrolls sideways.
+  - `e2e/landing.spec.ts`, passing on main as intended: the 1440 px guard (the heads show, each metric is one row of level cells, no labels), and the comparison test, which now reads the text as shown.
+  - `scripts/favicon.test.mjs` (new): the committed ICO equals what the script draws, with three PNG frames at 16, 32 and 48 px. Red: no script.
+  - `e2e/fixtures.ts`: `noSidewaysScroll` takes the viewport's width, which is 390 for every earlier caller.
+- Changes:
+  - `proxy.ts`: `icon.svg` and `apple-icon` are public by exact path.
+  - `lib/logo.ts`: `appIcon`, the app icon's drawing for `ImageResponse`. `app/apple-icon.tsx` uses it, and its PNG is byte-identical to main's (3,092 bytes).
+  - `scripts/favicon.mjs` and `app/favicon.ico` (both new, the ICO 2,075 bytes): the app icon at 16, 32 and 48 px, rounded, the mark at 87.5% of the side.
+  - `app/page.tsx`: each result cell carries its run's label (run, model, date) and the target cell a "Target" label, both shown only on a phone. `app/landing.css`: below 40rem the table's rows are cards, and the label's date keeps to one line.
+  - `e2e/screens.ts`: a `landing-results` screen, the section alone with the fixed header hidden.
+- Events:
+  - `node scripts/favicon.mjs` first failed with ERR_MODULE_NOT_FOUND for `next/og` in plain Node. It now imports `next/og.js`.
+  - The section shot first used Playwright's `style` option. It adds a `<style>` tag, the CSP blocked it, and all six shots failed the CSP check. The header is now hidden through its `style` property.
+  - The first "before" shots had the fixed header painted over the section. The before set was shot again with it hidden, while `.next` still held main's build.
+  - At 390 px the free run's label left "2026" alone on a line. A non-breaking space written through the edit tool landed as a raw invisible character, and its fix as a doubled backslash. Both were replaced by a `white-space: nowrap` span on the date.
+  - The session's scratchpad was emptied mid-task, by another Claude Code process's startup cleanup according to the tool's message. It held the icon previews and main's home-screen icon; the icon comparison was redone by drawing main's tree fresh.
+- Validation:
+  - Real requests to the new production build, signed out:
+    - `/`, `/login`, `/demo` and `/ask` all link `/favicon.ico` (`image/x-icon`, 48x48), `/icon.svg` (`image/svg+xml`, any) and `/apple-icon` (`image/png`, 180x180).
+    - Each answers 200 with that type (2,075, 393 and 3,092 bytes).
+    - `/ask`, `/icon.svg.bak` and `/apple-icon/x` still go to sign-in.
+  - Typecheck clean; `npm test` 153; build.
+  - Playwright with `--workers=2`:
+    - Without a GPU, on the final build: 148 passed, 11 skipped.
+    - On Edge's GPU: 158 passed, 1 skipped, on the build just before the label's last change, which differs only in that span.
+    - The landing, icons, gate, axe and phone specs on Edge again, on the final build: 52 passed.
+  - Screenshots, each looked at:
+    - 18 in `H:\Projects\projects\_tmp\fl-mobile-polish`: the landing in full, the signed-out landing and the results section, at 390, 430 and 1440 px, light and dark. Main's results section is in `before\`.
+    - The 1440 px results shots are byte-identical to main's in both themes.
+  - The repo's screens, the landing's only (`-g landing`): the two phone shots changed and three `landing-results-*` were added; the desktop landing shots came out unchanged.
+  - Not run: Python and `clients/ts`, since neither changed. The rest of `npm run screens` was skipped too: nothing else changed, so it would only add run-to-run churn.
+- Outstanding: the user ships. The icon on the iPhone itself can only be seen after the deploy.
+
 ### 2026-11-03: Coverage's table and pager after Origin UI's table with numeric pagination (uncommitted, branch `fl-coverage-table`)
 
 - Brief: restyle Coverage and give it a pager with 21st.dev's component (MIT), ported into FilingLens's CSS:
