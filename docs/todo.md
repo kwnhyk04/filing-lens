@@ -6,14 +6,22 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-03) **Ask: the sources let go, the stage comes to rest, no Pause on Ask**: on branch `fl-ask-release` from main at 976175e (#52), uncommitted.
+- [ ] (user, 2026-11-03) **Coverage's table and pager** (21st.dev's table with numeric pagination, Origin UI, MIT), on branch `fl-coverage-table`, built in a worktree from main at 976175e (#52) and moved into the main folder on main at 8036435 (#53), uncommitted.
+  - [x] Tests first, red on main: units for the pager; e2e for the pager, the URL, the size kept and remembered, blocked storage, the fallbacks, the skeleton and the phone.
+  - [x] The table and pager in the app's CSS, the skeleton (none existed), the credit in `docs/third-party.md`.
+  - [x] Checks before the move: web typecheck, `npm test` 151, build; Playwright 142 passed and 10 skipped without a GPU.
+  - [x] After the move, on main with #53: typecheck, `npm test` 152, build; Edge's GPU suite (2 workers) 152 passed, 1 skipped; `npm run screens` 85 passed (15 new, 25 changed). The first try was stopped by Claude Code for low memory.
+  - [x] Screenshots: 42 at 1280, 1440 and 390 px, light and dark, in `H:\Projects\projects\_tmp\fl-coverage-table`, each looked at.
+  - [x] Docs: design, context, memory, activity log, third-party.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-03) **Ask: the sources let go, the stage comes to rest, no Pause on Ask**: on branch `fl-ask-release` from main at 976175e (#52), uncommitted.
   - [x] Reproduced on main first (production build, Edge's GPU, the mock's n01, then c02, the user's question): each answer's sources stayed held until the next question's leave; the stage still moved 5 s after the load; Tab met Ask's Pause.
   - [x] Tests first, red on main: the let-go about a second after each card settles (read pixel by pixel), a clean orbit for the next question, the stage still within 5 s of the load and of the card settling, no Pause on Ask, the tab order without it; units for `RELEASE_MS`, `CALM_MS` and `calmPace`.
   - [x] Fix: the engine's `FREE` beat; the bubbles' drift slowing to a stop at `CALM_MS`, then the eyes' and blobs' loops stopping; Ask's Pause gone (the hero keeps its own); the field's time running only while it moves.
   - [x] Checks: web typecheck, `npm test` 148, build; Playwright 136 passed and 11 skipped without a GPU, 146 passed and 1 skipped on Edge's GPU (2 workers), then 46 passed and 1 skipped for the stage, landing and recent specs on the final build; `make lint`, `make typecheck`, `make test` 703; `clients/ts` 18. `make test-int` and `npm run screens` not run (no Python change; the repo's screens use reduced motion).
   - [x] Screenshots: two questions in a row at 1440 px, light and dark, held, letting go, let go and still 5.4 s after the card settled, in `H:\Projects\projects\_tmp\fl-ask-release`, each looked at.
   - [x] Docs: design, context, memory, activity log.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #53 (8036435, git log).
 - [x] (user, 2026-11-03) **Ask reveal**: on branch `fl-ask-reveal` from main at c241033 (#51), uncommitted.
   - [x] Cause first: production build, a live streamed answer (the dev API, the user's go for its postgres, redis, rabbitmq and api), Edge on the GPU. The reveal runs, but in four groups 0.22 s apart, the check line, the numbers table and the footer as one. The membrane trails each step, then snaps back to the previous step's size when its last refit ends.
   - [x] Tests first, red on main: the membrane covers the card at every step and at the end (Edge's GPU); the parts in the user's order about 0.3 s apart, all within 3 s; the bubbles drift the whole time, still when paused, scrolled away or hidden; the cost with 4 decimals.

@@ -67,6 +67,14 @@ async function answered(page: Page, text: string, n: number, ticker: string) {
   await rested(page);
 }
 
+/** Coverage's page 2 at 10 a page, then 20 a page: the first row stays on screen, on page 1 of 2. */
+async function newSize(page: Page, path: string) {
+  await page.goto(path);
+  await page.getByLabel("Results per page").selectOption("20");
+  await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(20);
+}
+
 async function signedOut(page: Page, path: string) {
   await page.context().clearCookies();
   await page.goto(path);
@@ -138,10 +146,29 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
   },
   coverage: async (page) => {
     await page.goto("/coverage");
-    await expect(page.locator("tbody tr")).toHaveCount(20);
+    await expect(page.locator("tbody tr")).toHaveCount(10);
+  },
+  "coverage-page-2": async (page) => {
+    await page.goto("/coverage");
+    await page.getByRole("button", { name: "Go to next page" }).click();
+    await expect(page.getByText("Page 2 of 3", { exact: true })).toBeVisible();
+  },
+  "coverage-size": (page) => newSize(page, "/coverage?page=2&size=10"),
+  "coverage-loading": async (page) => {
+    await page.goto("/coverage?after=e2e-slow", { waitUntil: "commit" }); // the mock answers after 3 s
+    await expect(page.getByTestId("coverage-skeleton")).toBeVisible();
   },
   demo: (page) => signedOut(page, "/demo"),
   "demo-coverage": (page) => signedOut(page, "/demo/coverage"),
+  "demo-coverage-page-2": async (page) => {
+    await signedOut(page, "/demo/coverage");
+    await page.getByRole("button", { name: "Go to next page" }).click();
+    await expect(page.getByText("Page 2 of 3", { exact: true })).toBeVisible();
+  },
+  "demo-coverage-size": async (page) => {
+    await page.context().clearCookies();
+    await newSize(page, "/demo/coverage?page=2&size=10");
+  },
   offline: async (page) => {
     await page.goto(`${OFFLINE}/ask`);
     await expect(page.getByTestId("demo-banner")).toContainText("The live service is offline");

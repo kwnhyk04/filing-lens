@@ -136,10 +136,14 @@ const TOTALS = {
   filings: snapshot.companies.reduce((sum, company) => sum + company.filings.edges.length, 0),
 };
 
-function graphql(res: ServerResponse, body: Record<string, unknown>) {
+async function graphql(res: ServerResponse, body: Record<string, unknown>) {
   const operation = /query\s+(\w+)/.exec(String(body.query))?.[1];
   const variables = (body.variables ?? {}) as Record<string, unknown>;
-  // Cursors that act out a rejected key and an unexpected problem.
+  // Cursors that act out a slow API (the first page, 3 s late), a rejected key and an unexpected problem.
+  if (variables.after === "e2e-slow") {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    delete variables.after;
+  }
   if (variables.after === "e2e-rejected") return rejected(res);
   if (variables.after === "e2e-error") {
     const error = { message: "Too many requests.", extensions: { code: "rate_limited" } };

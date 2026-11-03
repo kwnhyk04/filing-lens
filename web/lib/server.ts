@@ -96,6 +96,21 @@ function graphql<R, V>(document: TypedDocumentString<R, V>, variables: V, reques
 export const coveragePage = (after?: string) =>
   call("coverage", (id) => graphql(CoverageDocument, { first: 20, after }, id));
 
+/** Every covered company, from `after` on when an old pager's link carries one, read 100 at a time (the API's most),
+    with the totals: Coverage pages them itself. */
+export const coverageAll = (after?: string) =>
+  call("coverage", async (id) => {
+    const first = await graphql(CoverageDocument, { first: 100, after }, id);
+    const companies = first.companies.edges.map((edge) => edge.node);
+    // ponytail: at most 20 reads (2,000 companies); the corpus has 30, one read. Past that, page on the server.
+    for (let page = first.companies.pageInfo, reads = 1; page.hasNextPage && page.endCursor && reads < 20; reads++) {
+      const more = await graphql(CoverageDocument, { first: 100, after: page.endCursor }, id);
+      companies.push(...more.companies.edges.map((edge) => edge.node));
+      page = more.companies.pageInfo;
+    }
+    return { totals: first.totals, companies };
+  });
+
 /** An answer's cited chunks and facts, in queries of at most 20 ids of each kind. */
 export function fetchSources(chunkIds: string[], factIds: string[], signal: AbortSignal) {
   return call("sources", async (id) => {

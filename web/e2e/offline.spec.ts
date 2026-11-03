@@ -28,7 +28,7 @@ for (const [live, twin] of TWINS) {
 test("a cursor the snapshot lacks goes to the demo's first page", async ({ page }) => {
   await page.goto("/demo/coverage?after=999&offline=1");
   await expect(page).toHaveURL("/demo/coverage?offline=1");
-  await expect(page.locator("tbody tr")).toHaveCount(20);
+  await expect(page.locator("tbody tr")).toHaveCount(10);
 });
 
 test("the demo header says what the snapshot covers", async ({ page }) => {
@@ -43,8 +43,11 @@ test("a demo chunk card says when its filing's fiscal year ended", async ({ page
   await expect(page.locator("#x04-source-1")).toContainText("Fiscal year ended December 31, 2025");
 });
 
-test("the demo pages its coverage like the live one", async ({ page }) => {
-  await page.goto("/demo/coverage");
-  await page.getByRole("link", { name: "Next page" }).click();
+test("the demo pages its coverage like the live one, and keeps its offline note", async ({ page }) => {
+  await page.goto("/demo/coverage?offline=1");
+  await page.getByRole("button", { name: "Go to next page" }).click();
+  await expect(page).toHaveURL("/demo/coverage?offline=1&page=2&size=10");
   await expect(page.locator("tbody tr")).toHaveCount(10);
+  await expect(page.getByText("Page 2 of 3", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("demo-banner")).toContainText("The live service is offline");
 });
