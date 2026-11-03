@@ -7,7 +7,7 @@ import { animate, type AnimationPlaybackControls, type AnimationSequence, cancel
 import * as React from "react";
 import { createPortal } from "react-dom";
 
-import { type Kind, SLOTS } from "../lib/stage.ts";
+import { type Kind, PULL_MS, SLOTS } from "../lib/stage.ts";
 import type { HeroStory } from "../lib/story.ts";
 import { appearance, themeOf } from "../lib/theme.ts";
 import "./bond.css";
@@ -464,8 +464,9 @@ type Node = { px: number; py: number; o: number; s: number; t: number; free: num
 /** A row: `g` its glyph coming into being, `p` the ring that ripples off it. */
 type Row = { o: number; dy: number; p: number; g: number };
 type Eye = { o: number; lid: number };
+/** `env.card`: how far Ask's card cells (the two heads and the body) follow the card's live box, 0 to 1. */
 type World = {
-  env: { free: number; breath: number; wobble: number; underline: number; pulse: number; contour: number; panel: number };
+  env: { free: number; breath: number; wobble: number; underline: number; pulse: number; contour: number; panel: number; card: number };
   A: Cell; B: Cell; O: Cell[]; PL: Cell; PR: Cell; K: Cell[]; U: Cell[];
   strands: Strand[]; nodes: Node[]; filled: boolean[]; rows: Row[]; eyes: Eye[];
   gaze: { px: number; py: number; w: number };
@@ -478,7 +479,7 @@ const strand = (tone: number): Strand => ({ ax: 0, ay: 0, bx: 0, by: 0, r: 0, to
 const row = (): Row => ({ o: 0, dy: 0, p: 0, g: 0 });
 function createWorld(plot: Plot): World {
   return {
-    env: { free: 1, breath: 0, wobble: 1.2, underline: 1, pulse: 0, contour: 0, panel: 0 },
+    env: { free: 1, breath: 0, wobble: 1.2, underline: 1, pulse: 0, contour: 0, panel: 0, card: 0 },
     A: cell(0), B: cell(2), O: [cell(0), cell(2), cell(0), cell(2)], PL: cell(0), PR: cell(2),
     K: [cell(1, 1.4), cell(1, 1.4), cell(3, 1.4), cell(1, 1.2)],
     U: Array.from({ length: PULLS }, () => cell(1)),
@@ -524,7 +525,8 @@ function offsetIn(el: HTMLElement, panel: HTMLElement) {
   }
   return { x, y };
 }
-function measure(host: HTMLElement, capsule: HTMLElement, panel: HTMLElement, rowEls: (HTMLElement | null)[], replyEl: HTMLElement | null, heads: Element[], count: number): Layout | null {
+/** `floor`: the height the floating things are scattered over at most, so a host that grows past it moves none. */
+function measure(host: HTMLElement, capsule: HTMLElement, panel: HTMLElement, rowEls: (HTMLElement | null)[], replyEl: HTMLElement | null, heads: Element[], count: number, floor: number): Layout | null {
   // Ask's field hides while it answers, and its card is out of the way while empty: each stands in for the other.
   const box = (el: HTMLElement) => (el.offsetWidth ? el.getBoundingClientRect() : null);
   const s = host.getBoundingClientRect(), f = box(capsule) ?? box(panel), p = box(panel) ?? f;
@@ -550,7 +552,7 @@ function measure(host: HTMLElement, capsule: HTMLElement, panel: HTMLElement, ro
   const head = rects.length
     ? { l: Math.min(...rects.map((h) => h.left)) - s.left, r: Math.max(...rects.map((h) => h.right)) - s.left, t: Math.min(...rects.map((h) => h.top)) - s.top, b: Math.max(...rects.map((h) => h.bottom)) - s.top }
     : null;
-  const slots = scatter(W, H, k, { left, right }, roomy, head);
+  const slots = scatter(W, Math.min(H, floor), k, { left, right }, roomy, head);
   const cl = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   // A tendril leaves the panel from the edge nearest the thing.
   const rims = slots.map((sl) =>
@@ -624,7 +626,7 @@ function floatPose(w: World, L: Layout) {
 }
 function restPose(w: World, L: Layout, roam: Roam[]) {
   const k = L.k;
-  Object.assign(w.env, { free: 1, breath: 0, wobble: 1.2, underline: 1, pulse: 0, contour: 0, panel: 0 });
+  Object.assign(w.env, { free: 1, breath: 0, wobble: 1.2, underline: 1, pulse: 0, contour: 0, panel: 0, card: 0 });
   [w.A, w.B, ...w.O].forEach((c, i) => {
     const r = RADII[i] * k;
     Object.assign(c, { ...at(L.rest[i]), hw: r, hh: r, r, rot: 0 });
@@ -656,19 +658,28 @@ function bondedPose(w: World, L: Layout, roam: Roam[]) {
   w.eyes.forEach((e, i) => { if (i > 0) Object.assign(e, { o: 0, lid: 1 }); });
   Object.assign(w.gaze, { px: F.cx, py: F.cy, w: 1 });
 }
-const headL = (L: Layout) => ({ px: L.panel.left + 30 * L.k, py: L.panel.top + 4 * L.k, hw: 22 * L.k, hh: 22 * L.k, r: 22 * L.k });
-const headR = (L: Layout) => ({ px: L.panel.right - 30 * L.k, py: L.panel.top + 4 * L.k, hw: 20 * L.k, hh: 20 * L.k, r: 20 * L.k });
-const bodyL = (L: Layout) => ({ px: L.panel.cx - L.panel.hw * 0.22, py: L.panel.cy, hw: L.panel.hw * 0.78, hh: L.panel.hh, r: 30 * L.k });
-const bodyR = (L: Layout) => ({ px: L.panel.cx + L.panel.hw * 0.22, py: L.panel.cy, hw: L.panel.hw * 0.78, hh: L.panel.hh, r: 30 * L.k });
+type Panel = Layout["panel"];
+/** The panel round a box (the card, or the hero's panel): 10 px wider and 8 px taller on each side. */
+function panelOf(l: number, t: number, r: number, b: number): Panel {
+  const cx = (l + r) / 2, cy = (t + b) / 2, hw = (r - l) / 2 + 10, hh = (b - t) / 2 + 8;
+  return { cx, cy, hw, hh, left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh };
+}
+const headL = (P: Panel, k: number) => ({ px: P.left + 30 * k, py: P.top + 4 * k, hw: 22 * k, hh: 22 * k, r: 22 * k });
+const headR = (P: Panel, k: number) => ({ px: P.right - 30 * k, py: P.top + 4 * k, hw: 20 * k, hh: 20 * k, r: 20 * k });
+const bodyL = (P: Panel, k: number) => ({ px: P.cx - P.hw * 0.22, py: P.cy, hw: P.hw * 0.78, hh: P.hh, r: 30 * k });
+const bodyR = (P: Panel, k: number) => ({ px: P.cx + P.hw * 0.22, py: P.cy, hw: P.hw * 0.78, hh: P.hh, r: 30 * k });
+/** The card cells, the two heads and the body's halves, held round a panel. */
+const cardCells = (P: Panel, k: number) => ({ A: headL(P, k), B: headR(P, k), PL: bodyL(P, k), PR: bodyR(P, k) });
 /** The open panel with what every beat before `upTo` revealed. */
 function panelPose(w: World, L: Layout, roam: Roam[], upTo: number, plot: Plot) {
   bondedPose(w, L, roam);
   Object.assign(w.env, { panel: 1, contour: 0.3 });
   w.capsule.o = 0;
-  Object.assign(w.A, headL(L));
-  Object.assign(w.B, headR(L));
-  Object.assign(w.PL, bodyL(L));
-  Object.assign(w.PR, bodyR(L));
+  const held = cardCells(L.panel, L.k);
+  Object.assign(w.A, held.A);
+  Object.assign(w.B, held.B);
+  Object.assign(w.PL, held.PL);
+  Object.assign(w.PR, held.PR);
   Object.assign(w.gaze, { px: L.panel.cx, py: L.panel.top + 40 * L.k, w: 1 });
   w.rows[0].o = 1;
   const done = (i: number) => Object.assign(w.rows[i], { o: 1, g: 1 });
@@ -683,8 +694,8 @@ function panelPose(w: World, L: Layout, roam: Roam[], upTo: number, plot: Plot) 
 
 /* ── Choreography: one Motion sequence per beat ── */
 
-/** A beat's timeline, its still pose's time, and the seconds it is played into when shorter (`fit`). */
-type Beat = { seq: AnimationSequence; still: number; fit?: number };
+/** A beat's timeline, its still pose's time, and the seconds it is played into when shorter (`span`). */
+type Beat = { seq: AnimationSequence; still: number; span?: number };
 const flow = [0.6, 0, 0.15, 1] as const, settle = [0.4, 0, 0.2, 1] as const, inOut = "easeInOut" as const, out = "easeOut" as const;
 const spring = (stiffness: number, damping: number) => ({ type: "spring" as const, stiffness, damping });
 const lookAt = (w: World, p: Point, t: number, d = 0.4): AnimationSequence[number] => [w.gaze, { ...at(p), w: 1 }, { duration: d, at: t }];
@@ -747,11 +758,11 @@ function launch(w: World, L: Layout): Beat {
     seq: [
       [sent, { dy: 26 * L.k, o: 0 }, { duration: 0.01, at: 0 }],
       [w.capsule, { o: 0 }, { duration: 0.35, at: 0.05 }],
-      [w.PL, bodyL(L), { duration: 1.0, ease: flow, at: 0.1 }],
-      [w.PR, bodyR(L), { duration: 1.0, ease: flow, at: 0.1 }],
+      [w.PL, bodyL(L.panel, L.k), { duration: 1.0, ease: flow, at: 0.1 }],
+      [w.PR, bodyR(L.panel, L.k), { duration: 1.0, ease: flow, at: 0.1 }],
       [w.env, { panel: 1 }, { duration: 1.0, ease: flow, at: 0.1 }],
-      [w.A, headL(L), { duration: 0.9, ease: flow, at: 0.15 }],
-      [w.B, headR(L), { duration: 0.9, ease: flow, at: 0.2 }],
+      [w.A, headL(L.panel, L.k), { duration: 0.9, ease: flow, at: 0.15 }],
+      [w.B, headR(L.panel, L.k), { duration: 0.9, ease: flow, at: 0.2 }],
       [w.env, { contour: 0.3 }, { duration: 0.8, at: 0.3 }],
       home(w, L, 0.4),
       [sent, { dy: 0, o: 1 }, { duration: 0.55, ease: settle, at: 0.55 }],
@@ -760,30 +771,32 @@ function launch(w: World, L: Layout): Beat {
     ],
   };
 }
-/** Ask's checked answer is in: the organisms leave off roaming and gather round its card, two heads at its top
- * corners and one body under it, the others drawn in. From the roam, each organism's cell first takes its place,
- * so letting go of the roam moves nothing; gathered already, they re-fit a card that changed. */
-function gather(w: World, L: Layout, roam: Roam[]): Beat {
-  const gathered = w.env.free === 0; // then it only re-fits a card that changed, quickly
+/** Ask's question is sent: the organisms leave off roaming and gather round its card, two heads at its top corners
+ * and one body under it, the others drawn in, and from then on hold the card as it is (`env.card`, in paint). From
+ * the roam, each organism's cell first takes its place, so letting go of the roam moves nothing. None when the
+ * membrane holds the card already. */
+function gather(w: World, L: Layout, roam: Roam[]): Beat | null {
+  if (w.env.card === 1) return null;
   if (w.env.free === 1) {
     [w.A, w.B, ...w.O].forEach((c, i) => Object.assign(c, { px: roam[i].x, py: roam[i].y, hw: roam[i].r, hh: roam[i].r, r: roam[i].r, rot: 0 }));
     Object.assign(w.PL, { px: roam[0].x, py: roam[0].y, ...zero });
     Object.assign(w.PR, { px: roam[1].x, py: roam[1].y, ...zero });
   }
+  const held = cardCells(L.panel, L.k);
   return {
     still: 1.3,
     seq: [
       [w.env, { free: 0 }, { duration: 0.5, ease: out, at: 0 }],
-      [w.A, headL(L), { duration: 1.0, ease: flow, at: 0.05 }],
-      [w.B, headR(L), { duration: 1.0, ease: flow, at: 0.1 }],
-      [w.PL, bodyL(L), { duration: 1.1, ease: flow, at: 0.15 }],
-      [w.PR, bodyR(L), { duration: 1.1, ease: flow, at: 0.2 }],
+      [w.A, held.A, { duration: 1.0, ease: flow, at: 0.05 }],
+      [w.B, held.B, { duration: 1.0, ease: flow, at: 0.1 }],
+      [w.PL, held.PL, { duration: 1.1, ease: flow, at: 0.15 }],
+      [w.PR, held.PR, { duration: 1.1, ease: flow, at: 0.2 }],
+      [w.env, { card: 1 }, { duration: 1.1, ease: flow, at: 0.15 }],
       ...w.O.map((c, i): AnimationSequence[number] => [c, zero, { duration: 0.45, at: 0.2 + i * 0.08 }]),
       ...w.eyes.slice(1).map((eye, i): AnimationSequence[number] => [eye, { o: 0, lid: 1 }, { duration: 0.3, at: 0.25 + i * 0.06 }]),
       [w.env, { breath: 1, wobble: 1.5, contour: 0.3 }, { duration: 0.8, at: 0.4 }],
       lookAt(w, { x: L.panel.cx, y: L.panel.top + 40 * L.k }, 0.5, 0.5),
     ],
-    fit: gathered ? 0.4 : undefined,
   };
 }
 /** The reach: a tendril reaches the source in `slot`, the membrane closes round it, flashes it and draws it a share
@@ -852,12 +865,13 @@ function find(w: World, L: Layout, sizes: Size[], plot: Plot): Beat {
  * step apart, closing round each and drawing it against the card, where it holds it until the answer leaves. */
 function pull(w: World, L: Layout, sizes: Size[], plot: Plot, roam: Roam[]): Beat {
   const grabs = plot.pulls.flatMap((slot, i) => grab(w, L, sizes, w.strands[i], w.K[i], slot, i * 0.12, 0.45));
-  return { still: 1.9, seq: [...gather(w, L, roam).seq, ...grabs, ...widen(w, 0.3, 0.9)], fit: 0.8 };
+  return { still: 1.9, seq: [...(gather(w, L, roam)?.seq ?? []), ...grabs, ...widen(w, 0.3, 0.9)], span: PULL_MS / 1000 };
 }
-/** Ask's settled beat: the membrane fits round the answer's card as its parts arrive, then the eyes blink. */
+/** Ask's settled beat: the membrane, holding the card as its parts arrive, finishes gathering if it had not, then the
+ * eyes blink. */
 function settled(w: World, L: Layout, roam: Roam[]): Beat {
-  const fitted = gather(w, L, roam);
-  return { still: 1.8, seq: [...fitted.seq, ...blink(w, 1.3)], fit: fitted.fit };
+  const gathering = gather(w, L, roam);
+  return { still: 1.8, seq: [...(gathering?.seq ?? []), ...blink(w, gathering ? 1.3 : 0.1)], span: gathering ? 0.4 : undefined };
 }
 /** Ask's leave: each held source flashes and is let go back to its place, while the page clears the card. */
 function release(w: World, L: Layout, plot: Plot): Beat | null {
@@ -870,7 +884,7 @@ function release(w: World, L: Layout, plot: Plot): Beat | null {
       ...letGo(w, L, S, w.K[i], slot, t, { x: S.ax, y: S.ay }),
     ];
   });
-  return { still: 1.1, seq, fit: 0.4 };
+  return { still: 1.1, seq, span: 0.4 };
 }
 /** Ask's way back to rest after New question: every cell eases into its rest pose rather than jumping there. */
 function toRest(w: World, L: Layout, roam: Roam[]): Beat {
@@ -937,8 +951,8 @@ function buildBeat(beat: number, w: World, L: Layout, sizes: Size[], plot: Plot,
 }
 
 /* ── One story told over a page. The hero's brings its own panel and capsule, types its question, reveals each
- * row, then holds and fades. Ask's (`page`) plays round the page's own field and card, which show each part the
- * moment it is reported: the story never hides, moves or waits for them. ── */
+ * row, then holds and fades. Ask's (`page`) plays round the page's own field and card, which show each part as the
+ * page brings it: the story never hides, moves or waits for them, and its membrane holds the card as it is. ── */
 
 /** Ask's field and card. */
 export type Page = { capsule: HTMLElement; panel: HTMLElement };
@@ -955,10 +969,14 @@ type StoryProps = {
   mode: Mode;
   onReady: () => void;
   onBeat?: (beat: number) => void;
-  onDone: () => void; // the hero's answer has held and faded out; Ask's settle round its answer, or its rest, has played
+  onDone?: () => void; // the hero's answer has held and faded out
+  onIdle?: (idle: boolean) => void; // Ask's stage idles: its beat played, only its things drift
 };
 
-export function Story({ plot, host, layer, heads, page, target, moving, quiet, mode, onReady, onBeat, onDone }: StoryProps) {
+/** A box's edges, left, top, right and bottom, against the host. */
+type Edges = { l: number; t: number; r: number; b: number };
+
+export function Story({ plot, host, layer, heads, page, target, moving, quiet, mode, onReady, onBeat, onDone, onIdle }: StoryProps) {
   const story = plot.story;
   const [beat, setBeat] = React.useState(0);
   const [typed, setTyped] = React.useState("");
@@ -974,6 +992,8 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   const finish = React.useRef(onDone);
   const capture = React.useRef<Capture | null>(null), controls = React.useRef<AnimationPlaybackControls | null>(null), generation = React.useRef(0);
   const played = React.useRef<number | null>(null); // the beat last built
+  const hull = React.useRef<Edges | null>(null); // Ask's card as the membrane holds it
+  const idle = React.useRef(false), idling = React.useRef(onIdle); // Ask's stage with nothing to play but the drift
   const clock = React.useRef(0), pointer = React.useRef<Point | null>(null);
   const typing = React.useRef<{ at: number; n: number } | null>(null), started = React.useRef(false), readyOnce = React.useRef(false);
   const scene = React.useRef({
@@ -984,7 +1004,8 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   React.useLayoutEffect(() => {
     state.current = { moving, quiet, beat, target };
     finish.current = onDone;
-  }, [moving, quiet, beat, target, onDone]);
+    idling.current = onIdle;
+  }, [moving, quiet, beat, target, onDone, onIdle]);
   React.useEffect(() => onBeat?.(beat), [beat, onBeat]);
   const rowRef = React.useMemo(() => {
     const refs = Array.from({ length: plot.rows }, (_, i) => (el: HTMLElement | null) => { rowRefs.current[i] = el; });
@@ -1045,6 +1066,25 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     r.vx += fx * dt; r.vy += fy * dt; r.x += r.vx * dt; r.y += r.vy * dt;
   }, []);
 
+  /* The things in their places at time `t`: each drifts while free (the hero's drift), and a held one sits where the
+   * tendril has it, anchored at its blob. */
+  const floatThings = React.useCallback((L: Layout, t: number, still: boolean) => {
+    const k = L.k;
+    world.current.nodes.forEach((n, i) => {
+      const el = nodeRefs.current[i];
+      if (!el) return;
+      const drift = (still ? 0 : n.free) * (L.roomy ? 1 : 0.6);
+      const ox = (Math.sin(t * 0.5 + i * 1.3) * 13 + Math.sin(t * 0.21 + i * 0.7) * 7) * k * drift * (L.roomy ? 1 : 0.35);
+      const oy = (Math.cos(t * 0.38 + i * 0.9) * 4 + Math.cos(t * 0.17 + i) * 2) * k * drift;
+      const gx = origins.current[i] ?? 0;
+      el.style.transform = `translate(${(n.px + ox - gx).toFixed(1)}px,${(n.py + oy).toFixed(1)}px) translateY(-50%) rotate(${(Math.sin(t * 0.3 + i) * 4 * drift).toFixed(2)}deg) scale(${n.s.toFixed(3)})`;
+      el.style.opacity = String(n.o);
+      el.style.setProperty("--t", n.t.toFixed(3));
+      el.style.setProperty("--rip", n.rip.toFixed(3));
+      el.style.setProperty("--flash", n.flash.toFixed(3));
+    });
+  }, []);
+
   /* Paint one frame: the membrane, then the DOM that rides on it. */
   const paint = React.useCallback((delta: number) => {
     const w = world.current, L = layout.current, m = membrane.current;
@@ -1071,16 +1111,38 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       const a = (1 - d / (150 * k)) * 9 * k * f;
       return { x: (dx / d) * a, y: (dy / d) * a };
     };
+    // Ask's card cells hold the card as it is this frame (`env.card`): the membrane grows with it at once, so no part
+    // of it shows past the membrane, and eases in after it when it shrinks; with nothing moving it fits it at once.
+    let settled = true; // the membrane holds the card as it is, nothing left to ease in
+    const holdCard = (at: Page) => {
+      const s = host.getBoundingClientRect(), r = (at.panel.offsetWidth ? at.panel : at.capsule).getBoundingClientRect();
+      const box = { l: r.left - s.left, t: r.top - s.top, r: r.right - s.left, b: r.bottom - s.top };
+      const h = (hull.current ??= { ...box }), a = dt > 0 ? 1 - Math.exp(-dt / 0.18) : 1;
+      h.l = box.l < h.l ? box.l : h.l + (box.l - h.l) * a;
+      h.t = box.t < h.t ? box.t : h.t + (box.t - h.t) * a;
+      h.r = box.r > h.r ? box.r : h.r + (box.r - h.r) * a;
+      h.b = box.b > h.b ? box.b : h.b + (box.b - h.b) * a;
+      settled = Math.max(Math.abs(h.l - box.l), Math.abs(h.t - box.t), Math.abs(h.r - box.r), Math.abs(h.b - box.b)) < 0.5;
+      return cardCells(panelOf(h.l, h.t, h.r, h.b), k);
+    };
+    const held = page && w.env.card > 0 ? holdCard(page) : null;
+    if (!held) hull.current = null;
+    const follow = (c: Cell, to: Pick<Cell, "px" | "py" | "hw" | "hh" | "r"> | undefined): Cell => {
+      const mix = (from: number, goal: number) => from + (goal - from) * w.env.card;
+      return to ? { ...c, px: mix(c.px, to.px), py: mix(c.py, to.py), hw: mix(c.hw, to.hw), hh: mix(c.hh, to.hh), r: mix(c.r, to.r) } : c;
+    };
     const pos: Point[] = [];
-    [w.A, w.B, ...w.O].forEach((c, i) => {
+    [w.A, w.B, ...w.O].forEach((cell, i) => {
+      const c = i === 0 ? follow(cell, held?.A) : i === 1 ? follow(cell, held?.B) : cell;
       const r = R[i], sp = Math.hypot(r.vx, r.vy), e = Math.min(0.32, sp / (110 * k)), ang = sp > 1 ? Math.atan2(r.vy, r.vx) : 0, l = lean(r), bob = Math.sin(t * 1.1 + r.seed) * 3 * k;
       const x = c.px + (r.x + l.x - c.px) * f, y = c.py + (r.y + l.y + bob - c.py) * f;
       const hw = (c.hw + (r.r * (1 + e) - c.hw) * f) * breath, hh = (c.hh + (r.r * (1 - e * 0.5) - c.hh) * f) * breath, rr = c.r + (r.r - c.r) * f;
       pos[i] = { x, y };
       put(i, c, x, y, hw, hh, rr, f > 0 ? ang : c.rot);
     });
-    put(6, w.PL, w.PL.px, w.PL.py, w.PL.hw, w.PL.hh * breath + pulse);
-    put(7, w.PR, w.PR.px, w.PR.py, w.PR.hw, w.PR.hh * breath + pulse);
+    const PL = follow(w.PL, held?.PL), PR = follow(w.PR, held?.PR);
+    put(6, PL, PL.px, PL.py, PL.hw, PL.hh * breath + pulse);
+    put(7, PR, PR.px, PR.py, PR.hw, PR.hh * breath + pulse);
     w.K.forEach((c, i) => put(8 + i, c));
     w.U.slice(0, 4).forEach((c, i) => put(12 + i, c));
     const strands = scene.current.strands;
@@ -1108,20 +1170,7 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       el.style.opacity = String(e.o);
       el.style.setProperty("--lid", e.lid.toFixed(3));
     });
-    // Things drift while free; a held thing sits where the tendril has it, anchored at its blob.
-    w.nodes.forEach((n, i) => {
-      const el = nodeRefs.current[i];
-      if (!el) return;
-      const drift = (still ? 0 : n.free) * (L.roomy ? 1 : 0.6);
-      const ox = (Math.sin(t * 0.5 + i * 1.3) * 13 + Math.sin(t * 0.21 + i * 0.7) * 7) * k * drift * (L.roomy ? 1 : 0.35);
-      const oy = (Math.cos(t * 0.38 + i * 0.9) * 4 + Math.cos(t * 0.17 + i) * 2) * k * drift;
-      const gx = origins.current[i] ?? 0;
-      el.style.transform = `translate(${(n.px + ox - gx).toFixed(1)}px,${(n.py + oy).toFixed(1)}px) translateY(-50%) rotate(${(Math.sin(t * 0.3 + i) * 4 * drift).toFixed(2)}deg) scale(${n.s.toFixed(3)})`;
-      el.style.opacity = String(n.o);
-      el.style.setProperty("--t", n.t.toFixed(3));
-      el.style.setProperty("--rip", n.rip.toFixed(3));
-      el.style.setProperty("--flash", n.flash.toFixed(3));
-    });
+    floatThings(L, t, still);
     w.rows.forEach((r, i) => {
       const el = rowRefs.current[i];
       if (!el) return;
@@ -1142,7 +1191,16 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
       bubble.style.setProperty("--check", w.lines.check.toFixed(3));
       bubble.style.setProperty("--typing", w.lines.typing.toFixed(3));
     }
-    if (page) return; // Ask's field and card stay as the page shows them
+    if (page) {
+      // Ask's field and card stay as the page shows them. Its stage idles once its beat has played and the membrane
+      // holds the card as it is: then only the things drift, and the membrane and the field hold still.
+      const resting = controls.current === null && settled;
+      if (resting !== idle.current) {
+        idle.current = resting;
+        idling.current?.(resting);
+      }
+      return;
+    }
     // A told answer holds HOLD_S on this clock, then fades out and asks for the next one, which fades in.
     if (state.current.beat === LAST) doneAt.current ??= t;
     const out = doneAt.current === null ? 0 : Math.min(1, Math.max(0, (t - doneAt.current - HOLD_S) / FADE_S));
@@ -1162,9 +1220,17 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     }
     if (out >= 1 && !left.current) {
       left.current = true;
-      finish.current();
+      finish.current?.();
     }
-  }, [story, page, stepRoam]);
+  }, [story, page, host, stepRoam, floatThings]);
+  /* While Ask's stage idles, only the things drift, on the paint's own clock. */
+  const drift = React.useCallback((delta: number) => {
+    const L = layout.current;
+    if (!L) return;
+    const { moving: live, quiet: still } = state.current;
+    clock.current += live && !still ? Math.min(delta, 40) / 1000 : 0;
+    floatThings(L, clock.current, still);
+  }, [floatThings]);
 
   /* One clock, painting after Motion's own render step, so seeks and completions are already written. */
   const paintSoon = React.useCallback((frames = 4) => {
@@ -1176,13 +1242,13 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     frame.postRender(tick, true);
   }, [paint]);
   React.useEffect(() => {
-    const tick = ({ delta }: { delta: number }) => paint(delta);
+    const tick = ({ delta }: { delta: number }) => (idle.current ? drift(delta) : paint(delta));
     if (moving && !quiet) {
       frame.postRender(tick, true);
       return () => cancelFrame(tick);
     }
     paintSoon();
-  }, [moving, quiet, paint, paintSoon, beat, ready]);
+  }, [moving, quiet, paint, drift, paintSoon, beat, ready]);
 
   /* Ask's plot follows its answer: cited sources take their filings' places. A new plot drops the old one's held
    * sources (a recent question, New question, or a change while paused); after a release there are none. */
@@ -1195,27 +1261,29 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
   }, [page, plot]);
 
   /* Layout follows the real capsule, panel and rows; the pose of the current beat is re-fitted on resize. Ask's
-   * card grows as its answer streams, so its roam and its gathering go on from where they are. */
+   * things float over the stage's resting height, so a card that grows below it moves none of them. */
   const relayout = React.useCallback(() => {
     const capsuleEl = page?.capsule ?? capsule.current, panelEl = page?.panel ?? panel.current;
     if (!capsuleEl || !panelEl) return;
-    const L = measure(host, capsuleEl, panelEl, rowRefs.current, reply.current, heads, page ? 0 : plot.rows);
+    const floor = page ? parseFloat(getComputedStyle(host).minHeight) || Infinity : Infinity;
+    const L = measure(host, capsuleEl, panelEl, rowRefs.current, reply.current, heads, page ? 0 : plot.rows, floor);
     if (!L) return;
-    const first = layout.current === null;
+    const was = layout.current, first = was === null;
     layout.current = L;
     setCompact(!L.roomy);
     const w = world.current, b = state.current.beat;
     if (first) restPose(w, L, roam.current);
-    // Ask never jumps: its things take their new places unless one is held, and the beat built anew below tweens
-    // the membrane round the card from wherever it is; a pull under way is left to finish.
+    // Ask never jumps: its things keep their places unless the stage's width changed, and its membrane holds the card
+    // as it paints, so a card that only grew or shrank rebuilds nothing; a pull under way is left to finish. At rest
+    // the organisms' places follow the field.
     if (page) {
       if (b !== FIND && !w.nodes.some((n) => n.free < 1)) floatPose(w, L);
-      if (b === FIND && !first) return;
+      if (!first && (b === FIND || (b !== 0 && L.W === was.W && L.panel.hw === was.panel.hw))) return paintSoon();
     } else if (b === 0) restPose(w, L, roam.current);
     else if (b === 1) bondedPose(w, L, roam.current);
     else panelPose(w, L, roam.current, b, plot);
     setReady((v) => v + 1);
-  }, [host, heads, page, plot]);
+  }, [host, heads, page, plot, paintSoon]);
   React.useEffect(() => {
     const box = page?.panel ?? theatre.current;
     if (!box) return;
@@ -1288,27 +1356,35 @@ export function Story({ plot, host, layer, heads, page, target, moving, quiet, m
     if (!page && beat === LAST) panelPose(w, L, roam.current, beat, plot);
     // Ask entering its rest or a new question's reading holds no source any more.
     if (page && entered && (beat === 0 || beat === GATHER) && w.nodes.some((n) => n.free < 1)) drop(w, L);
+    // Ask's card cells take the place the membrane holds the card at, so a beat that moves them starts there.
+    if (page && w.env.card === 1 && hull.current) {
+      const { l, t, r, b } = hull.current, held = cardCells(panelOf(l, t, r, b), L.k);
+      [w.A, w.B, w.PL, w.PR].forEach((c, i) => Object.assign(c, [held.A, held.B, held.PL, held.PR][i]));
+    }
     const built = buildBeat(beat, w, L, sizes, plot, roam.current, Boolean(page));
     if (!built) {
       if (beat === 0 && (!page || entered)) restPose(w, L, roam.current);
-      if (page && beat === 0) finish.current(); // at rest already: nothing to play
       return;
     }
     const own = ++generation.current;
     let cancelled = false;
     const c = animate(built.seq, { defaultTransition: { ease: "easeInOut" } });
-    if (built.fit) c.speed = Math.max(1, c.duration / built.fit); // Ask's steps are short: the beat plays faster
+    if (built.span) c.speed = Math.max(1, c.duration / built.span); // Ask's steps are short: the beat plays faster
     controls.current = c;
+    if (idle.current) {
+      idle.current = false; // a beat to play: the membrane and the field move again
+      idling.current?.(false);
+    }
     if (quiet || !moving) {
       c.pause();
       c.time = quiet ? built.still : 0;
     }
     c.finished.then(
       () => {
-        if (cancelled || generation.current !== own || !state.current.moving || state.current.quiet) return;
-        c.complete();
-        if (!page) setBeat((b) => Math.min(LAST, b + 1));
-        else if (beat === LAST || beat === 0) finish.current();
+        if (cancelled || generation.current !== own) return;
+        // Its end stays as it is: no control of it is kept, so no later pause can seek it back to its start.
+        if (controls.current === c) controls.current = null;
+        if (!page && state.current.moving && !state.current.quiet) setBeat((b) => Math.min(LAST, b + 1));
       },
       () => {},
     );

@@ -50,11 +50,13 @@ const moving = (page: Page) =>
     () => matchMedia("(min-width: 64rem) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)").matches,
   );
 
-/** The moving stage at rest once its pulls have played, and its field faded in; the calm stage at once. */
+/** The moving stage settled, its field faded in, the reveal over and its last beat played (the filings drift on);
+    the calm stage at once. */
 async function rested(page: Page) {
   if (!(await moving(page))) return;
   await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
-  await expect(page.locator(".stage .pb-stage")).toHaveAttribute("data-moving", "false", { timeout: 30_000 });
+  await expect(page.locator(".stage")).toHaveAttribute("data-phase", /^(empty|done|failed)$/, { timeout: 30_000 });
+  await page.waitForTimeout(1_500);
 }
 
 /** An answer whose card `n` has loaded its source, which names `ticker`. */
@@ -154,10 +156,30 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
   },
 };
 
-/** Ask's sequence on the moving stage, one shot a step: Playwright's clock holds the page's timers and frames still
-    between shots, so each step is caught where it is (CSS and Web Animations run on, and are shot finished). */
-async function sequence(page: Page, name: string) {
-  const shot = (step: string) => page.screenshot({ path: `${DIR}/ask-sequence-${step}-${name}.png`, animations: "disabled" });
+/** The card's newest part, by the reveal's order (lib/stage.ts): "reading" before the first, "source-2" for a second. */
+const newest = (page: Page) =>
+  page.evaluate(() => {
+    const card = document.querySelector(".stage .answer-card");
+    const order = [
+      ["read", ".read-as"], ["source", ".story-passages li"], ["filings", ".card-filings"], ["heading", ".reply-head"],
+      ["sentence", ".answer-text [data-sentence]:not([data-later])"], ["check", "[data-tone='check']"], ["table", ".checks"],
+      ["warnings", ".warnings"], ["note", ".note"], ["foot", ".card-foot"],
+    ];
+    const [name, selector] = order.filter(([, each]) => card?.querySelector(each)).at(-1) ?? ["reading", ""];
+    const count = selector ? card!.querySelectorAll(selector).length : 0;
+    return count > 1 ? `${name}-${count}` : name;
+  });
+
+/** Ask's sequence on the moving stage, one shot a step, for question `id`: Playwright's clock holds the page's timers
+    and frames still between shots, so each step is caught where it is. CSS and Web Animations (each part's way in)
+    run on real time: each shot waits them out, then lets one frame paint, so the membrane holds the card as shot. */
+async function sequence(page: Page, name: string, id: string) {
+  let shots = 0;
+  const shot = async (step: string) => {
+    const at = String(++shots).padStart(2, "0");
+    await page.screenshot({ path: `${DIR}/ask-sequence-${id}-${name}-${at}-${step}.png`, animations: "disabled", fullPage: true });
+  };
+  const stage = page.locator(".stage");
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
   await page.route("**/api/sources", async (route) => {
@@ -168,34 +190,43 @@ async function sequence(page: Page, name: string) {
   await openAsk(page);
   await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
   const looked = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/sources");
-  await page.getByLabel("Your question").fill(question("x04"));
+  await page.getByLabel("Your question").fill(question(id));
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await looked;
   await page.clock.runFor(1500); // the membrane gathers round the card while the sources are held
-  await shot("1-reading");
+  await shot("reading");
   // Just ahead of the page's own clock: a longer jump would run the sources lookup's 6 s timeout out.
   await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50);
   release();
-  await expect(page.locator(".stage")).toHaveAttribute("data-phase", "pulling");
-  for (const [step, ms] of [["2-pull", 400], ["3-read-as", 420], ["4-passages", 220], ["5-answer", 220], ["6-check", 220], ["7-done", 1500]] as const) {
-    await page.clock.runFor(ms);
-    await shot(step);
+  await expect(stage).toHaveAttribute("data-phase", "pulling");
+  await page.clock.runFor(350);
+  await shot("pull");
+  for (let step = 1; step < 40; step++) {
+    for (let i = 0; i < 40 && Number(await stage.getAttribute("data-step")) < step; i++) await page.clock.runFor(20);
+    await page.waitForTimeout(500); // the card grows to take the part, on real time
+    await page.clock.runFor(60); // a few frames: the membrane holds the card as it now is, and the field fits the stage
+    await shot(await newest(page));
+    if ((await stage.getAttribute("data-phase")) === "done") break;
   }
-  await page.getByLabel("Your question").fill(question("n01"));
+  await page.clock.runFor(1500);
+  await shot("done");
+  await page.getByLabel("Your question").fill(question(id === "n01" ? "x04" : "n01"));
   await page.getByLabel("Your question").press("Enter");
   await page.clock.runFor(200);
-  await shot("8-leaving");
+  await shot("leaving");
 }
 
 if (MOTION && WIDTHS) {
   for (const width of WIDTHS.filter((each) => each >= 1024)) {
     for (const colorScheme of ["light", "dark"] as const) {
-      test(`ask-sequence ${width}-${colorScheme}`, async ({ page }) => {
-        test.setTimeout(90_000);
-        await page.setViewportSize({ width, height: 900 });
-        await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
-        await sequence(page, `${width}-${colorScheme}`);
-      });
+      for (const id of ["n01", "x04"]) {
+        test(`ask-sequence ${id} ${width}-${colorScheme}`, async ({ page }) => {
+          test.setTimeout(120_000);
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
+          await sequence(page, `${width}-${colorScheme}`, id);
+        });
+      }
     }
   }
 }

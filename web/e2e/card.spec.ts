@@ -1,13 +1,14 @@
 // Ask's answer card, in the landing hero's look and order: it reads until the answer and its sources are both in,
-// then shows Read as, the passages, the answer and the check, one by one where motion is allowed and all at once on
-// a phone or under reduced motion. The same card holds a stored answer, an error, and each of the demo's saved
-// answers; and the app around it: the theme switch in its header, Coverage as cards on a phone, and no WebGL anywhere.
+// then shows Read as, each source, the filing tags, the heading, each sentence, the check, the numbers and the foot,
+// one by one where motion is allowed and all at once on a phone or under reduced motion. The same card holds a stored
+// answer, an error, and each of the demo's saved answers; and the app around it: the theme switch in its header,
+// Coverage as cards on a phone, and no WebGL anywhere.
 import { randomUUID } from "node:crypto";
 
 import type { Page } from "@playwright/test";
 
 import { question, snapshot } from "./env.ts";
-import { ask, audit, expect, noSidewaysScroll, partsSeen, test, watchParts } from "./fixtures.ts";
+import { ask, audit, expect, inOrder, noSidewaysScroll, partsSeen, test, watchParts } from "./fixtures.ts";
 
 const N01 = question("n01");
 const X04 = question("x04");
@@ -28,6 +29,14 @@ async function holdSources(page: Page) {
   return { looked, release: () => release() };
 }
 
+/** The answer billed as a paid model bills it, a fraction of a cent: the saved answers ran on a free tier. */
+async function billed(page: Page, cost: number) {
+  await page.route("**/api/answers", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace(/"cost_usd":0\b/, `"cost_usd":${cost}`) });
+  });
+}
+
 test("while FilingLens reads, the card holds the question and the reading line only, never a draft", async ({ page }) => {
   const slow = `e2e: slow ${randomUUID()}`; // the mock drafts it for about 3 s, then completes it as o02's refusal
   await ask(page, slow);
@@ -43,7 +52,8 @@ test("while FilingLens reads, the card holds the question and the reading line o
   await expect(arrived(page)).toHaveCount(0); // a refusal cites and checks nothing
 });
 
-test("the answer waits for its sources, then its parts arrive one by one in the hero's order", async ({ page }) => {
+test("the answer waits for its sources, then its parts arrive one by one in the hero's order, about 0.3 s apart and all within 3 s", async ({ page }) => {
+  await billed(page, 0.002613);
   const sources = await holdSources(page);
   await ask(page, N01);
   await sources.looked; // the checked answer is in: its sources are being looked up
@@ -61,11 +71,8 @@ test("the answer waits for its sources, then its parts arrive one by one in the 
   await expect(card(page).locator("[data-tone='check']")).toHaveText("Checked: 416,161,000,000 matches source 1.");
   await expect(page.getByTestId("answer")).toContainText("416,161,000,000 USD");
   await expect(card(page).getByTestId("reading")).toHaveCount(0);
-  const seen = await partsSeen(page);
-  expect(seen.read).toBeLessThan(seen.passages);
-  expect(seen.passages).toBeLessThan(seen.answer);
-  expect(seen.answer).toBeLessThan(seen.check);
-  expect(seen.check).toBeLessThan(2_000);
+  await expect.soft(card(page).locator(".usage")).toHaveText("1,369 tokens in, 140 out, cost $0.0026"); // as the evaluation's table
+  inOrder(await partsSeen(page), ["read", "source1", "filings", "heading", "sentence1", "check", "table", "foot"], { gap: 180, within: 3_000 });
   // Top to bottom in the same order, as the hero's panel.
   const [read, first, reply, check] = await Promise.all(
     [page.getByTestId("read-as"), row, card(page).locator(".story-reply"), card(page).locator("[data-tone='check']")].map((part) =>
@@ -109,9 +116,10 @@ async function allAtOnce(page: Page) {
   await sources.looked;
   await watchParts(page);
   sources.release();
-  await expect(card(page).locator(".story-passages li")).toHaveCount(1);
+  await expect(card(page).locator(".card-foot")).toHaveCount(1);
   const seen = await partsSeen(page);
-  const times = [seen.read, seen.passages, seen.answer, seen.check];
+  const times = (["read", "source1", "filings", "heading", "sentence1", "sentence2", "check", "foot"] as const).map((part) => seen[part]!);
+  expect(times.every(Number.isFinite)).toBe(true);
   expect(Math.max(...times) - Math.min(...times)).toBeLessThan(50);
   for (const part of [".story-passages li", ".card-filings li", "[data-tone='check']", ".story-reply", "[data-tone='read']"]) {
     expect(await motionOf(page, part)).toBe("none");

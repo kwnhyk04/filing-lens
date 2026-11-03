@@ -626,12 +626,22 @@ button[aria-disabled="true"] {
   font-weight: 600;
 }
 
-/* What arrives moves in, by its place and a passing glow, never by opacity, so text keeps its contrast while it
-   moves; only while motion is allowed, and never on a card at rest (a stored or saved answer). A card that leaves
-   wipes away upward, clipped, again never faded. */
+/* Ask brings the answer in sentence by sentence: each waits hidden in its place until its turn. */
+.answer-text [data-later] {
+  visibility: hidden;
+  opacity: 0;
+}
+
+/* What arrives moves in, by its place and a passing glow, as the card grows to take it (ask.tsx), and a sentence
+   fades in; only while motion is allowed, and never on a card at rest (a stored or saved answer). A card that leaves
+   wipes away upward, clipped, never faded. */
 @media (prefers-reduced-motion: no-preference) {
-  .answer-card:not([data-still]) :is(.read-as, .story-reply, [data-tone="check"], .story-passages li, .checks, .warnings, .card-foot) {
-    animation: card-arrive 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  .answer-card:not([data-still]) :is(.read-as, .story-passages li, .reply-head, .story-reply, [data-tone="check"], .checks, .warnings, .note, .card-foot) {
+    animation: card-arrive 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .answer-card:not([data-still]) .answer-text [data-sentence] {
+    transition: opacity 0.35s ease-out;
   }
 
   .answer-card:not([data-still]) .card-filings li {

@@ -6,7 +6,15 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-03) **FL polish round**, approved with the user's four answers (the hero's layout: the field hides while answering and comes back under the card; the draft hidden; the `next=` fix folded into sign-in; a go for `make test-int`), on branch `fl-polish` from main at 8742283 (#50), uncommitted.
+- [ ] (user, 2026-11-03) **Ask reveal**: on branch `fl-ask-reveal` from main at c241033 (#51), uncommitted.
+  - [x] Cause first: production build, a live streamed answer (the dev API, the user's go for its postgres, redis, rabbitmq and api), Edge on the GPU. The reveal runs, but in four groups 0.22 s apart, the check line, the numbers table and the footer as one. The membrane trails each step, then snaps back to the previous step's size when its last refit ends.
+  - [x] Tests first, red on main: the membrane covers the card at every step and at the end (Edge's GPU); the parts in the user's order about 0.3 s apart, all within 3 s; the bubbles drift the whole time, still when paused, scrolled away or hidden; the cost with 4 decimals.
+  - [x] Fix: the engine keeps a finished beat's end; the membrane holds the card's live box (grows at once, eases in when it shrinks); each part grows the card in; Read as, each source, the filing tags, the heading, each sentence, the check line, the numbers table, the footer; the bubbles drift whenever motion is allowed, the membrane and the field resting between beats; `$0.0026`.
+  - [x] Checks: `make lint`, `make typecheck`, `make test` 703; `clients/ts` 18; web typecheck, `npm test` 147, build; Playwright 136 passed and 10 skipped without a GPU, 145 passed and 1 skipped on Edge's GPU (2 workers: four ran the PC out of memory). `make test-int` not run: no Python changed, and it needs a container go.
+  - [x] Screenshots: each step at 1440 px, light and dark, for the Apple question and a passage question, in `H:\Projects\projects\_tmp\fl-ask-reveal`, each looked at; the repo's screens regenerated (37 changed).
+  - [x] Docs: context, design, memory, activity log.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-03) **FL polish round**, approved with the user's four answers (the hero's layout: the field hides while answering and comes back under the card; the draft hidden; the `next=` fix folded into sign-in; a go for `make test-int`), on branch `fl-polish` from main at 8742283 (#50), uncommitted.
   - [x] Sign-in and sign-out, tests first (red, then green): sign-out lands on the landing page with a notice; sign-in has a Back to home link; signed in, the logo, `/` and `/login` never show the form; an expired session shows Sign in, never Sign out; `next=` keeps pages only.
   - [x] Ask, tests first (red, then green): no empty cards; the hero's sequence (send, reading, pull, reveal in the hero's order, leave), the same order at once on phones and under reduced motion.
   - [x] Landing: How an answer is made centred; one comparison table for the evaluation; Architecture with its evidence (tests written first, but not run red before the code; activity-log.md).
@@ -14,7 +22,7 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] Screenshots: 184 at 1280, 1440, 1920 and 390 px, light and dark, and 48 of the Ask sequence at each step, in `H:\Projects\projects\_tmp\fl-polish`; the repo's 69 screens regenerated.
   - [x] Docs: context, design, memory, activity log, README, third-party.
   - [ ] (user, optional) delete the three stale `docs/screenshots/ui/ask-draft-*.png`, which no screen writes now.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #51 (c241033, git log).
 - [x] (user, 2026-11-03) **Ask, the live version of the landing hero** (approved with the user's answers: the passage rows stay in the stage, the membrane pulling each cited source onto its row; the Sources card keeps the full passages; a go for `make test-int`), on branch `ask-stage` from main at 79ad003 (#49), uncommitted.
   - [x] Tests first: units for the stage's things (covered filings keep their places, each cited source takes its filing's) and its phase; e2e for every state without a GPU, and on Edge's GPU for the moving stage.
   - [x] The stage: the hero's card at the top of Ask, the field inside it (Enter sends, Shift+Enter a new line), example chips, the question once in a bubble; Recent questions (60%) and Sources (40%) below, stacked Sources first under 1024 px.
