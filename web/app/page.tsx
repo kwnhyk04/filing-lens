@@ -106,10 +106,15 @@ const STEPS = [
   },
 ];
 
-/** One run's result: its figure in bold with its badge, which wraps under it in a narrow column. */
-function Result({ cell }: { cell: RunCell }) {
+/** One run's result: its figure in bold with its badge, which wraps under it in a narrow column. On a phone's card
+    its label names the run, its model and date, as the column's head does on a desktop; the date keeps to one line,
+    so a narrow card breaks the label after the model. */
+function Result({ cell, run, date }: { cell: RunCell; run: string; date: string }) {
   return (
     <td>
+      <span className="cell-label">
+        {run}, <span className="date">{date}</span>
+      </span>
       <span className="result">
         <strong className="measured">{cell.result}</strong>{" "}
         <span className={cell.status === "Met" ? "badge ok" : "badge warn"}>{cell.status}</span>
@@ -119,7 +124,7 @@ function Result({ cell }: { cell: RunCell }) {
 }
 
 /** Both official runs, after FreightAudit's landing: each metric's target, then each run's result, each run named
-    in its column's head by its answer model and date. */
+    in its column's head by its answer model and date. Below 40rem each row is a card (app/landing.css). */
 function ResultsTable() {
   return (
     <div className="scroll" role="region" aria-label="Results by metric" tabIndex={0}>
@@ -147,9 +152,13 @@ function ResultsTable() {
           {ROWS.map((row) => (
             <tr key={row.label}>
               <th scope="row">{row.label}</th>
-              <td className="num">{row.target}</td>
-              <Result cell={row.claude} />
-              <Result cell={row.free} />
+              <td className="num">
+                <span className="cell-label">Target</span>
+                {row.target}
+              </td>
+              {RUNS.map(({ key, name, run }) => (
+                <Result key={key} cell={row[key]} run={`${name}, ${modelName(run.config.primary)}`} date={evalDate(run.created_at)} />
+              ))}
             </tr>
           ))}
         </tbody>

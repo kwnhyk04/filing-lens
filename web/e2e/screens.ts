@@ -13,6 +13,7 @@ import { audit, expect, signIn, test } from "./fixtures.ts";
 
 const DIR = process.env.SCREENS_DIR ?? "../docs/screenshots/ui";
 const TOP_ONLY = new Set(["offline"]); // below its banner it is the demo page, shot in full as "demo"
+const SECTION: Record<string, string> = { "landing-results": "#results" }; // shot alone, so a phone's cards read
 
 // Reduced motion: the landing's hero stays the still, so its shots come out the same every run.
 const WIDTHS = process.env.SCREENS_WIDTHS?.split(",").map(Number);
@@ -94,6 +95,7 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
     await expect(page.getByTestId("sign-in-error")).toHaveText("Wrong password.");
   },
   landing: (page) => signedOut(page, "/"),
+  "landing-results": (page) => signedOut(page, "/"),
   "landing-signed-out": async (page) => {
     await signedOut(page, "/?signed-out=1");
     await expect(page.getByRole("status").filter({ hasText: "You're signed out." })).toBeVisible();
@@ -306,7 +308,11 @@ for (const variant of VARIANTS) {
         await open(page);
         await audit(page);
         const path = `${DIR}/${screen}-${variant.name}.png`;
-        await page.screenshot({ path, fullPage: !TOP_ONLY.has(screen), animations: "disabled" });
+        if (SECTION[screen]) {
+          // Without the fixed header, which would cover the part scrolled under it (a style tag would break the CSP).
+          await page.locator(".landing-head").evaluate((head: HTMLElement) => void (head.style.visibility = "hidden"));
+          await page.locator(SECTION[screen]).screenshot({ path, animations: "disabled" });
+        } else await page.screenshot({ path, fullPage: !TOP_ONLY.has(screen), animations: "disabled" });
       });
     }
   });

@@ -11,6 +11,23 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Phone polish: the results as cards, and the site icons (2026-11-03, branch `fl-mobile-polish`)
+
+The user's brief, from their iPhone (Safari). Below about 640 px, show each evaluation metric as a card, as FreightAudit's landing does (its eval cards were read for the pattern, nothing there changed): the metric with its target at the top right, then a row per run with its label and date, the value and its badge. Nothing cut off, no sideways scroll; desktop keeps the table. FilingLens showed a globe in Safari's tab and bookmarks where FreightAudit shows its logo: add what Safari needs, all from the mark, and keep the SVG. This supersedes the phone note under Evaluation results and the left-out `favicon.ico` below.
+
+- **The results on a phone** (40rem and down, `app/landing.css`): the one table, its rows laid out as cards after FreightAudit's card table, so no figure is written twice.
+  - Each card: the metric (14 px, weight 600), and at the top right its target under a "Target" label. Then a line per run: its label in 13 px `--ink-3` ("Claude first, Claude Haiku 5.5, October 31, 2026"), and under it the value in bold with its badge.
+  - The label's date keeps to one line, so at 390 px the free run's label breaks after its model; at 430 px both fit on one line.
+  - Cards on `--sheet` with a 1 px `--rule` border and the card radius, 8 px apart, 14 px by 16 px inside. The table's frame and its sideways scroll go.
+  - The column heads stay in the page for screen readers, visually hidden. Each cell's label is real text, so a screen reader reads the run with its value; above 40rem the labels hide, since the heads say it.
+  - Above 40rem nothing changed: the 1440 px shots are byte-identical to main's.
+- **Icons:**
+  - The globe's cause: the sign-in gate (`proxy.ts`) sent a signed-out browser's requests for `/icon.svg` and `/apple-icon` to `/login`, so Safari got the sign-in page instead of an icon. Both are public now; `/favicon.ico` already passed the gate.
+  - `app/favicon.ico`: the app icon (the dark mark on ink navy, corners rounded) at 16, 32 and 48 px as PNG frames, drawn from `lib/logo.ts` by `scripts/favicon.mjs`. The mark spans 87.5% of the side, against the home-screen icon's 73%, so it reads at 16 px. Next links it as 48x48, not "any".
+  - `app/icon.svg` stays: light, and dark in a dark browser.
+  - `app/apple-icon.tsx`, the 180 px home-screen icon, is unchanged (byte-identical), now drawn by the same `appIcon` as the favicon.
+  - Left out: a web app manifest and Android's 192 and 512 px icons.
+
 ## Coverage's table and pager (2026-11-03, branch `fl-coverage-table`)
 
 The user's brief: restyle Coverage with 21st.dev's table with numeric pagination (Origin UI, MIT), ported faithfully into FilingLens's CSS: its sizes, spacing, hover, focus and disabled states, its colours in the app's tokens in both modes, with no Tailwind, shadcn or TanStack. Every column, value and link stays. This supersedes the list-table and pager notes below for Coverage.

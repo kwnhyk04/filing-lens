@@ -1,6 +1,8 @@
 // The FilingLens mark, variant #6 of the logo sheet: two arcs make a lens and one bar crosses it, teal
 // inside the lens and ink outside it, sticking out on both sides. Every stroke is STROKE wide with round
 // ends, every gap between two strokes is GAP, and the bar breaks where the arcs' circle would cross it.
+import { createElement } from "react";
+
 export const STROKE = 4;
 export const GAP = 3;
 export const RADIUS = 12; // the arcs' circle, through the strokes' centres: arcs end 36° above the bar
@@ -39,6 +41,20 @@ const BOX = { wide: "-21.5 -15 43 30", square: "-21.5 -21.5 43 43" };
 /** The mark as SVG text: `wide` fits it, with a unit of air; `square` centres it for icons. */
 export function markSvg(paint: Paint, shape: keyof typeof BOX = "wide"): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${BOX[shape]}" ${ROOT}><path stroke="${paint.ink}" d="${INK_PATH}"/><path stroke="${paint.teal}" d="${TEAL_PATH}"/></svg>`;
+}
+
+/** The app icon as ImageResponse draws it: the dark mark, `share` of the side wide, on an ink navy tile whose
+    corners `round` (a share of the side) rounds; the home screen's (app/apple-icon.tsx) stays square, as iOS
+    rounds it, and favicon.ico's (scripts/favicon.mjs) takes a wider mark, so it still reads at 16 px. */
+export function appIcon(side: number, { share = 132 / 180, round = 0 } = {}) {
+  const mark = `data:image/svg+xml,${encodeURIComponent(markSvg(COLORS.dark, "square"))}`;
+  const tile = { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" };
+  const box = Math.round(side * share);
+  return createElement(
+    "div",
+    { style: { ...tile, background: COLORS.light.ink, ...(round && { borderRadius: side * round }) } },
+    createElement("img", { src: mark, width: box, height: box, alt: "" }),
+  );
 }
 
 /** The favicon: the square light mark, and the dark one in a dark browser. */

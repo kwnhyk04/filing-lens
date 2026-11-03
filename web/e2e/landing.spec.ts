@@ -108,21 +108,26 @@ test("the header's links lead where they say, and Sign in comes back to Ask", as
   await expect(page.getByRole("heading", { level: 1, name: "Ask" })).toBeVisible();
 });
 
+/** Each cell of the results' rows as it reads on screen: what CSS hides at this width is left out. */
+const shownRows = (page: Page) =>
+  page
+    .locator("#results tbody tr")
+    .evaluateAll((trs) => trs.map((tr) => [...(tr as HTMLTableRowElement).cells].map((cell) => cell.innerText.replace(/\s+/g, " ").trim())));
+
+/** The table's rows as a desktop shows them: the metric, its target, then each run's value and badge. */
+const tableRows = () =>
+  comparisonRows(claudeTable, table).map((row) => [
+    row.label,
+    row.target,
+    `${row.claude.result} ${row.claude.status}`,
+    `${row.free.result} ${row.free.status}`,
+  ]);
+
 test("the evaluation's one comparison table, its runs' models and dates, and its notes are the newest reports'", async ({ page }) => {
   await page.goto("/");
   const results = page.locator("#results");
   await expect(results.locator("table")).toHaveCount(1);
-  const rows = await results
-    .locator("tbody tr")
-    .evaluateAll((trs) => trs.map((tr) => [...(tr as HTMLTableRowElement).cells].map((cell) => cell.textContent?.trim())));
-  expect(rows).toEqual(
-    comparisonRows(claudeTable, table).map((row) => [
-      row.label,
-      row.target,
-      `${row.claude.result} ${row.claude.status}`,
-      `${row.free.result} ${row.free.status}`,
-    ]),
-  );
+  expect(await shownRows(page)).toEqual(tableRows());
   const head = results.locator("thead");
   await expect(head.locator("th")).toHaveText([/^Metric/, /^Target/, /^Claude first/, /^Free models only/]);
   for (const [, run] of RUNS) {
@@ -145,6 +150,81 @@ test("the evaluation's one comparison table, its runs' models and dates, and its
   const how = page.locator("#how");
   await expect(how).toContainText(`${report.index.chunks.toLocaleString("en-US")} passages`);
   await expect(how).toContainText(`top ${config.rerank_candidates}`);
+});
+
+// Below 40rem each metric is a card, after FreightAudit's landing: its name, its target at the top right, then a
+// line per run naming the run, its answer model and date, over the value and its badge.
+const RUN_LABELS = [
+  ["Claude first", claude],
+  ["Free models only", report],
+].map(([name, run]) => `${name}, ${modelName(run.config.primary)}, ${evalDate(run.created_at)}`);
+
+/** Whatever in the results' cards leaves its card or the screen, or runs past its own box. */
+const cutOff = (page: Page) =>
+  page.locator("#results tbody tr").evaluateAll((cards) =>
+    cards.flatMap((card) => {
+      const box = card.getBoundingClientRect();
+      const out = box.left < 0 || box.right > innerWidth ? [`card: ${card.textContent}`] : [];
+      for (const part of [card, ...card.querySelectorAll("*")]) {
+        const r = part.getBoundingClientRect();
+        if (!r.width && !r.height) continue; // not shown at this width
+        const leaves = r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
+        if (leaves || (part.clientWidth > 0 && part.scrollWidth > part.clientWidth + 1)) out.push(part.textContent ?? "");
+      }
+      return out;
+    }),
+  );
+
+for (const width of [390, 430]) {
+  test.describe(`the evaluation results at ${width} px`, () => {
+    test.use({ viewport: { width, height: 932 }, isMobile: true, hasTouch: true });
+
+    test("a card per metric: its target at the top right, then a line per run with its name, model and date, the value and badge", async ({ page }) => {
+      await page.goto("/");
+      const rows = comparisonRows(claudeTable, table);
+      expect(await shownRows(page)).toEqual(
+        rows.map((row) => [
+          row.label,
+          `Target ${row.target}`,
+          `${RUN_LABELS[0]} ${row.claude.result} ${row.claude.status}`,
+          `${RUN_LABELS[1]} ${row.free.result} ${row.free.status}`,
+        ]),
+      );
+      const cards = await page.locator("#results tbody tr").evaluateAll((trs) =>
+        trs.map((tr) => [tr, ...(tr as HTMLTableRowElement).cells].map((part) => part.getBoundingClientRect().toJSON() as DOMRect)),
+      );
+      for (const [card, name, target, ...runs] of cards) {
+        expect(Math.abs(target.top - name.top)).toBeLessThan(2); // level with the name
+        expect(target.left).toBeGreaterThanOrEqual(name.right); // on its right
+        expect(card.right - target.right).toBeLessThan(20); // at the card's right edge, inside its padding
+        let above = Math.max(name.bottom, target.bottom);
+        for (const run of runs) {
+          expect(run.top).toBeGreaterThanOrEqual(above - 1); // a line of its own, under the one before
+          expect(Math.abs(run.left - name.left)).toBeLessThan(1);
+          above = run.bottom;
+        }
+      }
+      expect(await cutOff(page)).toEqual([]);
+      await noSidewaysScroll(page);
+      const region = page.getByRole("region", { name: "Results by metric" });
+      expect(await region.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+test("at 1440 px the results stay a table: its column heads show, each metric a row of level cells, no card labels", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  const results = page.locator("#results");
+  for (const head of await results.locator("thead th").all()) {
+    await expect(head).toBeVisible();
+    expect((await head.boundingBox())!.height).toBeGreaterThan(20);
+  }
+  expect(await shownRows(page)).toEqual(tableRows());
+  const levels = await results
+    .locator("tbody tr")
+    .evaluateAll((trs) => trs.map((tr) => new Set([...(tr as HTMLTableRowElement).cells].map((cell) => Math.round(cell.getBoundingClientRect().top))).size));
+  expect(levels).toEqual(levels.map(() => 1));
 });
 
 test("the hero's scope and story are the demo snapshot's: x12's question, passages, answer and check", async ({ page }) => {
