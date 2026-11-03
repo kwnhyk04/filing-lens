@@ -8,7 +8,7 @@ import type { Page } from "@playwright/test";
 
 import { softwareRenderer } from "../lib/motion.ts";
 import { question, snapshot } from "./env.ts";
-import { ask, audit, expect, noSidewaysScroll, partsSeen, phasesSeen, recordPhases, test, watchParts } from "./fixtures.ts";
+import { ask, audit, expect, inOrder, noSidewaysScroll, partsSeen, phasesSeen, recordPhases, test, watchParts } from "./fixtures.ts";
 
 const N01 = question("n01");
 const X04 = question("x04");
@@ -210,11 +210,7 @@ test.describe("on a desktop with a graphics card", () => {
     await watchParts(page);
     sources.release();
     await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AMZN");
-    const seen = await partsSeen(page);
-    expect(seen.read).toBeLessThan(seen.passages);
-    expect(seen.passages).toBeLessThan(seen.answer);
-    expect(seen.answer).toBeLessThan(seen.check);
-    expect(seen.check).toBeLessThan(2_500);
+    inOrder(await partsSeen(page), ["read", "source1", "filings", "heading", "sentence1", "sentence2", "check", "foot"], { gap: 180, within: 3_000 });
     const phases = await phasesSeen(page);
     for (const [before, after] of [["reading", "pulling"], ["pulling", "revealing"], ["revealing", "done"]]) {
       expect(phases.indexOf(before)).toBeLessThan(phases.indexOf(after));
@@ -223,6 +219,118 @@ test.describe("on a desktop with a graphics card", () => {
     await expect(cited).toHaveCount(1);
     await expect(cited).toContainText("Item 1");
     await expect(cited).toContainText("AMZN 10-K FY2025");
+  });
+
+  /** Every WebGL canvas keeps its last frame, so the test can read what the membrane drew. */
+  async function keepFrames(page: Page) {
+    await page.addInitScript(() => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, options?: WebGLContextAttributes) {
+        return original.call(this, type, type === "webgl" ? { ...options, preserveDrawingBuffer: true } : options);
+      } as typeof original;
+    });
+  }
+
+  /** From now on, after every frame, the page notes each bottom corner and middle of the card the membrane leaves
+      uncovered (by the alpha it drew there), from the first part to the end; `uncovered` checks every part's corners. */
+  async function watchCover(page: Page) {
+    await page.evaluate(() => {
+      const stage = document.querySelector<HTMLElement>(".stage")!;
+      const canvas = stage.querySelector<HTMLCanvasElement>(".pb-membrane canvas")!;
+      const gl = canvas.getContext("webgl")!;
+      const pixel = new Uint8Array(4);
+      const covered = (x: number, y: number) => {
+        const box = canvas.getBoundingClientRect();
+        const px = Math.round(((x - box.left) * canvas.width) / box.width), py = Math.round(canvas.height - ((y - box.top) * canvas.height) / box.height);
+        gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return pixel[3] > 200;
+      };
+      const corners = (r: DOMRect) => [[r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]];
+      const misses: string[] = [];
+      const check = () => {
+        const card = stage.querySelector(".answer-card");
+        if (!card || !["revealing", "done"].includes(stage.dataset.phase ?? "")) return;
+        const r = card.getBoundingClientRect();
+        for (const [x, y] of [[r.left + 2, r.bottom - 2], [r.left + r.width / 2, r.bottom - 2], [r.right - 2, r.bottom - 2]]) {
+          if (!covered(x, y)) misses.push(`${stage.dataset.phase} at step ${stage.dataset.step}: the card's bottom at ${Math.round(x)}, ${Math.round(y)}`);
+        }
+      };
+      const frame = () => {
+        setTimeout(check); // after the frame, so the membrane and the card are read for the same moment
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      const parts = [".read-as", ".story-passages li", ".card-filings", ".reply-head", ".story-reply", "[data-tone='check']", ".checks", ".card-foot"];
+      Object.assign(window, {
+        misses,
+        uncovered: () =>
+          parts.flatMap((selector) =>
+            Array.from(stage.querySelectorAll(`.answer-card ${selector}`)).flatMap((part) =>
+              corners(part.getBoundingClientRect()).some(([x, y]) => !covered(x, y)) ? [selector] : [],
+            ),
+          ),
+      });
+    });
+  }
+  const misses = (page: Page) => page.evaluate(() => (window as unknown as { misses: string[] }).misses);
+  const uncovered = (page: Page) => page.evaluate(() => (window as unknown as { uncovered: () => string[] }).uncovered());
+
+  for (const id of ["n01", "x04"]) {
+    test(`the membrane wraps the whole card at every step of the reveal and after it, paused too (${id})`, async ({ page }) => {
+      test.setTimeout(60_000);
+      await keepFrames(page);
+      await moving(page);
+      const sources = await holdSources(page);
+      await box(page).fill(question(id));
+      await box(page).press("Enter");
+      await sources.looked;
+      await watchCover(page);
+      sources.release();
+      await expect(page.getByTestId("sources-card")).toBeVisible();
+      await expect(stage(page)).toHaveAttribute("data-phase", "done");
+      await page.waitForTimeout(1_500); // the membrane long settled round the answer
+      expect(await misses(page)).toEqual([]);
+      expect(await uncovered(page)).toEqual([]);
+      await page.getByRole("button", { name: "Pause motion" }).click();
+      await page.waitForTimeout(500);
+      expect(await uncovered(page)).toEqual([]);
+    });
+  }
+
+  test("the filings drift the whole time the stage is open, and stop for Pause, a stage scrolled away and a hidden tab", async ({ page }) => {
+    test.setTimeout(60_000);
+    await moving(page);
+    await expect(stage(page)).toHaveAttribute("data-live", "on");
+    /** Whether the floating filings moved over 0.7 s, once what changed them has settled. */
+    const drifting = async () => {
+      await page.waitForTimeout(300);
+      const spots = () => things(page).evaluateAll((all) => all.map((thing) => (thing as HTMLElement).style.transform));
+      const before = await spots();
+      await page.waitForTimeout(700);
+      return JSON.stringify(await spots()) !== JSON.stringify(before);
+    };
+    await page.waitForTimeout(2_000); // the empty stage, long after its first frames
+    expect(await drifting(), "on the empty stage").toBe(true);
+    await askAgain(page, N01);
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+    await page.waitForTimeout(2_000); // the answer settled
+    expect(await drifting(), "round a finished answer").toBe(true);
+    await page.getByRole("button", { name: "Pause motion" }).click();
+    expect(await drifting(), "paused").toBe(false);
+    await page.getByRole("button", { name: "Resume motion" }).click();
+    expect(await drifting(), "resumed").toBe(true);
+    await page.evaluate(() => {
+      document.body.style.paddingBottom = "300vh";
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    expect(await drifting(), "scrolled away").toBe(false);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    expect(await drifting(), "back in view").toBe(true);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(await drifting(), "a hidden tab").toBe(false);
   });
 
   test("Pause during the reveal shows the whole answer at once", async ({ page }) => {

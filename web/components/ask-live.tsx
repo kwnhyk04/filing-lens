@@ -2,8 +2,10 @@
 // Ask's moving stage: the landing hero's engine (bond.tsx) playing the page's sequence round Ask's own field and card.
 // While FilingLens reads, the membrane gathers round the card and covers it, the covered filings floating, none
 // claimed. Once the checked answer and its sources are in, it reaches each cited filing, left and right, and draws it
-// against the card while the page reveals the parts; it holds them until the answer leaves, then lets go. Loaded on a
-// desktop once the page has loaded (hero-motion.tsx); it moves only while there is something to play.
+// against the card while the page reveals the parts, growing with the card as each comes; it holds them until the
+// answer leaves, then lets go. The filings drift the whole time, as the hero's do, unless Pause, a hidden tab or a
+// stage scrolled away stops them; the membrane and the field move only while there is something to play, so the
+// graphics card rests between answers. Loaded on a desktop once the page has loaded (hero-motion.tsx).
 import * as React from "react";
 import { createPortal } from "react-dom";
 
@@ -14,13 +16,14 @@ const NONE: Element[] = []; // the stage has no headline for the things to keep 
 /** Each of the stage's views as the engine's beat: rest, gather, pull, settle round the answer, or let go. */
 const BEATS: Record<View, number> = { empty: 0, reading: GATHER, pulling: FIND, revealing: LAST, done: LAST, failed: LAST, leaving: RELEASE };
 
-export function AskLive({ phase, turn, covered, cited, paused, onPause }: StageProps) {
+export function AskLive({ phase, covered, cited, paused, onPause }: StageProps) {
   const anchor = React.useRef<HTMLSpanElement>(null);
   const [stage, setStage] = React.useState<HTMLElement | null>(null);
   const [Field, setField] = React.useState<React.ComponentType<FieldProps> | null>(null);
-  const [rested, setRested] = React.useState<string | null>(null); // the question and view whose beat has played
+  const [idle, setIdle] = React.useState(false); // nothing to play but the filings' drift
   const mode = useMode();
   const { enabled, inView } = useMotionVisibility(stage);
+  const moving = enabled && inView && !paused;
 
   React.useLayoutEffect(() => {
     setStage(anchor.current?.closest<HTMLElement>(".stage") ?? null);
@@ -40,12 +43,6 @@ export function AskLive({ phase, turn, covered, cited, paused, onPause }: StageP
   const layer = stage?.querySelector<HTMLElement>(".stage-layer");
   const field = stage?.querySelector<HTMLElement>(".stage-field");
 
-  // Motion until each view's beat has played; still at rest, round a finished answer and round an error.
-  const key = `${turn}:${phase}`;
-  const settles = phase === "empty" || phase === "done" || phase === "failed";
-  const moving = enabled && inView && !paused && !(settles && rested === key);
-  const rest = React.useCallback(() => setRested(key), [key]);
-
   const onReady = React.useCallback(() => {
     if (!stage) return;
     stage.dataset.live = "on";
@@ -57,19 +54,7 @@ export function AskLive({ phase, turn, covered, cited, paused, onPause }: StageP
     <>
       <span ref={anchor} hidden />
       {stage && page && layer && (
-        <Story
-          plot={plot}
-          host={stage}
-          layer={layer}
-          heads={NONE}
-          page={page}
-          target={BEATS[phase]}
-          moving={moving}
-          quiet={!enabled}
-          mode={mode}
-          onReady={onReady}
-          onDone={rest}
-        />
+        <Story plot={plot} host={stage} layer={layer} heads={NONE} page={page} target={BEATS[phase]} moving={moving} quiet={!enabled} mode={mode} onReady={onReady} onIdle={setIdle} />
       )}
       {/* After the card and the field in the DOM, so the keyboard reaches them first. */}
       <div className="pb-controls">
@@ -81,7 +66,7 @@ export function AskLive({ phase, turn, covered, cited, paused, onPause }: StageP
       {Field && field &&
         createPortal(
           <FieldBoundary>
-            <Field mode={mode} moving={moving} />
+            <Field mode={mode} moving={moving && !idle} />
           </FieldBoundary>,
           field,
         )}

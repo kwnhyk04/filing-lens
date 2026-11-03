@@ -11,6 +11,16 @@ The user compared the design round's "paper and ink" (kept below as a dated sect
 - **The answer reads like a filing:** serif text, figures under the highlighter, and each citation a small numbered box that leads to its source.
 - **Sources sit beside the answer** in one panel, so each passage can be read next to the sentence that cites it.
 
+## Ask's reveal, part by part (2026-11-03, branch `fl-ask-reveal`)
+
+The user's brief, from their own test on production: the membrane must wrap every part of the card at every step and at the end, with no lag; the parts must enter one by one like the hero's, the membrane growing to cover each, about 0.3 s apart and all within 3 s; the cost with 4 decimals; the filing bubbles drifting the whole time, as the hero's. The timing before the answer stays. This supersedes the next section's pull and reveal rows and the live-stage notes below it where they differ.
+
+- **The reveal** (`lib/stage.ts`'s `revealParts` and `revealTimes`, played by `components/ask.tsx`): Read as, each source, the filing tags, the answer's heading with its timings, each sentence of the answer, the check line, the numbers table, the warnings and the note when there are any, then the foot. After the pull (700 ms on a graphics card), the parts start 300 ms apart, closer when an answer has more than about seven, so the last is in place within 2.95 s of the data however long the answer (`REVEAL_MS`).
+- **Each part grows the card in:** the card's height eases from where the last part left it to its new height in 350 ms (`ENTER_MS`, Web Animations, clipped), so a part shows as the card's edge passes it, and rises 8 px into place. A sentence waits hidden in its place in the answer's bubble and fades in on its turn, so the text never reflows.
+- **The membrane holds the card as it is:** once gathered, its two heads and its body are drawn round the card's live box in every frame (`env.card` in `components/bond.tsx`), growing with it at once and easing in when it shrinks; with nothing moving it fits it at once. It never trails the card and never lets a part show past it.
+- **The drift:** the filing bubbles drift with the hero's motion values whenever motion is allowed and the stage is in view and not paused. Between beats the stage idles: only the bubbles move, and the membrane and the field hold still, so the graphics card rests between answers.
+- **The cost** reads as the evaluation's table does: `cost $0.0026`.
+
 ## Ask tells the hero's story, and the landing polish (2026-11-03, branch `fl-polish`)
 
 The user's brief: re-sequence Ask's live answer to the landing hero's story, hide empty cards, centre How an answer is made, one comparison table for the evaluation, Architecture with its evidence, and sign-in and sign-out fixes. Their answers: the hero's layout (the field hides while answering and comes back under the card; New question brings it back at the top), no draft shown, the reveal may wait (about 2 s at most after the data). This supersedes the sections below where they differ.

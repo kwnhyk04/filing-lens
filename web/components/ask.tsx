@@ -1,10 +1,11 @@
 "use client";
 // Ask, the live version of the landing hero's story (docs/design.md). The field sits at the top of the empty stage.
 // On send it hides, and the card, with the question's bubble, takes the top: "Reading the filings…" until the
-// checked answer and its sources are both in. Then, on a desktop that allows motion, the parts arrive one by one in
-// the hero's order (Read as, the passages, the answer, the check) while the moving stage (ask-live.tsx) pulls the
-// cited filings in; phones, reduced motion and Pause get the same order at once. Once the answer is done the field
-// comes back under the card. Below the stage, Recent questions and Sources, each only when it holds something.
+// checked answer and its sources are both in. Then, on a desktop that allows motion, the moving stage (ask-live.tsx)
+// pulls the cited filings in and the parts arrive one by one in the hero's order (Read as, each source, the filing
+// tags, the heading, each sentence, the check, the numbers, the foot), each growing the card to take it; phones,
+// reduced motion and Pause get the same order at once. Once the answer is done the field comes back under the
+// card. Below the stage, Recent questions and Sources, each only when it holds something.
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -19,7 +20,7 @@ import {
   type RecentAnswer,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
-import { citedThings, FLY_MS, landed, LEAVE_MS, revealParts, revealTimes, stagePhase, stageView, type Thing } from "../lib/stage.ts";
+import { citedThings, ENTER_MS, FLY_MS, LEAVE_MS, revealParts, revealTimes, stagePhase, stageView, type Thing } from "../lib/stage.ts";
 import { AnswerCard } from "./answer-card.tsx";
 import { SourceList, sourceLabel } from "./answer-view.tsx";
 import { DESKTOP, StageMotion } from "./hero-motion.tsx";
@@ -128,13 +129,15 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
   const timers = useRef<number[]>([]);
   const focusAnswer = useRef(false);
   const flyFrom = useRef<{ x: number; y: number } | null>(null);
+  const cardHeight = useRef(0); // the card's height after the last step, which the next one grows from
   const stage = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
   const phase = stagePhase({ asked, answer, sources, sourcesFailed, problem: problem !== null });
-  const parts = answer ? revealParts(answer, landed(answer, sources, sourcesFailed)) : [];
+  const parts = answer ? revealParts(answer, sources, sourcesFailed) : [];
   const started = whole || reveal?.turn === turn; // the reveal has begun, or there is none to wait for
+  const shown = whole ? Infinity : phase === "done" && started ? step : 0;
   const view = stageView(whole ? "done" : phase === "done" && !started ? "reading" : phase, {
     step: whole ? Infinity : step,
     parts: parts.length,
@@ -223,6 +226,25 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn]);
+
+  // Each part grows the card to take it, from wherever the last one left it, and shows as the card's edge passes;
+  // the moving stage's membrane follows the card's box, so it grows with it. All at once where the reveal is.
+  useLayoutEffect(() => {
+    const card = stage.current?.querySelector<HTMLElement>(".answer-card");
+    if (!card) return void (cardHeight.current = 0);
+    const growing = card.getAnimations().find((animation) => animation.id === "grow");
+    const from = growing ? card.getBoundingClientRect().height : cardHeight.current;
+    growing?.cancel();
+    const to = card.getBoundingClientRect().height;
+    cardHeight.current = to;
+    if (!reveal?.moving || !from || to <= from) return;
+    card.animate([{ height: `${from}px`, clipPath: "inset(0)" }, { height: `${to}px`, clipPath: "inset(0)" }], {
+      duration: ENTER_MS,
+      easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+      id: "grow",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turn, shown]);
 
   /** This sign-in's recent questions. Any failure but a 401 hides the list, an API without them included. */
   async function loadRecent() {
@@ -399,7 +421,6 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
   const others = recent.filter((item) => item.question !== asked && item.answered_at !== storedAt);
   // Sources once the answer is whole on screen, so the keyboard never reaches them before it.
   const sourcesShown = answer !== null && answer.citations.length > 0 && !answering;
-  const shown = whole ? Infinity : phase === "done" && started ? step : 0;
 
   // The DOM order is the reading order: the card, the status line, the field (at the top while there is no card),
   // the examples, then Recent questions and Sources.
@@ -545,7 +566,6 @@ export function Ask({ samples, covered }: { samples: string[]; covered: Thing[] 
         )}
         <StageMotion
           phase={view}
-          turn={turn}
           covered={covered}
           cited={view === "reading" || view === "empty" ? [] : cited}
           paused={paused}

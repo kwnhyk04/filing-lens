@@ -12,6 +12,7 @@ import {
   type Answer,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
+import { sentences } from "../lib/stage.ts";
 
 export { sourceLabel };
 
@@ -159,23 +160,31 @@ interface Props {
   prefix?: string;
 }
 
-/** The answer's text: figures under the highlighter, each citation a link to its source card. */
-export function AnswerText({ answer, sources, prefix = "" }: Props) {
-  const parts = splitMarkers(answer.answer, answer.citations.length);
+/** The answer's text: figures under the highlighter, each citation a link to its source card. With `shown`, it comes
+    sentence by sentence: the first `shown` sentences show, the rest wait hidden in their places. */
+export function AnswerText({ answer, sources, prefix = "", shown }: Props & { shown?: number }) {
+  const marked = (text: string) =>
+    splitMarkers(text, answer.citations.length).map((part, i) =>
+      typeof part === "number" ? (
+        // The box shows the number; the brackets stay, at zero size, so copied text reads "[1]".
+        <a key={i} href={`#${prefix}source-${part}`} aria-label={sourceName(part, answer.citations[part - 1], sources)}>
+          <span className="bracket">[</span>
+          {part}
+          <span className="bracket">]</span>
+        </a>
+      ) : (
+        <Figures key={i} text={part} />
+      ),
+    );
   return (
     <p className="answer-text" id={`${prefix}answer-text`} tabIndex={-1}>
-      {parts.map((part, i) =>
-        typeof part === "number" ? (
-          // The box shows the number; the brackets stay, at zero size, so copied text reads "[1]".
-          <a key={i} href={`#${prefix}source-${part}`} aria-label={sourceName(part, answer.citations[part - 1], sources)}>
-            <span className="bracket">[</span>
-            {part}
-            <span className="bracket">]</span>
-          </a>
-        ) : (
-          <Figures key={i} text={part} />
-        ),
-      )}
+      {shown === undefined
+        ? marked(answer.answer)
+        : sentences(answer.answer).map((sentence, i) => (
+            <span key={i} data-sentence={i + 1} data-later={i >= shown || undefined}>
+              {marked(sentence)}
+            </span>
+          ))}
     </p>
   );
 }

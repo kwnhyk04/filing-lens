@@ -88,10 +88,24 @@ export async function stageReady(page: Page) {
   await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
 }
 
+/** The card's parts as the reveal brings them, in the hero's order (lib/stage.ts's revealParts). */
+const PARTS = {
+  read: ".read-as",
+  source1: ".story-passages li:nth-child(1)",
+  source2: ".story-passages li:nth-child(2)",
+  filings: ".card-filings",
+  heading: ".reply-head",
+  sentence1: ".answer-text [data-sentence='1']:not([data-later])",
+  sentence2: ".answer-text [data-sentence='2']:not([data-later])",
+  check: "[data-tone='check']",
+  table: ".checks",
+  foot: ".card-foot",
+};
+export type Part = keyof typeof PARTS;
+
 /** From now on the page notes when each of the card's parts first shows, in ms from this call. */
 export async function watchParts(page: Page) {
-  await page.evaluate(() => {
-    const parts: Record<string, string> = { read: ".read-as", passages: ".story-passages", answer: ".story-reply", check: "[data-tone='check']" };
+  await page.evaluate((parts) => {
     const seen: Record<string, number> = {};
     const start = performance.now();
     const look = () => {
@@ -99,13 +113,20 @@ export async function watchParts(page: Page) {
         if (!(name in seen) && document.querySelector(`.stage .answer-card ${selector}`)) seen[name] = performance.now() - start;
       }
     };
-    new MutationObserver(look).observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(look).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-later"] });
     (window as unknown as { partsSeen: typeof seen }).partsSeen = seen;
-  });
+  }, PARTS);
 }
 
-export const partsSeen = (page: Page) =>
-  page.evaluate(() => (window as unknown as { partsSeen: Record<"read" | "passages" | "answer" | "check", number> }).partsSeen);
+export const partsSeen = (page: Page) => page.evaluate(() => (window as unknown as { partsSeen: Partial<Record<Part, number>> }).partsSeen);
+
+/** `parts` showed in this order, each at least `gap` ms after the one before, the last before `within` ms. */
+export function inOrder(seen: Partial<Record<Part, number>>, parts: Part[], { gap, within }: { gap: number; within: number }) {
+  expect(parts.filter((part) => seen[part] === undefined), "parts that never showed").toEqual([]);
+  const times = parts.map((part) => seen[part]!);
+  times.slice(1).forEach((at, i) => expect(at - times[i], `${parts[i]} to ${parts[i + 1]}`).toBeGreaterThanOrEqual(gap));
+  expect(times.at(-1), `${parts.at(-1)} showed`).toBeLessThan(within);
+}
 
 /** From now on the page notes each phase Ask's stage passes through, in order. */
 export async function recordPhases(page: Page) {

@@ -18,6 +18,8 @@ export default defineConfig({
   fullyParallel: true,
   workers: 4, // more ran this PC out of socket buffers (net::ERR_NO_BUFFER_SPACE)
   forbidOnly: !!process.env.CI,
+  // A long answer's card is whole only after the mock's draft (up to 2.4 s) and Ask's reveal (up to 3 s) have run.
+  expect: { timeout: 10_000 },
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   // E2E_CHANNEL picks an installed browser (msedge draws WebGL on the GPU, so the moving hero runs) and
   // E2E_ARGS adds Chromium flags (--disable-gpu, as CI's runners have none); unset, the bundled shell.

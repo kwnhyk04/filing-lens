@@ -6,14 +6,15 @@ import { test } from "node:test";
 
 import type { Snapshot } from "./demo.ts";
 import {
-  ARRIVE_MS,
   citedThings,
   coveredThings,
+  ENTER_MS,
   landed,
   PULL_MS,
   placeThings,
   revealParts,
   revealTimes,
+  sentences,
   SLOTS,
   stagePhase,
   stageView,
@@ -37,23 +38,44 @@ test("the phase follows what was reported: reading until the answer and its sour
   assert.equal(stagePhase({ ...state, answer: o02 }), "done"); // a refusal cites nothing to wait for
 });
 
-test("the card's parts come in the hero's order: Read as, the passages, the answer, the check", () => {
+test("the card's parts come one by one in the hero's order: Read as, each source, the filing tags, the heading, each sentence, the check, the numbers, the notes, the foot", () => {
   const data = snapshot();
-  const x04 = saved(data, "x04"), n01 = saved(data, "n01"), o02 = saved(data, "o02");
-  assert.deepEqual(revealParts(x04, landed(x04, data.sources, false)), ["read", "passages", "answer", "check"]);
-  assert.deepEqual(revealParts(n01, landed(n01, data.sources, false)), ["read", "passages", "answer", "check"]); // a fact
-  assert.deepEqual(revealParts(n01, landed(n01, undefined, true)), ["read", "passages", "answer", "check"]); // its quotes, unnamed
-  assert.deepEqual(revealParts(o02, landed(o02, undefined, false)), ["read", "answer"]); // a refusal: no passage, no check
-  assert.deepEqual(revealParts({ ...x04, reading: null }, true), ["passages", "answer", "check"]);
-  assert.equal(landed(x04, undefined, false), false, "the passages wait for the lookup");
+  const [n01, x04, c12, x02, o02] = ["n01", "x04", "c12", "x02", "o02"].map((id) => saved(data, id));
+  assert.deepEqual(revealParts(n01, data.sources, false), ["read", "source", "filings", "heading", "sentence", "check", "table", "foot"]);
+  assert.deepEqual(revealParts(x04, data.sources, false), ["read", "source", "filings", "heading", "sentence", "sentence", "check", "foot"]);
+  assert.deepEqual(revealParts(c12, data.sources, false), [
+    "read", "source", "source", "source", "source", "filings", "heading", "sentence", "sentence", "sentence", "sentence", "check", "table", "foot",
+  ]);
+  assert.deepEqual(revealParts(x02, data.sources, false).slice(-3), ["check", "warnings", "foot"]); // validation rewrote it
+  assert.deepEqual(revealParts({ ...n01, degraded: true }, data.sources, false).slice(-2), ["note", "foot"]);
+  assert.deepEqual(revealParts(n01, undefined, true), ["read", "source", "heading", "sentence", "check", "table", "foot"]); // no lookup, no filing named
+  assert.deepEqual(revealParts(o02, undefined, false), ["read", "heading", "sentence", "foot"]); // a refusal: nothing cited or checked
+  assert.deepEqual(revealParts({ ...x04, reading: null }, data.sources, false).slice(0, 2), ["source", "filings"]);
+  assert.deepEqual(revealParts(x04, undefined, false).slice(0, 2), ["read", "heading"], "the sources wait for the lookup");
+  assert.equal(landed(x04, undefined, false), false);
 });
 
-test("the reveal settles within 2 s of the data: the pull, then each part a step apart", () => {
-  assert.deepEqual(revealTimes(4, true), [PULL_MS, PULL_MS + STEP_MS, PULL_MS + 2 * STEP_MS, PULL_MS + 3 * STEP_MS]);
+test("the answer comes sentence by sentence, the text kept whole, with no break inside U.S. or a figure", () => {
+  const data = snapshot();
+  for (const { answer } of data.answers) assert.equal(sentences(answer.answer).join(""), answer.answer);
+  assert.deepEqual(["n01", "x04", "c02", "c12"].map((id) => sentences(saved(data, id).answer).length), [1, 2, 3, 4]);
+  assert.deepEqual(sentences("U.S. sales rose 2.5% to $1.2 billion [1]. Costs fell [2]."), ["U.S. sales rose 2.5% to $1.2 billion [1]. ", "Costs fell [2]."]);
+});
+
+test("the reveal: the pull, then about 0.3 s between parts, the last in place within 3 s of the data however long the answer", () => {
+  assert.equal(STEP_MS, 300);
+  assert.deepEqual(revealTimes(3, true), [PULL_MS, PULL_MS + STEP_MS, PULL_MS + 2 * STEP_MS]);
   assert.deepEqual(revealTimes(2, false), [0, STEP_MS]);
   for (const pull of [true, false]) {
-    for (let n = 1; n <= 4; n++) assert.ok(revealTimes(n, pull).at(-1)! + ARRIVE_MS <= 2000, `${n} parts, pull ${pull}`);
+    for (let n = 1; n <= 80; n++) {
+      const times = revealTimes(n, pull);
+      assert.equal(times.length, n);
+      assert.ok(times.at(-1)! + ENTER_MS < 3000, `${n} parts, pull ${pull}: the last in place at ${times.at(-1)! + ENTER_MS} ms`);
+      times.slice(1).forEach((at, i) => assert.ok(at > times[i] && at - times[i] <= STEP_MS, `${n} parts: step ${i + 1}`));
+    }
   }
+  const apple = revealTimes(8, true); // n01's eight parts after the pull keep near 0.3 s
+  assert.ok(apple[1] - apple[0] >= 250, `${apple[1] - apple[0]} ms`);
 });
 
 test("the stage's view: the data's phase, then the pull and the reveal, and the leave over all of them", () => {
