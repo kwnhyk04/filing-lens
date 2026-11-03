@@ -6,14 +6,22 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
-- [ ] (user, 2026-11-03) **Ask reveal**: on branch `fl-ask-reveal` from main at c241033 (#51), uncommitted.
+- [ ] (user, 2026-11-03) **Ask: the sources let go, the stage comes to rest, no Pause on Ask**: on branch `fl-ask-release` from main at 976175e (#52), uncommitted.
+  - [x] Reproduced on main first (production build, Edge's GPU, the mock's n01, then c02, the user's question): each answer's sources stayed held until the next question's leave; the stage still moved 5 s after the load; Tab met Ask's Pause.
+  - [x] Tests first, red on main: the let-go about a second after each card settles (read pixel by pixel), a clean orbit for the next question, the stage still within 5 s of the load and of the card settling, no Pause on Ask, the tab order without it; units for `RELEASE_MS`, `CALM_MS` and `calmPace`.
+  - [x] Fix: the engine's `FREE` beat; the bubbles' drift slowing to a stop at `CALM_MS`, then the eyes' and blobs' loops stopping; Ask's Pause gone (the hero keeps its own); the field's time running only while it moves.
+  - [x] Checks: web typecheck, `npm test` 148, build; Playwright 136 passed and 11 skipped without a GPU, 146 passed and 1 skipped on Edge's GPU (2 workers), then 46 passed and 1 skipped for the stage, landing and recent specs on the final build; `make lint`, `make typecheck`, `make test` 703; `clients/ts` 18. `make test-int` and `npm run screens` not run (no Python change; the repo's screens use reduced motion).
+  - [x] Screenshots: two questions in a row at 1440 px, light and dark, held, letting go, let go and still 5.4 s after the card settled, in `H:\Projects\projects\_tmp\fl-ask-release`, each looked at.
+  - [x] Docs: design, context, memory, activity log.
+  - [ ] (user) ship.
+- [x] (user, 2026-11-03) **Ask reveal**: on branch `fl-ask-reveal` from main at c241033 (#51), uncommitted.
   - [x] Cause first: production build, a live streamed answer (the dev API, the user's go for its postgres, redis, rabbitmq and api), Edge on the GPU. The reveal runs, but in four groups 0.22 s apart, the check line, the numbers table and the footer as one. The membrane trails each step, then snaps back to the previous step's size when its last refit ends.
   - [x] Tests first, red on main: the membrane covers the card at every step and at the end (Edge's GPU); the parts in the user's order about 0.3 s apart, all within 3 s; the bubbles drift the whole time, still when paused, scrolled away or hidden; the cost with 4 decimals.
   - [x] Fix: the engine keeps a finished beat's end; the membrane holds the card's live box (grows at once, eases in when it shrinks); each part grows the card in; Read as, each source, the filing tags, the heading, each sentence, the check line, the numbers table, the footer; the bubbles drift whenever motion is allowed, the membrane and the field resting between beats; `$0.0026`.
   - [x] Checks: `make lint`, `make typecheck`, `make test` 703; `clients/ts` 18; web typecheck, `npm test` 147, build; Playwright 136 passed and 10 skipped without a GPU, 145 passed and 1 skipped on Edge's GPU (2 workers: four ran the PC out of memory). `make test-int` not run: no Python changed, and it needs a container go.
   - [x] Screenshots: each step at 1440 px, light and dark, for the Apple question and a passage question, in `H:\Projects\projects\_tmp\fl-ask-reveal`, each looked at; the repo's screens regenerated (37 changed).
   - [x] Docs: context, design, memory, activity log.
-  - [ ] (user) ship.
+  - [x] (user) ship: merged as #52 (976175e, git log).
 - [x] (user, 2026-11-03) **FL polish round**, approved with the user's four answers (the hero's layout: the field hides while answering and comes back under the card; the draft hidden; the `next=` fix folded into sign-in; a go for `make test-int`), on branch `fl-polish` from main at 8742283 (#50), uncommitted.
   - [x] Sign-in and sign-out, tests first (red, then green): sign-out lands on the landing page with a notice; sign-in has a Back to home link; signed in, the logo, `/` and `/login` never show the form; an expired session shows Sign in, never Sign out; `next=` keeps pages only.
   - [x] Ask, tests first (red, then green): no empty cards; the hero's sequence (send, reading, pull, reveal in the hero's order, leave), the same order at once on phones and under reduced motion.

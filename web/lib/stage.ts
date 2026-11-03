@@ -15,14 +15,11 @@ export type View = Phase | "pulling" | "revealing" | "leaving";
 /** The card's parts after the question, in the hero's order; a source and a sentence come once each. */
 export type Part = "read" | "source" | "filings" | "heading" | "sentence" | "check" | "table" | "warnings" | "note" | "foot";
 
-/** What Ask's moving stage plays from: where the stage is, the covered filings and, from the pull on, the cited ones;
-    and the Pause the page also obeys. */
+/** What Ask's moving stage plays from: where the stage is, the covered filings and, from the pull on, the cited ones. */
 export interface StageProps {
   phase: View;
   covered: Thing[];
   cited: Thing[];
-  paused: boolean;
-  onPause: (paused: boolean) => void;
 }
 
 /** The places round the stage, as the hero's; one stays free, as there. */
@@ -36,6 +33,18 @@ export const ENTER_MS = 350;
 export const REVEAL_MS = 2_950;
 export const LEAVE_MS = 450;
 export const FLY_MS = 450;
+/** Once the card is in place, the membrane holds its sources this long, then lets them go. */
+export const RELEASE_MS = 1_000;
+/** The stage stops moving this long after it comes to rest (the page load, an answer done, an error): with no Pause
+    button, its motion must end within 5 s (WCAG 2.2.2). */
+export const CALM_MS = 4_500;
+
+/** How fast the floating things drift `ms` after the stage came to rest: full pace, then over the last second it slows
+    to a stop. */
+export function calmPace(ms: number): number {
+  const x = Math.min(1, Math.max(0, (CALM_MS - ms) / 1_000));
+  return x * x * (3 - 2 * x);
+}
 
 const sentenceBreaks = new Intl.Segmenter("en", { granularity: "sentence" });
 /** The answer's sentences, each with the space after it, so they join back into the text. */
