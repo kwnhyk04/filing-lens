@@ -345,7 +345,7 @@ Production's Grafana hung on its first start: `/apis/...` and `/api/folders` too
 
 ### corpus-v2 in production: when you pick
 
-Production runs `corpus-v1`. `corpus-v2` (the release `corpus-v2`, made 2026-10-31 from the re-parsed dev database) files JPM's, CVX's, NVDA's and PLD's financial sections under Items 7 and 8: the 1,373 chunks that corpus-v1 has under Items 14, 15 and 16 (README, Known issues). It stands at the same revision 0008 with model A vectors in `embedding`, so `RETRIEVAL_EMBEDDING_COLUMN=embedding` and the api's image stay as they are.
+Production runs `corpus-v1`. `corpus-v2` (the release `corpus-v2`, made 2026-10-31 from the re-parsed dev database) files JPM's, CVX's, NVDA's and PLD's financial sections under Items 7 and 8: the 1,373 chunks that corpus-v1 has under Items 14, 15 and 16 (`docs/guide.md`, Known limitations). It stands at the same revision 0008 with model A vectors in `embedding`, so `RETRIEVAL_EMBEDDING_COLUMN=embedding` and the api's image stay as they are.
 
 Rehearsed on 2026-11-01 on a scratch database in dev's Postgres, with corpus-v1 standing in for production; production was not touched. The backup took 3 s, the restore 11 s and the rollback 11 s, and every check below matched.
 
@@ -390,7 +390,7 @@ Rehearsed on 2026-11-01 on a scratch database in dev's Postgres, with corpus-v1 
     docker compose --env-file .env.prod up -d --wait api
     ```
 59. Clean up. Run `docker exec filinglens-prod-postgres-1 rm -f /tmp/corpus.dump /tmp/backup.dump`. Expire the silence with `amtool silence query`, then `amtool silence expire <id>`, both with `--alertmanager.url=http://127.0.0.1:9093`. Keep the backup in `.cache\corpus` until corpus-v2 has run for a week.
-60. The docs then say corpus-v2: this file's Database line, `docs/context.md` and the README's Known issues, in a docs PR, with the backup's hash and the step times in the activity log.
+60. The docs then say corpus-v2: this file's Database line, `docs/context.md` and `docs/guide.md`'s Known limitations, in a docs PR, with the backup's hash and the step times in the activity log.
 
 ## Rollback
 

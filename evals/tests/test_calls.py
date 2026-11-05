@@ -543,7 +543,7 @@ def test_claude_answers_an_eval_only_in_the_labelled_local_configuration(
 FREE: str = EvalSettings.model_fields["llm_primary"].default  # the official run's answer model
 
 
-# .env's LLM_PRIMARY: the free default, or Claude first as production runs it (README).
+# .env's LLM_PRIMARY: the free default, or Claude first as production runs it (docs/guide.md).
 @pytest.mark.parametrize("primary", [FREE, CLAUDE], ids=["free primary", "Claude primary"])
 def test_claude_first_routes_and_answers_with_claude_as_production_does(
     monkeypatch: pytest.MonkeyPatch, primary: str

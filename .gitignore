@@ -19,3 +19,18 @@ test-results/
 playwright-report/
 web/e2e/.auth/
 .playwright-mcp/
+
+# Private: agent instructions and working notes, kept on this PC and in its backup. The guide,
+# the runbooks (the alert rules link to monitoring.md), the credits, the logos (a test reads them)
+# and the screenshots stay public.
+/AGENTS.md
+/CLAUDE.md
+.claude/
+docs/*
+!docs/brand/
+!docs/deploy.md
+!docs/guide.md
+!docs/migrations.md
+!docs/monitoring.md
+!docs/screenshots/
+!docs/third-party.md

@@ -32,8 +32,8 @@ SOURCE = (
     " tier), with sources and coverage from the dev database."
 )
 MAX_IDS = 20  # per kind in one Sources query
-# Chunks the parser files under the item heading before a separate financial section (README,
-# Known Limitations): a demo citation there would show the wrong item.
+# Chunks the parser files under the item heading before a separate financial section
+# (docs/guide.md, Known limitations): a demo citation there would show the wrong item.
 MISLABELED = {
     ("0001628280-26-008131", "15"),  # JPM: MD&A, market risk and the statements
     ("0000093410-26-000078", "14"),  # CVX: the same
