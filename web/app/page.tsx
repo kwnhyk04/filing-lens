@@ -5,10 +5,13 @@ import "./landing.css";
 
 import { cookies } from "next/headers";
 
-import claude from "../../evals/reports/2026-10-31-claude-first.json";
-import claudeTable from "../../evals/reports/2026-10-31-claude-first.md";
 import report from "../../evals/reports/2026-10-31.json";
 import table from "../../evals/reports/2026-10-31.md";
+import claude from "../../evals/reports/2026-11-05-claude-first.json";
+import claudeTable from "../../evals/reports/2026-11-05-claude-first.md";
+import devHaiku from "../../evals/reports/runs/20261103T175043Z-answer-dev-full-claude-first.json";
+import devSonnetOff from "../../evals/reports/runs/20261103T175921Z-answer-dev-full-claude-first.json";
+import devSonnetAdaptive from "../../evals/reports/runs/20261104T000849Z-answer-dev-full-claude-first.json";
 import { Hero } from "../components/hero.tsx";
 import { LandingHeader } from "../components/landing-header.tsx";
 import { Overview } from "../components/overview.tsx";
@@ -22,12 +25,15 @@ import { THEME_COOKIE, themeOf } from "../lib/theme.ts";
 // credits last, and the free models alone, which CI's floors come from.
 const ROWS = comparisonRows(claudeTable, table);
 const RUNS = [
-  { key: "claude", name: "Claude first", run: claude, report: "evals/reports/2026-10-31-claude-first.md" },
+  { key: "claude", name: "Claude first", run: claude, report: "evals/reports/2026-11-05-claude-first.md" },
   { key: "free", name: "Free models only", run: report, report: "evals/reports/2026-10-31.md" },
 ] as const;
 const { config, judge_calibration: judge } = report;
 const labeler = judge.labeler.charAt(0).toUpperCase() + judge.labeler.slice(1);
 const story = heroStory(demo);
+type DevRun = { metrics: { answer: { citation_precision: { value: number }; cost_usd: { value: number } } } };
+const precision = (run: DevRun) => run.metrics.answer.citation_precision.value.toFixed(3);
+const costPerQuery = (run: DevRun) => `$${run.metrics.answer.cost_usd.value.toFixed(4)}`;
 
 const STACK = [
   "Python",
@@ -221,8 +227,10 @@ export default async function LandingPage({ searchParams }: Props) {
           <ResultsTable />
           <div className="results-notes">
             <p className="small">
-              Measured on {report.records.answer.length} questions on {evalDate(report.created_at)}. Nothing was tuned
-              on this set.
+              Measured on {report.records.answer.length} questions: Claude first on {evalDate(claude.created_at)}, the
+              free models on {evalDate(report.created_at)}. Nothing was tuned on this set.
+              {claude.prompts.answer_system !== report.prompts.answer_system &&
+                " The free models' run predates the answer prompt Claude first used."}
             </p>
             <p className="small">
               {RUNS.map(({ key, name, run }) => (
@@ -236,6 +244,13 @@ export default async function LandingPage({ searchParams }: Props) {
               On the live site, Claude Haiku 5.5 routes and answers first, within its daily budget and while its
               prepaid credits last; then the free models: Gemini 3.5 Flash-Lite answers, gpt-oss-20b on Groq routes,
               and gpt-oss-20b on NVIDIA is the last fallback.
+            </p>
+            <p className="small" data-testid="sonnet-note">
+              Claude Sonnet 5.5 was measured too, on the {devHaiku.records.answer.length} dev questions, not this test
+              set: citation precision {precision(devSonnetOff)} with thinking off and {precision(devSonnetAdaptive)} with
+              adaptive thinking against Haiku&apos;s {precision(devHaiku)}, at {costPerQuery(devSonnetOff)} and{" "}
+              {costPerQuery(devSonnetAdaptive)} a query against {costPerQuery(devHaiku)}. Haiku stayed; see{" "}
+              <a href={sourceLink("evals/README.md")}>the measured decision</a>.
             </p>
             <p className="small">
               Citation precision and faithfulness are graded by an LLM judge, <code>{config.judge}</code>, calibrated

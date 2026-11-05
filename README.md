@@ -100,30 +100,30 @@ Golden set v2 (`evals/golden/v2`, frozen 2026-10-31) is the set in use. It holds
 - The cross-check: the judge model (gpt-oss-120b, another model family) labeled a fixed-seed sample of 50 of Claude's labels without seeing them. Agreement 90.0%, Cohen's kappa 0.80 (95% CI 0.62 to 0.96). Two models agreeing does not show the labels are right.
 - Its labels only measure agreement: on the 5 disagreements Claude's labels stand.
 
-### Official results, golden v2: test split, 2026-10-31
+### Official results, golden v2: test split
 
 Two runs of the same 55 test questions, both judged by gpt-oss-120b. Nothing was tuned on this set.
-- **Claude first (the headline):** Claude Haiku 5.5 routes and answers, as the live site runs while its credits last (`evals/reports/2026-10-31-claude-first`, 16:01 UTC).
-- **Free models only:** Gemini 3.5 Flash-Lite answers and gpt-oss-20b routes. The site falls back to them when Claude stops, and CI's test floors come from this run (`evals/reports/2026-10-31`, 15:31 UTC).
-- Both ran on the uncommitted branch; each report pins its source sha256.
+- **Claude first (the headline):** Claude Haiku 5.5 routes and answers, as the live site runs while its credits last (`evals/reports/2026-11-05-claude-first`, 07:15 UTC). Its comparison with the run of 2026-10-31 is in `evals/README.md`.
+- **Free models only:** Gemini 3.5 Flash-Lite answers and gpt-oss-20b routes. The site falls back to them when Claude stops, and CI's test floors come from this run (`evals/reports/2026-10-31`, 15:31 UTC). It predates answer rule 4's four significant digits.
+- Both ran on uncommitted branches; each report pins its source sha256.
 
 | Metric | Target | Claude first (headline) | Free models only |
 | --- | --- | --- | --- |
 | Retrieval recall@10 (n 25) | 0.90 | 0.596 | 0.596 (the same search) |
 | MRR@10 | 0.70 | 0.628 | 0.628 |
 | Numeric exact match (n 12) | 0.92 | 1.000 | 1.000 |
-| Citation precision (judge) | 0.95 | 0.980 (n 42) | 1.000 (n 37) |
+| Citation precision (judge) | 0.95 | 0.993 (n 43) | 1.000 (n 37) |
 | Citation coverage | 0.95 | 0.950 | 1.000 |
-| Faithfulness (judge) | 0.92 | 0.968 | 0.990 |
+| Faithfulness (judge) | 0.92 | 0.976 | 0.990 |
 | Correct refusal (n 10) | 0.90 | 1.000 | 1.000 |
 | False refusal (n 45) | 5% or lower | 4.4% (x21, x42) | 13.3% (x21, x25, x26, x35, x40, x42) |
 | Router accuracy (route, tickers, years, metric) | - | 0.982 | 0.564 |
-| Time to first token p50 / p95 | 1.0 s / 2.0 s | 2.11 s / 5.06 s | 1.47 s / 2.12 s |
-| Full answer latency p95 | 6 s | 7.07 s | 3.98 s |
-| Tokens per query, in / out | 8,000 / 600 | 9,534 / 493 | 5,715 / 321 |
+| Time to first token p50 / p95 | 1.0 s / 2.0 s | 2.41 s / 3.03 s | 1.47 s / 2.12 s |
+| Full answer latency p95 | 6 s | 7.29 s | 3.98 s |
+| Tokens per query, in / out | 8,000 / 600 | 9,408 / 484 | 5,715 / 321 |
 | Cost per query, as billed | $0.015 | $0.0012 in credits | $0 |
 
-- **Claude first** misses only speed and input tokens. It routes in 1.16 s at p50 against Groq's 0.66 s, its first draft starts later (1.93 s against 1.45 s at p50), and it redrafts more often (draft citation pass rate 0.915 against 0.972). Its routing prompt is about twice Groq's in tokens.
+- **Claude first** misses only speed and input tokens. It routes in 1.32 s at p50 against Groq's 0.66 s, its first draft takes longer (2.03 s against 1.45 s at p50), and it redrafts more often (draft citation pass rate 0.921 against 0.972). Its routing prompt is about twice Groq's in tokens.
 - **Free models only** miss false refusal (13.3%) and time to first token p50. Their router reads 56% of questions fully right, against Claude's 98%.
 - Recall@10 (0.596) misses for both: the search is the same, and its gold labels are Claude's (above).
 - Golden v1's results below are history.

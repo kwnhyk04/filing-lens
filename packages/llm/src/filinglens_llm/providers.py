@@ -16,13 +16,13 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Concatenate, Final, Protocol, cast
+from typing import Any, Concatenate, Final, Literal, Protocol, cast
 
 import anthropic
 import httpx
 import httpx2
 import structlog
-from anthropic.types import OutputConfigParam
+from anthropic.types import OutputConfigParam, ThinkingConfigParam
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -47,15 +47,40 @@ BASE_URLS = {
     "nvidia": "https://integrate.api.nvidia.com/v1",
 }
 # Claude's list prices in USD per 1M tokens (input, output): prompts up to LONG_PROMPT tokens, then
-# longer ones (user and Anthropic's model table, 2026-10-17). Calls spend prepaid credits at these.
-CLAUDE_PRICES = {"claude-haiku-5-5": ((0.10, 0.50), (0.50, 2.50))}
+# longer ones (user and Anthropic's model table, 2026-10-17; Sonnet's, which lists no long-prompt
+# price, read 2026-11-04). Calls spend prepaid credits at these.
+CLAUDE_PRICES = {
+    "claude-haiku-5-5": ((0.10, 0.50), (0.50, 2.50)),
+    "claude-sonnet-5-5": ((2.00, 10.00), (2.00, 10.00)),
+}
 LONG_PROMPT = 100_000
-# Claude answers with thinking off at effort low (user decision, 2026-10-17): a fast fallback, as
-# the primary runs minimal thinking, and the answer cap then holds only text.
-CLAUDE_THINKING: Final = "disabled"
-CLAUDE_EFFORT: Final = "low"
 CLAUDE_RETRY_MAX_S = 10.0  # a 429 that asks for a longer wait goes to the next model instead
-CLAUDE_MAX_TOKENS = 1052  # 956, the most Claude wrote with thinking off (122 calls), plus 10%
+type Thinking = Literal["disabled", "between_tools", "adaptive"]
+THINKING: Final[dict[Thinking, ThinkingConfigParam]] = {
+    "disabled": {"type": "disabled"},
+    "between_tools": {"type": "between_tools"},  # Sonnet 5.5's thinking off: it refuses "disabled"
+    "adaptive": {"type": "adaptive"},
+}
+
+
+@dataclass(frozen=True)
+class ClaudeMode:
+    """How Claude is asked: its thinking, its effort, and the cap on what it writes (thinking
+    included)."""
+
+    thinking: Thinking
+    effort: Literal["low", "medium", "high", "xhigh", "max"]
+    max_tokens: int
+
+
+# Each model's own, thinking off: Haiku at effort low (user decision, 2026-10-17), a fast fallback
+# whose cap then holds only text (956, the most it wrote in 122 calls, plus 10%); Sonnet at effort
+# high, measured against it (user, 2026-11-04). The eval's adaptive arm takes ADAPTIVE_MAX_TOKENS.
+CLAUDE_MODES = {
+    "claude-haiku-5-5": ClaudeMode("disabled", "low", 1052),
+    "claude-sonnet-5-5": ClaudeMode("between_tools", "high", 1052),
+}
+ADAPTIVE_MAX_TOKENS = 4096
 # A 400 that means the credits cannot pay: a spend limit you set ("You have reached your specified
 # API usage limits", Anthropic's rate-limits page, read 2026-10-17) or an empty credit balance.
 CREDITS_GONE = re.compile(r"spend(ing)? limit|usage limit|credit balance", re.IGNORECASE)
@@ -428,9 +453,10 @@ class Anthropic:
     404, logged as an error for the alert); from the day the credits expire (UTC) too. It also sits
     out while today's ledger budget is used up. Each call then fails at once without a request, and
     the answer chain skips it (`unusable`). A 429 hands that one call on: one asking for
-    CLAUDE_RETRY_MAX_S or less is retried once first. Its calls get CLAUDE_MAX_TOKENS, and no
-    prompt goes that could pass LONG_PROMPT tokens. It answers and routes (a JSON reply held to the
-    router's schema); settings keep it out of judging and of the free models behind it.
+    CLAUDE_RETRY_MAX_S or less is retried once first. Its calls follow its model's CLAUDE_MODES
+    entry (or the `mode` given), and no prompt goes that could pass LONG_PROMPT tokens. It answers
+    and routes (a JSON reply held to the router's schema); settings keep it out of judging and of
+    the free models behind it.
     """
 
     def __init__(
@@ -442,11 +468,13 @@ class Anthropic:
         ledger: ClaudeLedger,
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
         http_client: httpx2.AsyncClient | None = None,  # tests pass a mock transport
+        mode: ClaudeMode | None = None,  # the eval's adaptive arm; else the model's own
     ) -> None:
         if model not in CLAUDE_PRICES:
             raise ValueError(f"anthropic:{model} has no price in CLAUDE_PRICES.")
         self.name = f"anthropic:{model}"
         self._model = model
+        self._mode = mode or CLAUDE_MODES[model]
         self._expires = expires
         self._ledger = ledger
         self._today = today
@@ -556,17 +584,17 @@ class Anthropic:
         self, system: str, user: str, *, max_tokens: int, schema: Mapping[str, Any] | None = None
     ) -> Completion:
         await self._ready(system, user)
-        config: OutputConfigParam = {"effort": CLAUDE_EFFORT}
+        config: OutputConfigParam = {"effort": self._mode.effort}
         if schema is not None:  # a routing reply: JSON held to the router's schema
             config["format"] = {"type": "json_schema", "schema": claude_schema(schema)}
         started = time.perf_counter()
         message = await self._send(
             lambda: self._client.messages.create(
                 model=self._model,
-                max_tokens=CLAUDE_MAX_TOKENS,  # its own cap, sized from its answers
+                max_tokens=self._mode.max_tokens,  # its own cap, sized from its answers
                 system=system,
                 messages=[{"role": "user", "content": user}],
-                thinking={"type": CLAUDE_THINKING},
+                thinking=THINKING[self._mode.thinking],
                 output_config=config,
             )
         )
@@ -588,11 +616,11 @@ class Anthropic:
         events = await self._send(
             lambda: self._client.messages.create(
                 model=self._model,
-                max_tokens=CLAUDE_MAX_TOKENS,  # its own cap, sized from its answers
+                max_tokens=self._mode.max_tokens,  # its own cap, sized from its answers
                 system=system,
                 messages=[{"role": "user", "content": user}],
-                thinking={"type": CLAUDE_THINKING},
-                output_config={"effort": CLAUDE_EFFORT},
+                thinking=THINKING[self._mode.thinking],
+                output_config={"effort": self._mode.effort},
                 stream=True,
             )
         )
@@ -624,10 +652,15 @@ class Anthropic:
 
 
 def provider(
-    role: str, settings: ApiSettings, client: httpx.AsyncClient, ledger: ClaudeLedger | None = None
+    role: str,
+    settings: ApiSettings,
+    client: httpx.AsyncClient,
+    ledger: ClaudeLedger | None = None,
+    mode: ClaudeMode | None = None,
 ) -> Provider:
     """The provider for a role such as LLM_PRIMARY (provider:model), with its key from settings.
-    Claude keeps its own HTTP client (the anthropic SDK runs on httpx2) and needs its ledger."""
+    Claude keeps its own HTTP client (the anthropic SDK runs on httpx2) and needs its ledger;
+    `mode` replaces its model's own (the eval's adaptive arm)."""
     name, _, model = role.partition(":")
     field = PROVIDER_KEYS[name]
     secret = getattr(settings, field) if field else None
@@ -637,6 +670,7 @@ def provider(
     if name == "anthropic":
         if ledger is None:
             raise ValueError("Claude needs its ledger: its daily tokens and switch-off.")
-        return Anthropic(model, key or "", expires=settings.anthropic_credits_expire, ledger=ledger)
+        expires = settings.anthropic_credits_expire
+        return Anthropic(model, key or "", expires=expires, ledger=ledger, mode=mode)
     base_url = str(settings.ollama_url) if name == "ollama" else BASE_URLS[name]
     return OpenAICompatible(name, base_url, model, key, client)

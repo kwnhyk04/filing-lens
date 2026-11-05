@@ -31,6 +31,14 @@
   "price_source": "user (2026-10-17) and Anthropic's model table: prompts up to 100K tokens ($0.50 / $2.50 above); billed from prepaid credits that expire 2026-11-10",
   "price_read_on": "2026-10-17"
  },
+ "anthropic:claude-sonnet-5-5": {
+  "limits": {},
+  "limits_source": "not read: this organization's tier is unknown",
+  "limits_read_on": "2026-11-04",
+  "price_per_million": {"input": 2.00, "output": 10.00},
+  "price_source": "Anthropic's model table (Claude API reference): no long-prompt price listed; billed from the same prepaid credits",
+  "price_read_on": "2026-11-04"
+ },
  "nvidia:openai/gpt-oss-20b": {
   "limits": {"requests_per_minute": 40},
   "limits_source": "secondary sources; NVIDIA publishes no table",
