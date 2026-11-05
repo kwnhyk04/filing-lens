@@ -12,7 +12,8 @@ import { OFFLINE, OWN_DATA_QUESTION, question } from "./env.ts";
 import { audit, expect, signIn, test } from "./fixtures.ts";
 
 const DIR = process.env.SCREENS_DIR ?? "../docs/screenshots/ui";
-const TOP_ONLY = new Set(["offline"]); // below its banner it is the demo page, shot in full as "demo"
+// Below its banner `offline` is the demo page, shot in full as "demo"; `landing-hero` is the landing's first screen.
+const TOP_ONLY = new Set(["offline", "landing-hero"]);
 const SECTION: Record<string, string> = { "landing-results": "#results" }; // shot alone, so a phone's cards read
 
 // Reduced motion: the landing's hero stays the still, so its shots come out the same every run.
@@ -95,6 +96,7 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
     await expect(page.getByTestId("sign-in-error")).toHaveText("Wrong password.");
   },
   landing: (page) => signedOut(page, "/"),
+  "landing-hero": (page) => signedOut(page, "/"),
   "landing-results": (page) => signedOut(page, "/"),
   "landing-signed-out": async (page) => {
     await signedOut(page, "/?signed-out=1");
@@ -276,7 +278,7 @@ async function twoInARow(page: Page, name: string) {
   await page.clock.install();
   await openAsk(page);
   await expect(page.locator(".stage-field canvas")).toHaveCount(1, { timeout: 15_000 });
-  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50); // just ahead: see `sequence`
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 250); // just ahead: see `sequence`
   for (const id of ["n01", "c02"]) {
     await page.getByLabel("Your question").fill(question(id));
     await page.getByLabel("Your question").press("Enter");
@@ -301,13 +303,28 @@ async function landingBar(page: Page, name: string) {
   await page.clock.install();
   await signedOut(page, "/");
   await expect(page.locator(".pb-capsule")).toBeAttached({ timeout: 15_000 });
-  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50); // just ahead: see `sequence`
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 250); // just ahead: see `sequence`
   const capsule = page.locator(".pb-capsule");
   for (let i = 0; i < 100 && Number(await capsule.evaluate((bar) => getComputedStyle(bar).opacity)) < 1; i++) await page.clock.runFor(30);
   await expect(page.locator(".pb-typed")).toHaveText(""); // faded in, before the first letter
   await shot("empty");
   for (let i = 0; i < 100 && ((await page.locator(".pb-typed").textContent()) ?? "").length < 16; i++) await page.clock.runFor(30);
   await shot("typing");
+}
+
+/** The landing hero's card mid-answer: Playwright's clock holds the moving story with half its reply shown. */
+async function landingAnswer(page: Page, name: string) {
+  await page.clock.install();
+  await signedOut(page, "/");
+  await expect(page.locator(".pb-capsule")).toBeAttached({ timeout: 15_000 });
+  await expect(page.locator(".hero-field canvas")).toHaveCount(1, { timeout: 15_000 });
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 250); // just ahead: see `sequence`
+  const bubble = page.locator(".pb-panel .story-reply .story-bubble");
+  const shown = () => bubble.evaluate((reply: HTMLElement) => Number(reply.style.getPropertyValue("--la") || 0));
+  for (let i = 0; i < 1000 && (await shown()) < 0.5; i++) await page.clock.runFor(30);
+  await page.waitForTimeout(500); // CSS runs on real time
+  await page.clock.runFor(60); // a few frames: the membrane and the field paint as they now are
+  await page.screenshot({ path: `${DIR}/landing-answer-${name}.png`, animations: "disabled" });
 }
 
 if (MOTION && WIDTHS) {
@@ -318,6 +335,12 @@ if (MOTION && WIDTHS) {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
         await landingBar(page, `${width}-${colorScheme}`);
+      });
+      test(`landing-answer ${width}-${colorScheme}`, async ({ page }) => {
+        test.setTimeout(60_000);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
+        await landingAnswer(page, `${width}-${colorScheme}`);
       });
       for (const id of ["n01", "x04"]) {
         test(`ask-sequence ${id} ${width}-${colorScheme}`, async ({ page }) => {

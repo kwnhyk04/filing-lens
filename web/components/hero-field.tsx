@@ -1,7 +1,7 @@
 "use client";
 // The hero's moving field: ShaderGradient (MIT, by ruucm; docs/third-party.md) on three.js, with Prompt
-// Bond's two fields recoloured. Light: warm paper, soft grey-blue and a pale teal. Dark: ink navy with a
-// muted teal glow. "3d" lighting needs no environment map, so nothing loads from ShaderGradient's site.
+// Bond's two fields recoloured in the site's neutral greys, off-white or charcoal with a soft glow. "3d"
+// lighting needs no environment map, so nothing loads from ShaderGradient's site.
 import { useFrame, useThree } from "@react-three/fiber";
 import { ShaderGradient, ShaderGradientCanvas } from "@shadergradient/react";
 import { useEffect } from "react";
@@ -29,13 +29,13 @@ const shared = {
 export const FIELDS = {
   light: {
     ...shared,
-    brightness: 1.2,
+    brightness: 1.29,
     cDistance: 1.5,
     cPolarAngle: 120,
     cameraZoom: 1,
-    color1: "#FAF8F3",
-    color2: "#D6E0EC",
-    color3: "#BDEBE1",
+    color1: "#F5F6F7",
+    color2: "#EEF0F2",
+    color3: "#F1F2F4",
     rotationX: 0,
     rotationY: 0,
     rotationZ: -90,
@@ -51,9 +51,9 @@ export const FIELDS = {
     cDistance: 2.4,
     cPolarAngle: 80,
     cameraZoom: 9.1,
-    color1: "#13283C",
-    color2: "#176560",
-    color3: "#0F1B2D",
+    color1: "#171A1E",
+    color2: "#191C21",
+    color3: "#15171B",
     rotationX: 50,
     rotationY: 0,
     rotationZ: -60,

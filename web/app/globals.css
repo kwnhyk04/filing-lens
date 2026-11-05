@@ -1,31 +1,43 @@
-/* The mockup's look (docs/design.md): white cards on a pale green-grey page, one green accent, a serif
-   answer with highlighted figures, and its sources in a panel beside it. Text pairs keep 4.5:1; field
-   borders and the focus ring keep 3:1. Each colour is light-dark(light, dark), and `color-scheme` picks:
-   the system's, or Light or Dark from the landing header, which the root layout writes as `data-theme`
-   on <html> from the fl-theme cookie. */
+/* The site's palette (docs/design.md): white or graphite cards on an off-white or charcoal page, one muted steel
+   accent, a serif answer with highlighted figures, and its sources in a panel beside it. Green, red and amber show
+   only where they mean something (the --ok, --bad, --note and --mark tokens). Text pairs keep 4.5:1; field borders and
+   the focus ring keep 3:1. Each colour is light-dark(light, dark), and `color-scheme` picks: the system's, or Light or
+   Dark from the landing header, which the root layout writes as `data-theme` on <html> from the fl-theme cookie. */
 :root {
   color-scheme: light dark;
-  --paper: light-dark(#f4f5f2, #121514);
-  --sheet: light-dark(#ffffff, #191d1b);
-  --sunk: light-dark(#f0f2ee, #1f2422);
-  --ink: light-dark(#1b1f1d, #e6e9e7);
-  --ink-2: light-dark(#444b47, #c3c9c5);
-  --ink-3: light-dark(#5f6763, #9aa39e);
-  --rule: light-dark(#e2e5e0, #2b312e);
-  --field: light-dark(#7b847f, #7c8681);
-  --accent: light-dark(#0f5f4b, #5fcfae);
-  --tint: light-dark(#e3f1ec, #173129);
-  --on-accent: light-dark(#ffffff, #0b1f19);
-  --mark: light-dark(#fcefc0, #4a3f14);
-  --on-mark: light-dark(#1b1f1d, #fbefc6);
-  --mark-line: light-dark(#9a6a00, #e0b54f);
-  --note-bg: light-dark(#fdf1dc, #2d2413);
-  --note-ink: light-dark(#7a4d00, #f2c879);
-  --note-rule: light-dark(#ecd3a0, #5b4520);
-  --bad-bg: light-dark(#fbeceb, #36191a);
-  --bad-ink: light-dark(#9b1c1c, #ffb3ad);
-  --bad-rule: light-dark(#f0c4c1, #6b2a28);
-  /* The Ask bar, on the landing hero and on Ask: the site's greys, set here since both redefine --ink. */
+  --paper: light-dark(#f5f6f7, #121418);
+  --sheet: light-dark(#ffffff, #1a1d22);
+  --sunk: light-dark(#eef0f2, #20242a);
+  --ink: light-dark(#1a1d22, #e6e8eb);
+  --ink-2: light-dark(#434b56, #b7bec7);
+  --ink-3: light-dark(#5b6470, #9aa3ad);
+  --rule: light-dark(#dfe2e6, #2c3138);
+  --field: light-dark(#7d8692, #6f7884);
+  --accent: light-dark(#4a5563, #a9b4c2);
+  --tint: light-dark(#e9ecf0, #262b32);
+  --on-accent: light-dark(#ffffff, #121418);
+  /* The hero's and Ask's ground: a soft glow and a deeper corner on the page; and their card's faint halo. */
+  --glow: light-dark(#ebedf0, #191c21);
+  --deep: light-dark(#e6e9ed, #0e1013);
+  --halo: light-dark(rgb(26 29 34 / 0.14), rgb(154 163 173 / 0.12));
+  /* Inside a card: the question's and the reply's bubble, each row, and a row's glyph. */
+  --bubble: var(--sunk);
+  --row-bg: var(--sunk);
+  --glyph-bg: var(--tint);
+  --mark: light-dark(#f7eecb, #453d22);
+  --on-mark: light-dark(#1a1d22, #f0e7cb);
+  --mark-line: light-dark(#8f6a12, #c8aa66);
+  --note-bg: light-dark(#f9f2e2, #2a2419);
+  --note-ink: light-dark(#6f4c0b, #dcc08a);
+  --note-rule: light-dark(#e6d6b3, #54472c);
+  --bad-bg: light-dark(#f8eeed, #2d1d1e);
+  --bad-ink: light-dark(#8f2b27, #e5aaa5);
+  --bad-rule: light-dark(#ebcfcc, #5a3230);
+  /* A passed check, a met target, an indexed filing: green only for those; --ok-fill carries a white tick. */
+  --ok: light-dark(#2f6b50, #8fc2a6);
+  --ok-bg: light-dark(#e8f1ec, #1c2a24);
+  --ok-fill: #3f7d5f;
+  /* The Ask bar, on the landing hero and on Ask: the site's greys. */
   --bar: var(--sunk);
   --bar-ink: var(--ink);
   --bar-hint: var(--ink-3);
@@ -39,9 +51,9 @@
   --gutter: 4rem;
   --radius: 6px;
   --radius-card: 8px;
-  /* The mark (lib/logo.ts, docs/brand): ink arcs and pills round a teal bar. Light here, dark below; no
+  /* The mark (lib/logo.ts, docs/brand): ink arcs and pills round a bar in the accent. Light here, dark below; no
      text, so it adds nothing to a link's name. */
-  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%230F1B2D' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%230D9488' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
+  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%231A1D22' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%234A5563' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="light"] {
@@ -50,12 +62,12 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%23FAF8F3' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%232DD4BF' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
+  --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%23E6E8EB' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%23A9B4C2' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%23FAF8F3' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%232DD4BF' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
+    --logo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-21.5 -15 43 30' fill='none' stroke-width='4' stroke-linecap='round'%3E%3Cpath stroke='%23E6E8EB' d='M-9.747 -7A12 12 0 0 1 9.747 -7M9.747 7A12 12 0 0 1 -9.747 7M-18.5 0H-15.5M15.5 0H18.5'/%3E%3Cpath stroke='%23A9B4C2' d='M-8.5 0H8.5'/%3E%3C/svg%3E");
   }
 }
 
@@ -149,7 +161,7 @@ code {
   top: 0.5rem;
 }
 
-/* Header: the mark and name, tabs with the current one underlined in green, then Sign out or Sign in. */
+/* Header: the mark and name, tabs with the current one underlined in the accent, then Sign out or Sign in. */
 .site {
   display: flex;
   flex-wrap: wrap;
@@ -414,11 +426,11 @@ button[aria-disabled="true"] {
   cursor: progress;
 }
 
-/* One set of buttons, after FreightAudit's: green for the page's one call to action, quiet and outlined for
+/* One set of buttons, after FreightAudit's: the accent for the page's one call to action, quiet and outlined for
    everything beside it (Sign out, Copy, Ask again, New question, the samples, recent questions and paging), and
    small in a row of them. */
 .secondary {
-  border-color: var(--field);
+  border-color: var(--rule);
   background: var(--sheet);
   color: var(--ink);
   font-weight: 500;
@@ -537,8 +549,8 @@ button[aria-disabled="true"] {
 }
 
 .badge.ok {
-  background: var(--tint);
-  color: var(--accent);
+  background: var(--ok-bg);
+  color: var(--ok);
 }
 
 .badge.warn {
@@ -557,14 +569,8 @@ button[aria-disabled="true"] {
 
 /* The answer card, in the landing hero's look (docs/design.md): the question in a bubble on the right, how it
    was read, the reply on the left, the check, then the numbered passages and the filings they come from, on one
-   sheet with a green glow in its corner. The parts are the hero's (.story-*, below), in the app's colours. */
+   sheet with a soft glow in its corner. The parts are the hero's (.story-*, below). */
 .answer-card {
-  --bubble: var(--sunk);
-  --row-bg: color-mix(in srgb, var(--sunk) 60%, transparent);
-  --glyph-bg: var(--tint);
-  --hero-teal: var(--accent);
-  --on-body: var(--ink);
-  --on-body-2: var(--ink-2);
   display: grid;
   gap: 0.625rem;
   padding: 1.25rem;
@@ -731,8 +737,14 @@ button[aria-disabled="true"] {
   stroke-linejoin: round;
 }
 
+/* A passed check keeps its green. */
+[data-tone="check"] .story-glyph {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
 .story-n {
-  border: 1.5px solid var(--hero-teal);
+  border: 1.5px solid var(--accent);
   font-size: 0.6875rem;
   font-weight: 700;
 }
@@ -746,7 +758,7 @@ button[aria-disabled="true"] {
 }
 
 .story-passages li:target {
-  box-shadow: inset 0 0 0 1.5px var(--hero-teal);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 .story-cite {
@@ -758,7 +770,7 @@ button[aria-disabled="true"] {
 .story-cite q {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--on-body-2);
+  color: var(--ink-2);
   font-family: var(--serif);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1515,7 +1527,7 @@ tbody th {
 }
 
 .match {
-  color: var(--accent);
+  color: var(--ok);
   font-weight: 600;
 }
 

@@ -131,12 +131,12 @@ test.describe("with reduced motion", () => {
 });
 
 const BAR = {
-  light: { bar: "rgb(240, 242, 238)", ink: "rgb(27, 31, 29)", soft: "rgb(95, 103, 99)", arrow: "rgb(255, 255, 255)" },
-  dark: { bar: "rgb(31, 36, 34)", ink: "rgb(230, 233, 231)", soft: "rgb(154, 163, 158)", arrow: "rgb(25, 29, 27)" },
+  light: { bar: "rgb(238, 240, 242)", ink: "rgb(26, 29, 34)", soft: "rgb(91, 100, 112)", arrow: "rgb(255, 255, 255)", ring: "rgb(74, 85, 99)" },
+  dark: { bar: "rgb(32, 36, 42)", ink: "rgb(230, 232, 235)", soft: "rgb(154, 163, 173)", arrow: "rgb(26, 29, 34)", ring: "rgb(169, 180, 194)" },
 };
 
 for (const colorScheme of ["light", "dark"] as const) {
-  test(`the Ask bar reaches the page in its neutral greys, in ${colorScheme}`, async ({ page }) => {
+  test(`the Ask bar reaches the page in its neutral greys with the accent's focus ring, in ${colorScheme}`, async ({ page }) => {
     const want = BAR[colorScheme];
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await page.goto("/ask");
@@ -148,10 +148,20 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(send).toHaveCSS("border-top-color", want.soft);
     await expect(send).toHaveCSS("color", want.arrow);
     await field.focus();
-    await expect(bar).toHaveCSS("outline-color", want.soft);
+    await expect(bar).toHaveCSS("outline-color", want.ring);
     await page.keyboard.press("Tab");
     await expect(send).toBeFocused();
-    await expect(send).toHaveCSS("outline-color", want.soft);
+    await expect(send).toHaveCSS("outline-color", want.ring);
+  });
+
+  test(`a passed check stays green and an answer's links take the accent, in ${colorScheme}`, async ({ page }) => {
+    const { ring } = BAR[colorScheme];
+    const green = { light: "rgb(47, 107, 80)", dark: "rgb(143, 194, 166)" }[colorScheme];
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await ask(page, question("c12"));
+    await expect(stage(page).locator("[data-tone='check'] .story-glyph")).toHaveCSS("color", green);
+    await expect(stage(page).locator(".match").first()).toHaveCSS("color", green);
+    await expect(stage(page).locator(".answer-text a").first()).toHaveCSS("color", ring);
   });
 }
 

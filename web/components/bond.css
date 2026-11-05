@@ -2,9 +2,8 @@
    organisms' eyes and the things floating round the panel, over the landing's hero and Ask's stage alike. Loaded
    with a moving story only, so phones and reduced motion never fetch it. */
 :is(.hero, .stage) {
-  --glass: light-dark(rgb(250 248 243 / 0.72), rgb(242 240 234 / 0.14));
-  --glass-edge: light-dark(rgb(15 27 45 / 0.16), rgb(242 240 234 / 0.4));
-  --eye: light-dark(#0f1b2d, rgb(242 240 234 / 0.92));
+  --glass: light-dark(rgb(255 255 255 / 0.72), rgb(230 232 235 / 0.1));
+  --glass-edge: light-dark(rgb(26 29 34 / 0.16), rgb(230 232 235 / 0.22));
 }
 
 .pb-stage,
@@ -41,13 +40,13 @@
   border: 1px solid var(--glass-edge);
   border-radius: 999px;
   background: var(--glass);
-  color: var(--hero-ink);
+  color: var(--ink);
   font-size: 0.8125rem;
   font-weight: 500;
 }
 
 .pb-control:hover {
-  background: color-mix(in srgb, var(--hero-paper) 92%, var(--hero-ink));
+  background: color-mix(in srgb, var(--paper) 92%, var(--ink));
 }
 
 /* The riders: the organisms' eyes, and the filings and passages floating round the panel. */
@@ -66,7 +65,7 @@
   width: 3px;
   height: 6px;
   border-radius: 50%;
-  background: var(--eye);
+  background: var(--ink);
   transform: scaleY(calc(1 - var(--lid, 0)));
   animation: pb-blink 5.4s infinite;
 }
@@ -92,17 +91,15 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  color: var(--hero-ink);
   opacity: 0;
   white-space: nowrap;
   will-change: transform, opacity;
-  --kind: light-dark(#4fb8a8, #2dd4bf);
-  --fill: light-dark(#bdebe1, #1e6f6a);
+  --kind: var(--accent);
+  --fill: light-dark(#ffffff, #20242a);
 }
 
 .pb-thing[data-kind="filing"] {
-  --kind: light-dark(#8ea8c4, #6b87a8);
-  --fill: light-dark(#dce5ef, #24405f);
+  --kind: var(--ink-3);
 }
 
 .pb-thing[data-empty="true"] {
@@ -123,14 +120,14 @@
   border-radius: 46% 54% 52% 48% / 56% 44% 56% 44%;
   background: radial-gradient(
     130% 120% at 28% 22%,
-    color-mix(in srgb, var(--fill) 45%, #fff) 0%,
+    color-mix(in srgb, var(--fill) 90%, #fff) 0%,
     var(--fill) 48%,
-    color-mix(in srgb, var(--fill) 72%, var(--kind)) 100%
+    color-mix(in srgb, var(--fill) 88%, var(--kind)) 100%
   );
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--kind) 55%, transparent),
-    0 10px 22px -12px color-mix(in srgb, var(--kind) 55%, #000);
-  color: var(--hero-ink);
+    inset 0 0 0 1px color-mix(in srgb, var(--kind) 45%, transparent),
+    0 10px 22px -12px color-mix(in srgb, var(--kind) 30%, #000);
+  color: var(--kind);
   animation: pb-blob 9s ease-in-out infinite;
 }
 
@@ -152,7 +149,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: #fff;
+  background: var(--kind);
   opacity: calc(var(--flash, 0) * 0.65);
 }
 
@@ -166,7 +163,7 @@
 }
 
 .pb-thing-label em {
-  color: var(--hero-ink-2);
+  color: var(--ink-3);
   font:
     700 8.5px/1 var(--sans);
   font-style: normal;
@@ -175,7 +172,7 @@
 }
 
 .pb-thing-label small {
-  color: var(--hero-ink-2);
+  color: var(--ink-3);
   font-size: 10.5px;
   font-weight: 500;
 }
