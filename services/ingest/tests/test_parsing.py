@@ -167,6 +167,63 @@ def test_a_short_item_8_with_no_financial_section_after_it_stays_as_it_is() -> N
     assert [s.item for s in parsed.sections] == ["1", "1A", "7", "8", "15"]
 
 
+REPORT = "<p>Report of Independent Registered Public Accounting Firm</p>"
+
+
+def short_item_8(holder: str, *rest: str) -> str:
+    """A 10-K with a short Item 8, then Items 9, 9A and 9B, `holder` with an auditor's report."""
+    report = f"{REPORT}<p>We audited internal control.</p>"
+    return page(
+        "<p>Item 1. Business</p><p>Widgets.</p>",
+        "<p>Item 1A. Risk Factors</p><p>Risks.</p>",
+        "<p>Item 7. MD&amp;A</p><p>Sales grew.</p>",
+        "<p>Item 7A. Market Risk</p><p>Rates.</p>",
+        "<p>Item 8. Financial Statements</p><p>See the pages after Item 15.</p>",
+        "<p>Item 9. Changes in Accountants</p><p>None.</p>",
+        report if holder == "9" else "",
+        "<p>Item 9A. Controls and Procedures</p><p>Controls work.</p>",
+        report if holder == "9A" else "",
+        "<p>Item 9B. Other Information</p><p>None.</p>",
+        *rest,
+    )
+
+
+@pytest.mark.parametrize("holder", ["9", "9A"])
+def test_item_8_opens_past_items_9_and_9a_never_inside_them(holder: str) -> None:
+    """Review finding 4: Item 8 took 9A's report on internal control, and the statements stayed
+    in Item 15."""
+    statements = f"<p>Item 15. Exhibits</p><p>Exhibit list.</p>{REPORT}<p>We audited sales.</p>"
+    parsed = parse_filing(short_item_8(holder, statements), "10-K")
+    assert [s.item for s in parsed.sections] == [
+        *("1", "1A", "7", "7A", "9", "9A", "9B", "15", "8"),
+    ]
+    assert text(parsed, "8").endswith("We audited sales.")
+    assert text(parsed, holder).endswith("We audited internal control.")
+
+
+@pytest.mark.parametrize("holder", ["9", "9A"])
+def test_item_8_stays_short_when_only_items_9_or_9a_hold_a_report(holder: str) -> None:
+    parsed = parse_filing(short_item_8(holder, "<p>Item 15. Exhibits</p><p>Exhibits.</p>"), "10-K")
+    assert [s.item for s in parsed.sections] == [
+        *("1", "1A", "7", "7A", "8", "9", "9A", "9B", "15"),
+    ]
+    assert text(parsed, "8") == "Item 8. Financial Statements\nSee the pages after Item 15."
+    assert text(parsed, holder).endswith("We audited internal control.")
+
+
+@pytest.mark.parametrize("following", ["Item 9. Changes", "Item 9A. Controls and Procedures"])
+def test_a_full_item_8_ends_where_the_next_item_starts(following: str) -> None:
+    document = page(
+        "<p>Item 7. MD&amp;A</p><p>Sales grew.</p>",
+        "<p>Item 8. Financial Statements</p>",
+        "<p>Net sales rose.</p>" * 200,
+        f"<p>{following}</p><p>None.</p>",
+    )
+    parsed = parse_filing(document, "10-K")
+    assert text(parsed, "8").endswith("Net sales rose.")
+    assert text(parsed, following.split(".")[0].removeprefix("Item ")).startswith(following)
+
+
 @pytest.mark.skipif(not SEC_CACHE.is_dir(), reason="needs the local SEC cache; CI has none")
 def test_the_other_cached_10ks_keep_their_section_ranges() -> None:
     """The 26 cached golden-set 10-Ks without a separate financial section, as main's parser cut

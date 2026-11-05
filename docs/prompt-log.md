@@ -2,6 +2,12 @@
 
 Every change to a model prompt or response schema, newest first. Each entry gives what changed, why, the evidence and the result. Prompts are tuned on the golden set's dev split only, and the test split is never read for tuning. The judge prompt (`evals/judge.py`) is frozen with its calibration, so a change to it needs a new calibration.
 
+## 2026-11-05: K1 names each company's year when the two differ (code review, finding 6)
+
+- No system prompt, schema or hash changes. K1's lines, which the answer model reads as a source, change in one case: two companies whose facts come from different fiscal years, as each company's latest year may (`answering.calculation_source`). Each label now reads "Apple Inc. (AAPL) fiscal 2025", where it named the company alone. One company's two years already named them, and two companies in one year stay word for word.
+  - Why: the numbers were right and the fact headings showed the years, but K1's own text hid a comparison across years.
+  - Evidence: no golden comparison has the case. In the saved reports each of the 23 reads one year for two companies, or two years for one, so no cached prompt changes and no run was needed.
+
 ## 2026-11-05: Answer rule 4's floor, measured on the test split
 
 - No prompt change. `evals/reports/2026-11-05-claude-first`, hash `25e4578a6d3b`: numeric exact match 1.000 (n 12), every rounded figure at four significant digits or more, no quality metric worse beyond its interval. Side effect: per-share facts copied as "51.32 USD" (`evals/README.md`, `docs/memory.md`).

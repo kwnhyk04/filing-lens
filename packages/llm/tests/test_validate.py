@@ -12,6 +12,7 @@ from filinglens_llm.validate import (
     citation_error,
     figures,
     find_amounts,
+    numbers_in,
     parse_amount,
     split_sentences,
 )
@@ -84,6 +85,12 @@ def test_a_citation_needs_a_quote_and_a_source_the_answer_was_given() -> None:
         ("($4.2 billion)", None, "-4200000000"),
         ("\N{MINUS SIGN}1,234.5", None, "-1234.5"),
         ("-$12", "Thousand", "-12000"),
+        ("51.32 USD", None, "51.32"),
+        ("USD 51.32", None, "51.32"),
+        ("$51.32", None, "51.32"),
+        ("USD 4.2 billion", None, "4200000000"),
+        ("4.2 billion USD", None, "4200000000"),
+        ("(USD 1,234)", None, "-1234"),
     ],
 )
 def test_amounts_parse_with_their_scale_and_sign(
@@ -125,6 +132,9 @@ def test_abbreviations_read_in_either_case_with_or_without_a_space(
         ("4.2 billion", "millions"),  # two scales
         ("4.2B", "millions"),
         ("12", "dozens"),
+        ("51.32 USDT", None),  # never 51.32 trillion
+        ("51.32 EUR", None),
+        ("USD", None),
     ],
 )
 def test_anything_else_is_not_an_amount(text: str, scale: str | None) -> None:
@@ -163,12 +173,51 @@ def test_amounts_match_within_half_a_percent_and_the_sign_counts() -> None:
             "Diluted EPS was $6.08 on 15,004,697 thousand shares.",
             [(Decimal("6.08"), False), (Decimal(15_004_697_000), False)],
         ),
+        ("It paid 51.32 USD a share.", [(Decimal("51.32"), False)]),  # n44 and n51 (test)
+        ("It paid USD 51.32 a share.", [(Decimal("51.32"), False)]),
+        ("It paid $51.32 a share.", [(Decimal("51.32"), False)]),
+        ("Diluted EPS was 14.23 USD/shares.", [(Decimal("14.23"), False)]),  # n09 (dev)
+        ("Revenue was USD 4.2 billion.", [(Decimal(4_200_000_000), False)]),
+        ("Revenue was 4.2 billion USD.", [(Decimal(4_200_000_000), False)]),
+        ("It paid 1,234 USD.", [(Decimal(1234), False)]),
+        # A bracket closed or opened beyond the match: the amount was dropped unread.
+        ("EPS was high (USD 51.32 per share).", [(Decimal("51.32"), False)]),
+        ("EPS was high ($51.32 per share).", [(Decimal("51.32"), False)]),
+        ("EPS was high (or $51.32).", [(Decimal("51.32"), False)]),
+        (
+            "It lost $44.2 billion ($43.4 billion net).",
+            [(Decimal(44_200_000_000), False), (Decimal(43_400_000_000), False)],
+        ),
+        # Rows the check must leave alone.
+        ("Filings report in USD for fiscal 2025.", []),
+        ("In fiscal 2025, USD revenue rose.", []),
+        ("The figures are in 2025 USD.", []),
+        ("It holds 51.32 USDT.", []),
     ],
 )
 def test_the_finder_pulls_every_amount_out_of_answer_text_but_no_years_or_items(
     text: str, amounts: list[tuple[Decimal, bool]]
 ) -> None:
     assert find_amounts(text) == amounts
+
+
+@pytest.mark.parametrize(
+    ("text", "numbers"),
+    [
+        ("In fiscal 2025, the Company expanded.", []),
+        ("Net sales | 2025 | 2024 | 1999", []),  # a table's header row
+        ("FY2023 against 2022", []),
+        ("1,800 stores and 2,025 more", [Decimal(1800), Decimal(2025)]),  # counts: a comma
+        ("$2025", [Decimal(2025)]),  # money
+        ("2025 million", [Decimal(2_025_000_000)]),  # a scale
+        ("2025.5 and 12025", [Decimal("2025.5"), Decimal(12025)]),
+        ("1899 and 2100", [Decimal(1899), Decimal(2100)]),  # outside the years filings write
+    ],
+)
+def test_a_bare_year_is_no_number_and_every_other_number_is(
+    text: str, numbers: list[Decimal]
+) -> None:
+    assert numbers_in(text) == numbers
 
 
 @dataclass
@@ -218,18 +267,22 @@ COMPARED = {
     "F2": Src("350,018,000,000 USD", fact_id="f-2", value=Decimal(350_018_000_000)),
     "F3": Src("14.23 USD/shares", fact_id="f-3", value=Decimal("14.23")),
     "F4": Src("15.11 USD/shares", fact_id="f-4", value=Decimal("15.11")),
+    "F5": Src("2.03 USD/shares", fact_id="f-5", value=Decimal("2.03")),
 }
 
 
 @pytest.mark.parametrize(
     ("sentence", "problem"),
     [
+        # A year states no figure, though 2.03 at a table's thousands is within 0.5% of 2025.
+        ("Diluted EPS rose in 2025 [F5].", "[F5]"),
         # c02's conclusion (test, 2026-10-17): the judge counted neither citation.
         ("Therefore, Alphabet's revenue was higher in fiscal 2025 [F1][F2].", "[F1], [F2]"),
         ("Alphabet's revenue rose to $402.8 billion from $350.0 billion [F1][F2].", None),
         ("It was higher in 2025, at $402.8 billion [F1], than in 2024 [F2].", "[F2]"),
-        # Per-share figures as Gemini copies them (n09), which the amount finder does not read.
+        # Per-share figures as Gemini copies them (n09); a bare 15.11 before them still counts.
         ("Diluted EPS fell to 14.23 USD/shares from 15.11 USD/shares [F3][F4].", None),
+        ("Diluted EPS fell from 15.11 to 14.23 USD/shares [F3][F4].", None),
         ("Home Depot's diluted earnings per share were 14.23 USD/shares [F3].", None),
     ],
 )
@@ -241,6 +294,52 @@ def test_a_comparison_that_cites_facts_states_their_figures(
         assert found is None
     else:
         assert found == f"it compares figures without stating those of {problem}"
+
+
+YEAR_QUOTE = "In fiscal 2025, the Company expanded its factory."
+
+
+@pytest.mark.parametrize(
+    ("sentence", "shown"),
+    [
+        ("Tesla spent $2 billion on its factory [C1].", "2,000,000,000"),  # review finding 1
+        ("Tesla spent $2.0 billion on its factory [C1].", "2,000,000,000"),
+        ("Tesla spent $2.03 billion on its factory [C1].", "2,030,000,000"),  # within 0.5%
+    ],
+)
+def test_a_year_in_a_quote_backs_no_amount(sentence: str, shown: str) -> None:
+    sources = {"C1": Src(YEAR_QUOTE, chunk_id="c-1")}
+    found = check_sentence(sentence, {"C1": [YEAR_QUOTE]}, sources)
+    assert found == f"the amount {shown} is not in the sources it cites"
+
+
+PER_SHARE = {"F1": Src("51.32 USD", fact_id="f-1", value=Decimal("51.32"))}
+
+
+@pytest.mark.parametrize(
+    "written",
+    ["{} USD", "USD {}", "${}", "({} USD)", "(USD {})", "(USD {} per share)", "(${} per share)"],
+)
+def test_a_per_share_amount_is_checked_however_it_is_written(written: str) -> None:
+    sentence = f"Diluted EPS was {written} [F1]."
+    assert check_sentence(sentence.format("51.32"), {}, PER_SHARE) is None
+    wrong = check_sentence(sentence.format("52.32"), {}, PER_SHARE)
+    assert wrong is not None and "52.32 is not in the sources it cites" in wrong
+
+
+@pytest.mark.parametrize(
+    ("sentence", "written"),
+    [
+        ("Diluted EPS was 51.32 USD [F1].", "51.32 USD"),
+        ("Diluted EPS was USD 51.32 [F1].", "USD 51.32"),
+        ("Diluted EPS was $51.32 [F1].", "$51.32"),
+        ("Diluted EPS (USD 51.32 per share) was high [F1].", "USD 51.32"),
+        ("Diluted EPS ($51.32 per share) was high [F1].", "$51.32"),
+        ("Diluted EPS (or $51.32) was high [F1].", "$51.32"),
+    ],
+)
+def test_a_figure_keeps_the_text_the_sentence_wrote(sentence: str, written: str) -> None:
+    assert [f.text for f in figures(sentence, {}, PER_SHARE)] == [written]
 
 
 CASH = {  # n24 (dev, E2): Haiku's "$4.1 billion" is 0.51% off, outside the 0.5% tolerance

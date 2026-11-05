@@ -341,7 +341,7 @@ class Answerer:
                 return "untracked_company", f"FilingLens has no filings for {', '.join(missing)}."
             ciks = [found[ticker] for ticker in routing.tickers]
         years = list(request.fiscal_years or routing.fiscal_years) or None
-        asked = sorted({*map(int, years or []), *router.fiscal_years(request.question)})  # t07
+        asked = sorted({*map(int, years or []), *router.filing_years(request.question)})  # t07
         names = await self._evidence.names(ciks) if ciks else {}
         latest: dict[int, int | None] = {}
         for cik in ciks or []:
@@ -725,7 +725,8 @@ def calculation_source(
     """K1 for a comparison of two facts of one unit: both values, the difference, the change in
     percent and which is higher, so the answer model computes nothing. One company's two years
     run from the earlier, two companies from the lower; None for two units. A quarter (`period`)
-    is named beside each year."""
+    is named beside each year, and two companies' years beside their names when they differ, as
+    each company's latest year may (review, 2026-11-04)."""
     (_, one, _), (_, other, _) = facts
     if one.unit != other.unit:
         return None
@@ -735,10 +736,13 @@ def calculation_source(
     difference = high.value - low.value
     positive = low.value > 0 and high.value > 0
     change = (difference / low.value * 100).quantize(Decimal("0.01")) if positive else None
+    years_differ = None not in (first_year, second_year) and first_year != second_year
 
     def label(fact: Fact, year: int | None) -> str:
         quarter = "" if period == "FY" else f" {period}"
-        return f"fiscal {year}{quarter}" if over_time else names.get(fact.cik, str(fact.cik))
+        fiscal = f"fiscal {year}{quarter}"
+        name = names.get(fact.cik, str(fact.cik))
+        return fiscal if over_time else f"{name} {fiscal}" if years_differ else name
 
     was, now = label(low, first_year), label(high, second_year)
     lines = [f"{_capital(was)}: {low.value:,f} {low.unit}."]

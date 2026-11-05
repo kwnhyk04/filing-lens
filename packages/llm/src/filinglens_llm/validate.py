@@ -21,22 +21,29 @@ SCALES = {
 TOLERANCE = Decimal("0.005")  # numeric exact match counts within 0.5% (docs/context.md)
 # Curly, low-9 and reversed quotes: U+2018 to U+201B single, U+201C to U+201F double.
 STRAIGHT_QUOTES = {code: "'" if code < 0x201C else '"' for code in range(0x2018, 0x2020)}
-# After whitespace and "$" are dropped and letters lowered: -1,234 or (1,234), then a scale.
+# The currency an amount may carry. A letter after it keeps it: "51.32 USDT" is no amount.
+CURRENCY = re.compile(r"\$|usd(?![a-z])")
+# With whitespace and the currency dropped and letters lowered: -1,234 or (1,234), then a scale.
 AMOUNT = re.compile(
     r"-?\(?(?P<number>\d[\d,]*(?:\.\d+)?)\)?"
     r"(?P<scale>(?:thousand|million|billion|trillion)s?|bn|[kmbt])?\)?"
 )
 SCALE_WORD = r"(?:thousand|million|billion|trillion)s?|bn"
-# Amounts in answer text: money ($4.2B, $416.2 billion, $(1,234)), numbers with a scale word,
-# percentages, and numbers with thousands separators. Years and small counts are not amounts.
+# Amounts in answer text: money ($4.2B, $416.2 billion, $(1,234), USD 51.32, 51.32 USD), numbers
+# with a scale word, percentages, and numbers with thousands separators. Years and small counts
+# are not amounts: "2025 USD" is a year, and "2025, USD" keeps its comma out of the number.
 AMOUNT_IN_TEXT = re.compile(
-    rf"-?\(?\$\s?\(?\d[\d,]*(?:\.\d+)?\)?(?:\s?(?:{SCALE_WORD}|[kmbt])\b)?"
+    rf"-?\(?(?:\$|\bUSD)\s?\(?\d[\d,]*(?:\.\d+)?\)?(?:\s?(?:{SCALE_WORD}|[kmbt])\b)?"
+    rf"|\b(?!(?:19|20)\d\d\s?USD)\d(?:[\d,]*\d)?(?:\.\d+)?(?:\s?(?:{SCALE_WORD}|[kmbt]))?\s?USD\b"
     rf"|\b\d[\d,]*(?:\.\d+)?\s?(?:{SCALE_WORD})\b"
     r"|(?P<percent>\b\d+(?:\.\d+)?)\s?(?:%|percent\b)"
     r"|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b",
     re.IGNORECASE,
 )
 NUMBER = re.compile(rf"\d[\d,]*(?:\.\d+)?(?:\s?(?:{SCALE_WORD})\b)?", re.IGNORECASE)
+# A NUMBER that is a bare year, 1900 to 2099, which keeps a comma after it: "in 2025, sales". A
+# date, not a figure; "$2025" is money.
+YEAR = re.compile(r"(?<!\$)(?:19|20)\d\d,?")
 # The model cites its source ids: [C2], [F1][C3], [C2, C4], or a calculation's [K1].
 MARKER = re.compile(r"\[\s*([CFK]\d+(?:\s*,\s*[CFK]\d+)*)\s*\]")
 # Any other bracket holding a digit, such as [12] for C12 or [D1], names no source (x18).
@@ -106,13 +113,14 @@ def citation_error(
 
 
 def parse_amount(text: str, scale: str | None = None) -> Decimal:
-    """An amount as a number: '$4.2 billion' and '$4.2B' are 4200000000, '(1,234)' is -1234.
+    """An amount as a number: '$4.2 billion' and '$4.2B' are 4200000000, '(1,234)' is -1234, and
+    '51.32 USD' and 'USD 51.32' are 51.32.
 
     `scale` is the unit of a table's figures, such as 'millions' from '(in millions)'. A scale in
     both the text and `scale` raises ValueError, and so does anything that is not one amount,
     such as prose around it ('about $4.2B'). The exponent is the last digit stated: 4.2E+9.
     """
-    compact = "".join(text.split()).replace("$", "").replace("\N{MINUS SIGN}", "-").lower()
+    compact = CURRENCY.sub("", "".join(text.split()).lower()).replace("\N{MINUS SIGN}", "-")
     match = AMOUNT.fullmatch(compact)
     if match is None or compact.count("(") != compact.count(")"):
         raise ValueError(f"Not an amount: {text!r}")
@@ -130,25 +138,34 @@ def amounts_match(actual: Decimal, expected: Decimal, tolerance: Decimal = TOLER
     return abs(actual - expected) <= tolerance * abs(expected)
 
 
+def _balanced(written: str) -> str:
+    """An amount as matched, without a bracket that closes or opens past it: "(USD 51.32 per
+    share)" matches "(USD 51.32", which parse_amount refuses, and the amount went unchecked."""
+    return written if written.count("(") == written.count(")") else written.strip("()")
+
+
 def find_amounts(text: str) -> list[tuple[Decimal, bool]]:
-    """Each amount in answer text ("about $4.2B", "4,213 million", "12.5%") with whether it is a
-    percentage; parse_amount reads each one."""
+    """Each amount in answer text ("about $4.2B", "4,213 million", "12.5%", "51.32 USD") with
+    whether it is a percentage; parse_amount reads each one."""
     found: list[tuple[Decimal, bool]] = []
     for match in AMOUNT_IN_TEXT.finditer(text):
         if match["percent"]:
             found.append((Decimal(match["percent"]), True))
             continue
         try:
-            found.append((parse_amount(match[0]), False))
+            found.append((parse_amount(_balanced(match[0])), False))
         except ValueError:
             continue
     return found
 
 
 def numbers_in(text: str) -> list[Decimal]:
-    """Every number in a quote, a scale word applied, as evidence for the answer's amounts."""
+    """Every number in a quote, a scale word applied, as evidence for the answer's amounts. A bare
+    year is none: at a table's scale 2025 would back "$2 billion" (review, 2026-11-04)."""
     numbers: list[Decimal] = []
     for match in NUMBER.finditer(text):
+        if YEAR.fullmatch(text, *match.span()):
+            continue
         try:
             numbers.append(parse_amount(match[0]))
         except ValueError:
@@ -311,7 +328,7 @@ def check_sentence(
                 return f"it says the figure {word}, but [{alias}] shows {change}"
     if COMPARES.search(plain):  # the judge counts a cited fact only where its figure is stated
         stated = [amount for amount, percent in find_amounts(plain) if not percent]
-        stated += numbers_in(plain)  # per-share figures as models copy them: "14.23 USD/shares"
+        stated += numbers_in(plain)  # a bare figure: 6.11 in "from 6.11 to 6.63 USD/shares"
         missing = [
             f"[{alias}]"
             for alias in aliases
@@ -394,11 +411,12 @@ def figures(
     found: list[Figure] = []
     for match in AMOUNT_IN_TEXT.finditer(MARKER.sub("", sentence)):
         percent = match["percent"] is not None
+        written = _balanced(match[0])
         try:
-            amount = Decimal(match["percent"]) if percent else parse_amount(match[0])
+            amount = Decimal(match["percent"]) if percent else parse_amount(written)
         except ValueError:
             continue
         holder = next(((a, n) for a, n, kind in evidence if held(n, kind, amount, percent)), None)
         if holder is not None:
-            found.append(Figure(match[0], *holder))
+            found.append(Figure(written, *holder))
     return found
