@@ -242,14 +242,21 @@ def _financial_section(
     titles: Mapping[str, str],
 ) -> list[Section]:
     """Items 7 and 8 that only point elsewhere take the first opening line of theirs after the
-    pointers (8 after 7's). Each runs to the next one, or to the end of the item that held it,
-    which keeps its part before them; market risk inside MD&A stays in 7, and 7A as it is."""
+    pointers (8 after 7's), never one inside an Item 9: 9A's auditor's report is on internal
+    control (review, 2026-11-04). Each runs to the next one, or to the end of the item that held
+    it, which keeps its part before them; market risk inside MD&A stays in 7, and 7A as it is."""
+
+    def in_item_9(offset: int) -> bool:
+        return any(s.start <= offset < s.end for s in sections if s.item.startswith("9"))
+
     pointers = [s for s in sections if s.item in OPENS and s.end - s.start < POINTER_MAX]
     found: dict[str, int] = {}  # item -> offset of its opening line
     after = max((s.end for s in pointers), default=len(text))
     for item, opening in OPENS.items():
         if any(s.item == item for s in pointers):
-            later = (n for n, line in enumerate(lines) if starts[n] > after)
+            later = (
+                n for n, line in enumerate(lines) if starts[n] > after and not in_item_9(starts[n])
+            )
             opened = next((n for n in later if opening.fullmatch(lines[n])), None)
             if opened is not None:
                 found[item] = after = starts[opened]

@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from filinglens_llm import router
 
 COMPANIES = {"AAPL": "Apple Inc.", "GOOGL": "Alphabet Inc."}
@@ -66,6 +68,59 @@ def test_the_guess_reads_named_companies_and_years_from_the_question() -> None:
     assert guess("What is a 10-K?", companies) == ([], [])  # a form name is no year
 
 
+COMMON_WORDS = {
+    "BAC": "BANK OF AMERICA CORP /DE/",
+    "HD": "HOME DEPOT, INC.",
+    "UNP": "UNION PACIFIC CORP",
+    "V": "VISA INC.",
+    "META": "Meta Platforms, Inc.",
+}
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Which bank reported the highest net interest income?",
+        "What do union contracts say about strikes?",
+        "Do home sales affect revenue?",
+        "Which companies mention visa restrictions for workers?",
+        "What does the meta-analysis say?",
+        # Capitalised only because a sentence opens with it.
+        "Bank fees rose at which lenders?",
+        "Home prices fell. Union contracts expired. Which filings mention both?",
+        "Visa rules changed, so who lost workers?",
+        "Meta-analysis of what?",
+        "  Home prices fell, so who lost sales?",  # the API keeps a question's spaces
+    ],
+)
+def test_a_common_word_used_normally_names_no_company(question: str) -> None:
+    assert router.guess(question, COMMON_WORDS) == ([], [])
+
+
+@pytest.mark.parametrize(
+    ("question", "ticker"),
+    [
+        ("What was Bank of America's net income?", "BAC"),
+        ("Bank of America's net income?", "BAC"),  # the whole name opening the question
+        ("Home Depot's revenue?", "HD"),
+        ("how did home depot do", "HD"),  # the whole name, in any case
+        ("what does union pacific say about strikes", "UNP"),
+        ("What does Visa say about litigation?", "V"),
+        ("Did Meta's capital spending rise?", "META"),
+        ("what did the bank (BAC) report", "BAC"),  # beside its ticker
+        ("How does HD describe its stores?", "HD"),
+    ],
+)
+def test_a_common_word_written_as_the_company_names_it(question: str, ticker: str) -> None:
+    assert router.guess(question, COMMON_WORDS)[0] == [ticker]
+
+
+def test_a_second_look_never_tells_the_router_a_common_word_is_a_company() -> None:
+    out = routing(route="out_of_scope", tickers=[], fiscal_years=[], metric=None)
+    question = "What is the best bank for a home loan?"
+    assert router.second_look(out, question, COMMON_WORDS) == []
+
+
 def test_an_out_of_scope_route_for_a_named_company_gets_a_second_look() -> None:
     """x13, x14 and x18 (test, 2026-10-17) went out of scope with no tickers; o01 and o02, about
     a stock price and buying shares, must stay out of scope without a second call."""
@@ -94,11 +149,20 @@ def test_the_plan_takes_the_one_named_company_only_when_the_router_named_none() 
     assert router.fill(routing(tickers=["GOOGL"]), ["AAPL"]).tickers == ["GOOGL"]
 
 
-def test_fiscal_years_are_read_where_the_question_writes_fiscal_or_fy() -> None:
-    read = router.fiscal_years
+def test_a_fiscal_year_is_a_filing_year_only_where_the_question_ties_it_to_a_filing() -> None:
+    read = router.filing_years
     assert read("What risks did Chevron describe in its fiscal 2026 annual report?") == [2026]
+    assert read("What did Caterpillar say about its backlog in its fiscal 2026 10-K?") == [2026]
     assert read("What did Walmart say about e-commerce in its FY2027 10-K?") == [2027]
-    assert read("Apple's fiscal year 2025 against FY 2024") == [2024, 2025]
+    assert read("What does its fiscal year 2027 Form 10-K say?") == [2027]
+    assert read("What does the 10-K for fiscal 2027 say?") == [2027]
+    assert read("What did its annual report for FY 2027 say?") == [2027]
+    # A period asked about, which an earlier 10-K may speak of (review finding 3).
+    assert read("What purchase obligations are due in fiscal 2027?") == []
+    assert read("What risks does Apple see for fiscal 2026?") == []
+    assert read("How does its fiscal 2027 capital spending plan look?") == []
+    assert read("What did its fiscal 2025 10-K say about fiscal 2027?") == [2025]
+    assert read("What did its fiscal 2027 10-Q say?") == []  # a quarter can precede its 10-K
     assert read("What happened at the Grasberg mine in September 2025?") == []
     assert read("What are Apple's 2030 goals?") == []
 

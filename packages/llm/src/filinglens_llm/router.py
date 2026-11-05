@@ -59,8 +59,17 @@ ADVICE = re.compile(
     r"|\b(?:buy|sell)\b.{0,30}\b(?:shares?|stock)\b",
     re.IGNORECASE,
 )
-# A fiscal year as a question writes it: "fiscal 2026", "fiscal year 2026", "FY2027", "FY 2027".
-FISCAL_YEAR = re.compile(r"\b(?:fiscal(?:\s+year)?|FY)\s?((?:19|20)\d\d)\b", re.IGNORECASE)
+# A fiscal year tied to a filing: "its fiscal 2026 annual report", "FY2027 10-K", "the 10-K for
+# fiscal 2027". Any other fiscal year in a question is a period, which an earlier 10-K may cover.
+FISCAL_YEAR = r"(?:fiscal(?:\s+year)?|FY)\s?((?:19|20)\d\d)"
+ANNUAL_REPORT = r"(?:form\s+)?(?:10-?k|annual\s+report)"
+FILING_YEAR = re.compile(
+    rf"\b{FISCAL_YEAR}\s+{ANNUAL_REPORT}\b"
+    rf"|\b{ANNUAL_REPORT}\s+(?:for|of)\s+(?:the\s+)?{FISCAL_YEAR}\b",
+    re.IGNORECASE,
+)
+# A word written as a name: capitalised, and not only because it opens a sentence.
+NAME_WORD = re.compile(r"(?<![.!?]\s)(?<!^)\b[A-Z][A-Za-z0-9]*")
 PERIODS = ("FY", "Q1", "Q2", "Q3", "Q4")
 MAX_TOKENS = 400  # the JSON plus gpt-oss's short reasoning
 NAME_NOISE = {
@@ -191,14 +200,18 @@ def resolve(routing: Routing, companies: Mapping[str, str]) -> Routing:
 
 def guess(question: str, companies: Mapping[str, str]) -> tuple[list[str], list[int]]:
     """The tracked companies and fiscal years a question names, read in code so the search can
-    start while the router runs: a company by its ticker or its name's first word, a year by
-    its four digits. A wrong guess costs only that search, which is kept when the router agrees."""
-    words = set(re.findall(r"[a-z0-9]+", question.lower()))
+    start while the router runs: a company by its ticker, its whole name in any case, or its
+    name's first word written as a name, so "Did Visa" counts and "visa rules" or a sentence's
+    opening "Home prices" do not (review, 2026-11-04). A year by its four digits. A wrong guess
+    costs that search, and fill's scope when the router names no company."""
+    spoken = " " + " ".join(re.findall(r"[a-z0-9]+", question.lower())) + " "
     upper = set(re.findall(r"\b[A-Z]{2,5}\b", question))
+    written = {word.lower() for word in NAME_WORD.findall(question.strip())}
 
     def named(ticker: str, name: str) -> bool:
-        first = _name_words(name)[:1]
-        return ticker in upper or (bool(first) and first[0] in words)
+        words = _name_words(name)
+        whole = len(words) > 1 and f" {' '.join(words)} " in spoken
+        return ticker in upper or whole or (bool(words) and words[0] in written)
 
     tickers = sorted(ticker for ticker, name in companies.items() if named(ticker, name))
     years = sorted({int(year) for year in re.findall(r"\b(?:19|20)\d\d\b", question)})
@@ -232,10 +245,11 @@ def fill(routing: Routing, named: Sequence[str]) -> Routing:
     return routing.model_copy(update={"tickers": list(named)}) if len(named) == 1 else routing
 
 
-def fiscal_years(question: str) -> list[int]:
-    """The fiscal years a question writes as such, for the time-trap check when the router leaves
-    them out (t07, "fiscal 2026"); a bare year may be a calendar date."""
-    return sorted({int(year) for year in FISCAL_YEAR.findall(question)})
+def filing_years(question: str) -> list[int]:
+    """The fiscal years whose 10-K a question asks for, for the time-trap check when the router
+    leaves them out (t07, "its fiscal 2026 annual report"). Any other year is the period asked
+    about, not a filing: the latest 10-K may cover "due in fiscal 2027" (review, 2026-11-04)."""
+    return sorted({int(match[1] or match[2]) for match in FILING_YEAR.finditer(question)})
 
 
 def retry_prompt(question: str, broken: Sequence[str]) -> str:

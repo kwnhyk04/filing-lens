@@ -949,6 +949,19 @@ class BankEvidence(RecordedEvidence):
         return {ticker: {"AAPL": 320193, "BAC": 70858}[ticker] for ticker in tickers}
 
 
+async def test_a_common_word_in_the_question_never_narrows_the_plan(
+    mocked: respx.MockRouter,
+) -> None:
+    """Review finding 2: "bank" names no company, yet only Bank of America's filings were read."""
+    mocked.post(host=GROQ).mock(return_value=textual_routing(tickers=[]))
+    replay(mocked, textual_exchanges()[1:])
+    evidence = BankEvidence(fixture("textual")["evidence"])
+    question = "Which bank reported the highest net interest income?"
+    answer, _, _ = await run("textual", evidence, question=question)
+    assert evidence.scopes == [Scope(None, None)]  # every company
+    assert answer.reading is not None and answer.reading.companies == []
+
+
 async def test_a_company_the_router_names_as_untracked_is_never_filled_from_the_guess(
     mocked: respx.MockRouter,
 ) -> None:
@@ -975,6 +988,17 @@ async def test_a_fiscal_year_the_router_left_out_still_makes_a_time_trap(
     answer, _, _ = await run("textual", question=question)
     assert answer.refused and "has filed no 10-K for fiscal 2027" in answer.answer
     assert not gemini.called
+
+
+async def test_a_fiscal_year_the_question_only_asks_about_is_no_time_trap(
+    mocked: respx.MockRouter,
+) -> None:
+    """Review finding 3: a question's year is a period, which the latest 10-K may speak of."""
+    mocked.post(host=GROQ).mock(return_value=textual_routing())  # Apple, no fiscal year
+    replay(mocked, textual_exchanges()[1:])
+    question = "What purchase obligations does Apple have due in fiscal 2027?"
+    answer, _, _ = await run("textual", question=question)
+    assert not answer.refused
 
 
 class TenQBalance(RecordedEvidence):
@@ -1097,7 +1121,7 @@ def _fact(fact_id: int, cik: int, value: str, unit: str = "USD") -> Fact:
     )  # fmt: skip
 
 
-def _calculated(*given: tuple[Fact, int], period: str = "FY") -> Source | None:
+def _calculated(*given: tuple[Fact, int | None], period: str = "FY") -> Source | None:
     """calculation_source over facts F1, F2 in order, each with the year asked for."""
     facts = [
         (Source(f"F{n}", None, str(fact.id), "", "", fact.value, f"F{n}"), fact, year)
@@ -1136,6 +1160,23 @@ def test_a_calculation_names_the_higher_of_two_companies_and_the_lower_of_two_ye
     found = years.calculation
     assert (found.inputs, found.over_time) == (("F2", "F1"), True)
     assert (found.difference, found.change) == (Decimal(-2_349_000_000), Decimal("-16.31"))
+
+
+def test_a_calculation_names_each_companys_year_when_the_two_differ() -> None:
+    """Review finding 6: each company's latest year, as NVIDIA's 2026 against Apple's 2025."""
+    mixed = _calculated((_fact(1, 1, "716924000000"), 2026), (_fact(2, 2, "680985000000"), 2025))
+    assert mixed is not None
+    assert mixed.text == (
+        "Walmart Inc. (WMT) fiscal 2025: 680,985,000,000 USD."
+        " Amazon.com, Inc. (AMZN) fiscal 2026: 716,924,000,000 USD."
+        " Amazon.com, Inc. (AMZN) fiscal 2026 is higher by 35,939,000,000 USD, 5.28% more than"
+        " Walmart Inc. (WMT) fiscal 2025."
+    )
+    quarters = _calculated((_fact(1, 1, "120"), 2026), (_fact(2, 2, "100"), 2025), period="Q2")
+    assert quarters is not None
+    assert quarters.text.startswith("Walmart Inc. (WMT) fiscal 2025 Q2: 100 USD.")
+    unknown = _calculated((_fact(1, 1, "120"), None), (_fact(2, 2, "100"), 2025))
+    assert unknown is not None and "fiscal" not in unknown.text
 
 
 def test_a_calculation_needs_one_unit_and_gives_a_percent_only_between_positive_values() -> None:

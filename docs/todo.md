@@ -6,6 +6,18 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
 
 ## Pending
 
+- [ ] (user, 2026-11-05) **Code review fixes**: on branch `review-fixes` from main at 3ce7829 (#56), uncommitted. Findings 1 to 4, 6 and 7 of the cloud review of 2026-11-04, and the user's new 8 (`find_amounts`), each test first. The review's own 5, 8 and 9 stay as they are (the user's call). No live model call.
+  - [x] 1. `numbers_in` skips bare years.
+  - [x] 2. `router.guess` reads a common word as a company only where it is written as one.
+  - [x] 3. The time trap counts a question's year only where the question ties it to a filing.
+  - [x] 4. An opening line inside Items 9 to 9C never takes Item 7 or 8.
+  - [x] 6. K1 names each company's year when the two years differ (the review's notes, which the user confirmed; one company's two years already name them).
+  - [x] 7. Calibration skips sentences that cite K1, which load_sources does not rebuild (the review's notes; in `evals/calibrate.py`).
+  - [x] 8. `find_amounts` reads "51.32 USD" and "USD 51.32", and an amount whose bracket closes or opens past it.
+  - [x] Offline replays, no model call: 2,758 cached sentences, 0 verdicts change, 37 list a new USD figure; 1,442 exact-match checks, 0 flips; `guess` changes on no golden question; all 30 cached 10-Ks keep their sections.
+  - [x] Checks: `make lint` clean, `make typecheck` 0, `make test` 834; web build; Playwright with 1 worker, 149 passed and 11 skipped without a GPU. `make test-int` not run.
+  - [x] Docs: context, memory, prompt log, activity log, `evals/README.md`.
+  - [ ] (user) ship, then the production steps: the api image goes to the merge's `sha-<7>` (`docs/deploy.md`, step 23). No migration, no reparse, no web change.
 - [ ] (user, 2026-11-04) **Claude Sonnet 5.5 as the answer model, measured against Haiku** (router unchanged, Haiku): on branch `fl-sonnet-answers` from main at 38a6ee7 (#55), uncommitted. The user's answers: three arms (Haiku as today; Sonnet thinking off with `between_tools` at effort high and the 1,052-token cap; Sonnet adaptive thinking at effort high with a 4,096 cap), caps $0.50, $4 and $10; a go for `filinglens-postgres-1` and `filinglens-redis-1`; answers generated back to back without the judge, then judged as Groq's free tier allows, keeping about 20k tokens a day for FreightAudit, the same judge throughout.
   - [x] Tests first, red: Sonnet's thinking off as `between_tools`, the adaptive mode's cap, Sonnet's price, one mode per priced model; `--claude-answers`, `--claude-thinking`, `--max-usd`, `--judge-budget`.
   - [x] Per-model Claude modes in the provider (Haiku's requests unchanged), the harness flags, Sonnet in `evals/providers.json`. `make lint`, `make typecheck`, `make test` 712.
@@ -21,8 +33,11 @@ Each step maps to a Claude Code prompt in the design doc. Done when the check af
   - [x] The test run: `--claude-first --tag=rule4-1105 --judge-budget=180000 --max-usd=0.5`, suite all: `evals/reports/2026-11-05-claude-first`, $0.065 of Claude, 71,019 judge tokens. Numeric 1.000, rule 4 held on n49, quality not worse; the answer model's own latency is (`evals/README.md`). Containers stopped.
   - [x] Landing: the Claude column from the new report, the Sonnet note, the prompt sentence (tests first, 5 red, then green); `evals/README.md`, README, the eval card, context, memory, prompt log, activity log. 9 landing screens regenerated.
   - [x] Checks: `make lint`, `make typecheck`, `make test` 754; web typecheck, `npm test` 153, build; Playwright with 1 worker, 149 passed and 11 skipped without a GPU.
-  - [ ] (user) ship, then the production steps: the api image goes to the merge's `sha-<7>` (`docs/deploy.md`, step 23); production's api runs `sha-58baddd` (read 2026-11-05).
-- [ ] (found 2026-11-05 in the test run; own PR, the user decides) The amount check skips figures written "51.32 USD": `find_amounts` finds none, so a wrong per-share figure with a good citation would pass that check (memory.md, Known Issues). Tests first, with a row it must leave alone; rule 4 made this form more common.
+  - [x] (user) ship: merged as #56 (3ce7829, git log).
+  - [ ] (user) The production steps: the api image goes to the merge's `sha-<7>` (`docs/deploy.md`, step 23); production's api runs `sha-58baddd` (read 2026-11-05).
+- [ ] (found 2026-11-05 by the code review; own PR, the user decides) The rounding rule still lets a comma'd count back a one-digit amount at a table's scale: "1,800 stores" backs "$2 billion". Only years were taken out (memory.md, Known Issues).
+- [ ] (found 2026-11-05 by the code review; the user decides) A period can still be refused when the router itself returns its year: "due in fiscal 2027" with `fiscal_years` [2027]. A change needs the router's prompt or a rule per route, and a measured run; t09 must stay refused (memory.md, Known Issues).
+- [ ] (found 2026-11-05 by the code review; the user decides) `fill` still takes a company the question names but is not about: "Which companies list Apple as a major customer?" narrows to Apple when the router names none (memory.md, Known Issues).
 - [ ] (found 2026-11-05 in the test run; the user decides) x40 kept 1 of 5 sentences, and the judge scored it 1 of 1. The regeneration's quotes joined text with "..."; the cause of the removals is not confirmed. Look at it before any change: the test split stays untuned.
 - [ ] (found 2026-11-05) The free models' test run predates rule 4, and Gemini answers when Claude's credits end on 2026-11-10: no test run measures that prompt on Gemini. The nightly after the merge is the first look.
 - [ ] (found 2026-11-04 in the rule 4 run; own PR, the user decides) A reply layout that gets past the reply parser:

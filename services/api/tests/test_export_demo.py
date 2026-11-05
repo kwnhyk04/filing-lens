@@ -60,8 +60,8 @@ def test_a_saved_answer_checks_each_amount_with_the_pipelines_own_check() -> Non
     c12 = export_demo.answer_of(records["c12"])
     checks = export_demo.checks_of(c12, CHUNKS, FACTS)
     assert [(c["text"], c["citation"], c["source_value"]) for c in checks] == [
-        ("3,794,000,000", 1, "3,794,000,000"),
-        ("7,091,000,000", 2, "7,091,000,000"),
+        ("3,794,000,000 USD", 1, "3,794,000,000"),
+        ("7,091,000,000 USD", 2, "7,091,000,000"),
         ("$3,855 million", 3, "3,855"),
         ("$7,153 million", 3, "7,153"),
         ("$3,794 million", 4, "3,794"),

@@ -180,6 +180,8 @@ async def candidates(report: dict[str, Any], cache: Cache) -> dict[str, list[dic
                 aliases = cited(raw)
                 if not aliases or any(alias not in sources for alias in aliases):
                     continue  # nothing the judge could check it against
+                if any(alias[0] == "K" for alias in aliases):
+                    continue  # load_sources holds no calculation, so check_sentence would fail it
                 if check_sentence(raw, reply.quotes, sources) is None:
                     continue
                 shown = [

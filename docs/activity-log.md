@@ -15,6 +15,37 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-05: Code review fixes: findings 1 to 4, 6 and 7, and the amount check's USD forms (uncommitted, branch `review-fixes`)
+
+- Brief (user): fix the review's findings 1 to 4, 6 and 7 and a new 8 (`find_amounts` reads "51.32 USD" and "USD 51.32"), a failing test first for each; leave the review's own 5, 8 and 9; follow the review notes where they describe 6 or 7 differently and say so; no live model call; lint, typecheck, `make test`, e2e with 1 worker; no other project's containers; docs; no commit; one commit message and the production steps.
+- The review's notes were not in the repo or `docs/todo.md`. They are in the `fl-review` session's transcript under `~/.claude/projects` (the cloud review of d46fa58, 2026-11-04, and the check that followed it). They differ from the brief on 6 and 7:
+  - 6: the year goes in each label only when the two years differ. One company's two years already name them, and two companies in one year stay as they are. The user's decision line said "for one company's two years"; those labels already carry the years, so the notes' case, two companies in different years, is what changed. Reported to the user.
+  - 7: not an arithmetic error. Calibration counted K1 sentences as failing, and the fix sits in `evals/calibrate.py`, not `harness.py`.
+- Changes, each red then green (reasons and traps in memory.md, Solved Problems, 2026-11-05):
+  1. Finding 1: `numbers_in` skips bare years. 7 red, then green.
+  2. Finding 2: `router.guess` reads a common word as a company only where it is written as one. 11 red, then green; one more row, a question with leading spaces, red, then green.
+  3. Finding 3: `router.filing_years` replaces `fiscal_years`, and the time trap counts a question's year only where the question ties it to a 10-K. 2 red, then green. The old test's "Apple's fiscal year 2025 against FY 2024" row went, since that reading is what the review flagged.
+  4. Finding 4: an opening line inside Items 9 to 9C never takes Item 7 or 8. 4 red, with 3 pins passing; green.
+  5. Finding 6: K1's labels add two companies' years when they differ. 1 red, then green.
+  6. Finding 7: `calibrate.candidates` skips sentences citing K1. 1 red, which showed the K1 sentence in the failing pool; green.
+  7. The user's 8: `AMOUNT_IN_TEXT`, `parse_amount`, `_balanced`. 23 red, with the rows it must leave alone passing; green.
+- Offline replay, no model call, a scratch script (HEAD's `validate`, `router` and `parsing` against the tree; evidence rebuilt from the 34 saved answer reports, since Postgres stayed stopped): 2,758 cached sentences, 0 verdicts change, 37 list a new USD figure; 1,442 exact-match checks, 0 flips; `guess` changes on none of the 155 distinct golden ids; all 30 cached 10-Ks keep their sections. All 23 golden comparisons read one year for two companies or two years for one, so no K1 text changes. 8 time traps (t01 to t06, t09, t11) no longer count by their written year alone: each saved run shows the router giving that year, apart from t05's out-of-scope runs, refused before the check. So the saved test report stands, and no test-split run was made.
+- Files: `packages/llm/src/filinglens_llm/validate.py`, `router.py`; `services/api/src/filinglens_api/answering.py`; `services/ingest/src/filinglens_ingest/parsing.py`; `evals/calibrate.py`; their tests, and `services/api/tests/test_export_demo.py`; `docs/context.md`, `memory.md`, `prompt-log.md`, `todo.md`, `evals/README.md`.
+- Validation, on the final code: `make lint` clean (177 files), `make typecheck` 0 errors, `make test` 834 passed (754 before, 80 new); web build passed; Playwright, 1 worker, bundled shell: 149 passed, 11 skipped without a GPU, run before the last router change, a `strip()` in Python only. No web file changed. `make test-int` not run: outside the brief, and Testcontainers had no go. No model call, no SEC request, no container started or stopped.
+- Events:
+  - GateGuard refused the first edit of `test_validate.py`. I had sent it in a parallel batch with three more edits to the same file, a trap this log already records. The other three landed, so the file called `numbers_in` without importing it. A mistake, mine. I had also read the `docs/todo.md` edit passing as the gate being off; one file passing says nothing about the next.
+  - The user's rule then read "a hook that refuses means stop and report", so I stopped and reported, with two questions. The user's decision: the check only asks for information, so answer it honestly and retry, one edit at a time per file, no exemptions. Each file's first edit was refused once and passed on the retry.
+  - `uv run pytest` failed in the same batch: "An Application Control policy has blocked this file. (os error 4551)". The cause is not confirmed. I did not try another launcher while stopped. The user ran `make test`: 754 passed and 12 failed, 8 on the missing import and 4 real red rows, and told me to use `make test` or `uv run python -m pytest`, never the launcher.
+  - `uv run python -m pytest` failed the same way: `rtk` rewrites it to its own pytest call, which spawns the launcher. `RTK.md`'s recovery, `rtk proxy`, runs the approved command as written.
+  - To the gate for `answering.py` I named `routes` and `limits` as importers, from memory. A grep showed `main`, `backend`, the scripts and `evals/harness`; corrected before the retry.
+  - `YEAR`'s first form failed the review's own example: `NUMBER` keeps the comma in "2025,". An optional comma fixed it.
+  - `make typecheck`: my test passed `None` to a helper typed `int`; the helper's annotation widened.
+  - `make test` failed `test_a_saved_answer_checks_each_amount_with_the_pipelines_own_check`: c12 writes "3,794,000,000 USD", and the figure now keeps "USD". The behaviour is the one asked for, so the test's two texts changed; the demo snapshot keeps its saved text.
+  - A `cd web` carried into the next call, so one command ran from `web/`; the next went back to the root.
+  - The first draft of memory.md said rebuilding K1 would need its numbers in the report. Nothing showed that; replaced with what was decided.
+  - A `git diff | grep` printed nothing, most likely colour codes (not confirmed); rerun with `--no-color`. Git warned that `evals/calibrate.py` is LF in the working copy, while the others are CRLF there; the index holds LF for all of them, so nothing changes in the commit.
+- Outstanding: the user's ship and the production steps; three weaknesses left open (todo.md, memory.md Known Issues): a comma'd count at a table's scale, a year the router itself returns for a period, and `fill` on a company the question names but is not about.
+
 ### 2026-11-05: The rule 4 test run: Haiku on the test split, the landing and the docs (uncommitted, branch `fl-sonnet-answers`)
 
 - Brief (user): the final Haiku test-split eval for the rule 4 fix, Claude first, tag `rule4-1105`; the Groq judge capped at 180,000 tokens, 20,000 of today's quota left for FreightAudit; stop and ask if it would need more or the estimate grows before the live calls; compare with the previous Haiku test run and the Sonnet comparison; update the landing table and `evals/README.md`, the Sonnet comparison kept as a note, every number from a saved report; lint, typecheck, unit tests, e2e with 1 worker; no other project's containers touched; no commit.

@@ -68,6 +68,6 @@ The golden-set evals: commands and flags in `evals/harness.py`'s docstring, offi
 - **Worse, by reading the answers:**
   - x40 (Pfizer on Seagen) kept 1 of 5 sentences, the acquisition's tax liabilities, where 2026-10-31 gave a four-sentence answer. The judge scores that sentence 1 of 1, so no metric shows it. The regeneration's quotes joined text with "...", which is not word for word; the cause of the removals is not confirmed.
   - x37 (Lilly's manufacturing) added "The filing does not provide further detail" with a citation: precision and faithfulness 1 of 2.
-  - Per-share figures changed style: n44 and n51 now read "3.04 USD" and "51.32 USD", from the fact's own quote, not "$3.04". Both are right, but the amount check does not read that form (`docs/memory.md`, 2026-11-05; `docs/todo.md`).
+  - Per-share figures changed style: n44 and n51 now read "3.04 USD" and "51.32 USD", from the fact's own quote, not "$3.04". Both are right. The amount check could not read that form when this run was made; it has read it since the review fixes of the same day, and the saved replies replay unchanged (`docs/memory.md`, 2026-11-05).
 - **Spent:** Claude $0.065 (120 live calls, 544,060 tokens); the judge 71,019 tokens (42 live calls, 12 per-minute 429s waited out, none daily). About as approved: $0.07 and 72k.
 - **Sonnet:** measured on dev only, above, never on this split, so its figures do not compare with this table. Its decision stands: on dev, quality equal to Haiku's at about 16 times the cost.

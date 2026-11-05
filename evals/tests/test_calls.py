@@ -11,10 +11,11 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 
-from evals import harness, judge
+from evals import calibrate, harness, judge
 from evals.calibrate import FOLLOWUP_MODELS, draw, draw_followup, imported, spot_check
 from evals.calls import Cache, Call, Recorded, Stop, patiently
 from evals.harness import EvalSettings, answer_path, code_version, refusal_sweep, routed
@@ -238,6 +239,38 @@ async def test_the_judge_reads_a_calculation_under_the_numbers_of_its_facts(
     assert found["precise"] == [3, 3]
     prompt = suite.judge.prompts[0]
     assert f'[3] Calculated by FilingLens from sources 1 and 2\nQuote given: "{K1_TEXT}"' in prompt
+
+
+async def test_calibration_never_samples_a_sentence_citing_a_calculation_as_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review finding 7: load_sources rebuilds K1 without its calculation, so a sentence that
+    passed live fails the offline check, and it is sampled as one validation refused."""
+
+    async def sources(engine: object, aliases: object) -> dict[str, harness.Src]:
+        return C09_SOURCES
+
+    monkeypatch.setattr(calibrate, "read_jsonl", lambda path: [{"id": "c09", "question": "Q?"}])
+    monkeypatch.setattr(calibrate, "load_settings", lambda settings: None)
+    monkeypatch.setattr(calibrate, "make_engine", lambda settings: AsyncMock())
+    monkeypatch.setattr(calibrate, "load_sources", sources)
+    draft = (
+        "Revenue was $999.0 billion in fiscal 2025 [F1]. Revenue rose by $25.1 billion from"
+        " $391.0 billion to $416.2 billion [F1][F2][K1].\n\nSources:\n"
+        '[F1] "416,161,000,000 USD"\n[F2] "391,035,000,000 USD"\n[K1] "25,126,000,000 USD"\n'
+    )
+    record = {
+        "id": "c09",
+        "sources": {"F1": "37437", "F2": "37409", "K1": ""},
+        "outcome": "refused",
+        "warnings": [],
+        "calls": [{"role": "primary", "cache_id": "draft"}],
+    }
+    cache = cast(Cache, SimpleNamespace(get=lambda cache_id: reply(draft)))
+    found = await calibrate.candidates({"records": {"answer": [record]}}, cache)
+    assert [item["sentence"] for item in found["failing"]] == [
+        "Revenue was $999.0 billion in fiscal 2025 [1]."  # a real failure stays in the pool
+    ]
 
 
 def test_coverage_counts_a_sentence_a_calculation_holds() -> None:
