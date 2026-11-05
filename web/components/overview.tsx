@@ -1,7 +1,7 @@
 // The landing page's overview, after Hirael's feature-10 (MIT; docs/third-party.md): a serif head, then one
 // sheet split by hairlines into a saved answer with its passage, two figures, the newest feature and the
 // jobs every answer goes through. Its Tailwind and shadcn cards became FilingLens's CSS (app/landing.css).
-import claude from "../../evals/reports/2026-10-31-claude-first.json";
+import claude from "../../evals/reports/2026-11-05-claude-first.json";
 import { demo } from "../lib/demo.ts";
 import { heroStory, QUOTE } from "../lib/story.ts";
 import { AnswerText } from "./answer-view.tsx";
@@ -11,7 +11,7 @@ const saved = heroStory(demo, QUOTE);
 
 // demo/snapshot.json: the indexed filings it lists, one per company, as the demo header's "30 filings".
 const filings = demo.companies.reduce((sum, company) => sum + company.filings.edges.length, 0);
-// evals/reports/2026-10-31-claude-first.json, metrics.answer.numeric_exact_match: the same 12 of 12 as the
+// evals/reports/2026-11-05-claude-first.json, metrics.answer.numeric_exact_match: the same 12 of 12 as the
 // free-models run (2026-10-31.json); e2e/landing.spec.ts checks both.
 const exact = claude.metrics.answer.numeric_exact_match;
 

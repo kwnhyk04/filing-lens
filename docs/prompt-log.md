@@ -2,6 +2,20 @@
 
 Every change to a model prompt or response schema, newest first. Each entry gives what changed, why, the evidence and the result. Prompts are tuned on the golden set's dev split only, and the test split is never read for tuning. The judge prompt (`evals/judge.py`) is frozen with its calibration, so a change to it needs a new calibration.
 
+## 2026-11-05: Answer rule 4's floor, measured on the test split
+
+- No prompt change. `evals/reports/2026-11-05-claude-first`, hash `25e4578a6d3b`: numeric exact match 1.000 (n 12), every rounded figure at four significant digits or more, no quality metric worse beyond its interval. Side effect: per-share facts copied as "51.32 USD" (`evals/README.md`, `docs/memory.md`).
+
+## 2026-11-04: Answer rule 4 asks rounded figures for at least four significant digits (after the Sonnet comparison)
+
+- **Answer prompt** (`filinglens_llm.answer.SYSTEM`, rule 4): "Give figures as the sources state them, or rounded to at least four significant digits, such as $416.2 billion or $4.121 billion." It said "…or rounded, such as $416.2 billion." Only the answer prompt's hash changes (`a4da1c402e0a` to `25e4578a6d3b`); the router's and the judge's do not. Validation's rounding rule (`validate.rounded`) stays, so a figure rounded further still passes instead of being refused.
+  - Why: Haiku's two numeric misses on dev in the Sonnet comparison (`evals/README.md`), n24 and n39, were one decimal in billions: $4.1 billion for 4,121,000,000 (0.51% off) and $6.7 billion for 6,747,000,000 (0.70%), outside numeric exact match's 0.5%. One decimal is four significant digits for $416.2 billion but two for $4.1 billion. Sonnet kept four.
+  - Result (Claude Haiku, dev, fully live: `runs/20261104T091822Z`, judged `runs/20261104T092734Z`; before: `20261103T162805Z`, `175043Z`):
+    - Numeric exact match 1.000 (0.950). Of the 40 figures, 17 as the source states them, 23 rounded within 0.5%, none outside (before 7, 31 and 2). n24 "$4.121 billion", n39 "$6.747 billion".
+    - Paired against the earlier run: citation precision 0.995 (0.985; +0.016, CI +0.000 to +0.032), faithfulness 0.986 (0.993; −0.007, CI −0.033 to +0.015), coverage 0.962 (0.987; −0.026, CI −0.077 to +0.013), draft citation pass rate 0.869 (0.914; −0.045, CI −0.113 to +0.015). Refusals unchanged.
+    - TTFT p50 2.49 s (2.31), full answer p95 6.76 s (6.90). The router stage, unchanged, was slower at this hour (p50 1,470 against 1,385 ms); Haiku's own first token is the same (p50 0.74 against 0.72 s, CI of the difference −0.02 to +0.07).
+  - Open: coverage's drop is three textual answers losing sentences to quotes not copied word for word (x03, x13, x19; x19 split a table row into two quoted pieces), not to amounts. Two drafts' layouts got past the reply parser, so the judge could score neither: n40 ended its answer line with "Sources:", and the block stayed in the answer as shown; c07 put its markers after the periods, so three sentences were validated as one. Both for their own PRs (todo.md).
+
 ## 2026-10-27: Answer rule 5, a calculation (K1) holds a comparison's arithmetic (answer-quality round, PR 4)
 
 - **Answer prompt** (`filinglens_llm.answer.SYSTEM`, new rule 5; old 5 and 6 are now 6 and 7): "A calculation (K1), when given, states two facts' difference, change in percent and which is higher. Cite it for any of these, together with both of its facts, such as [F1][F2][K1], and quote the figure you used; compute nothing yourself." Only the answer prompt's hash changes (`a4ee7c5d3686` to `a4da1c402e0a`); the router's and the judge's do not (E5's report).

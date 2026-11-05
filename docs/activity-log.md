@@ -15,6 +15,103 @@ Chronological record of significant development activity, newest first. Skip tri
 
 ## Entries
 
+### 2026-11-05: The rule 4 test run: Haiku on the test split, the landing and the docs (uncommitted, branch `fl-sonnet-answers`)
+
+- Brief (user): the final Haiku test-split eval for the rule 4 fix, Claude first, tag `rule4-1105`; the Groq judge capped at 180,000 tokens, 20,000 of today's quota left for FreightAudit; stop and ask if it would need more or the estimate grows before the live calls; compare with the previous Haiku test run and the Sonnet comparison; update the landing table and `evals/README.md`, the Sonnet comparison kept as a note, every number from a saved report; lint, typecheck, unit tests, e2e with 1 worker; no other project's containers touched; no commit.
+- Before any live call:
+  1. The harness prints its estimate and goes straight to live calls, so the estimate was made offline by a scratch script: 55 questions; at most 49 judge calls and 117,400 tokens, under the 180,000 cap. From the saved reports: the run of 2026-10-31 spent $0.066 and 72,201 judge tokens, and rule 4 added about 8% of Claude's cost on dev, so about $0.071. Unchanged from the approved $0.07 and 72k, so no stop.
+  2. Ports 5433 and 6380 free. `filinglens-postgres-1` and `filinglens-redis-1` started by exact name, as on 2026-11-03 and 2026-11-04 (the brief's "same setup"); healthy. FilingLens's production stack was running and was not touched.
+  3. Redis: no judge count for 2026-11-05, no `ai:claude:off`.
+- The run, at 07:07 UTC: `make eval SUITE=all SPLIT=test SUBSET=full ARGS="--claude-first --tag=rule4-1105 --judge-budget=180000 --max-usd=0.5"`, exit 0, `evals/reports/2026-11-05-claude-first`.
+  - One pass, with the judge inline, not `--no-judge` then a replay as on dev. Why: a full test run's report path is by date, so a judged replay would overwrite it and lose the live latency.
+  - Claude: 120 live calls, 544,060 tokens, $0.065. The judge: 42 live calls, 71,019 tokens (the records and Redis agree), 1 verdict from the cache. Groq sent 12 per-minute 429s, waits of 2 to 19 s, which the harness waited out; no daily limit.
+  - FreightAudit's own Groq use today is not visible from here; the cap counts FilingLens's tokens only.
+  - Both containers stopped by exact name after the analysis's Redis reads.
+- Results, against the run of 2026-10-31: `evals/README.md` has the table. Numeric 1.000 (n 12), comparison 1.000, coverage 0.950, precision 0.993 (+0.013, CI spans 0), faithfulness 0.976 (+0.008, CI spans 0), correct refusal 1.000, false refusal 4.4% (x21, x42, the same two), router 0.982, cost $0.0012 a query.
+  - Rule 4: n49 is the split's one question of n24's kind, and reads $6.835 billion. 5 figures as stated, 7 rounded within 0.5%, 0 outside (before: 3, 9, 0).
+  - Worse: the answer model's own first token p50 +0.07 s (CI +0.01 to +0.24), p95 +0.78 s (+0.26 to +1.23), full reply p95 +0.41 s (+0.08 to +0.86); end to end time to first token p50 2.41 s (2.11). Input tokens fell, so the prompt does not explain it. The hours differ, and the PC's production stack had started about a minute before the first check. Cause not confirmed.
+  - Worse, read by hand: x40 kept 1 of 5 sentences; x37 gained a "does not provide further detail" sentence, 1 of 2. n44 and n51 now state "3.04 USD" and "51.32 USD", a form `find_amounts` does not read (memory.md, Known Issues).
+- The landing, tests first:
+  1. `e2e/landing.spec.ts`: a test for the Sonnet note, from each arm's judged report, and a check that the page says when the columns' answer prompts differ. Red with the new report on disk: 5 failed, 2 passed (the note, and the table at each width).
+  2. `app/page.tsx`: the new report, the note, the prompt sentence shown only while the two hashes differ. `components/overview.tsx`: the new report; 12 of 12 holds in both runs. Green: 19 passed, 4 skipped without a GPU.
+  3. Screens: `--grep landing` regenerated 9 PNGs; the results at 1280 and 390 px looked at, nothing cut off.
+- Docs: `evals/README.md`, `README.md`, `evals/eval-card.md`, `docs/context.md`, `docs/memory.md`, `docs/prompt-log.md`, `docs/todo.md`.
+- Validation: `make lint` clean (177 files), `make typecheck` 0 errors, `make test` 754 passed; web typecheck clean, `npm test` 153, build passed; Playwright, 1 worker, bundled shell: 149 passed, 11 skipped without a GPU. `make test-int` not run: no integration path changed, and Testcontainers had no go. Edge's GPU run not done, since the hero did not change.
+- Events:
+  - The auto-mode classifier denied the first estimate command ("[Auto-Mode Bypass]"), which bundled a heredoc, `--env-file .env` and a PowerShell call; which part it objected to is not confirmed. Split into a script written with the edit tool, run without `.env` (an offline read needs no secrets), and a `netstat` check of the ports.
+  - The script first failed with `ModuleNotFoundError: No module named 'evals'`, since Python put the scratchpad on its path; rerun with `PYTHONPATH=.`.
+  - The rounding script's first pass listed n44 and n51 "outside" on the test run (n09 and n16 on dev): `find_amounts` skips "3.04 USD", which is the finding above. With `numbers_in` added it gave dev's recorded 17, 23 and 0, which checks the method.
+  - GateGuard refused each file's first edit in several parallel batches, while the batch's other edits went through. So `page.tsx` kept its old imports and `next build` failed with TS2304, and the failed build left no production build for Playwright ("Could not find a production build"). Each refused edit was retried.
+  - `typeof devHaiku` as the helpers' parameter failed the typecheck (TS2345, `config.router_primary` is `null` in one report and a string in another). A small structural type replaced it.
+  - My filter on `npm test` hid its count in the full check; rerun alone: 153.
+  - The first draft of `evals/README.md` said no numeric answer had under four significant digits. n44's 3.04 does, as the source states it. Corrected before the edit landed.
+- Outstanding: the user's ship; the production steps; `find_amounts` and "USD" figures, its own PR (todo.md).
+
+### 2026-11-04: Claude Sonnet 5.5 against Haiku on dev: the three arms, the crash, and the judging (uncommitted, branch `fl-sonnet-answers`)
+
+- Brief (user): measure Claude Sonnet 5.5 as the answer model against today's Claude Haiku 5.5 on golden v2's dev split, the router unchanged (Haiku). Three arms:
+  - Haiku as today: thinking off, effort low, the 1,052-token cap, `--max-usd=0.5`.
+  - Sonnet thinking off (`between_tools`), effort high, 1,052, `--max-usd=4`.
+  - Sonnet adaptive thinking, effort high, 4,096, `--max-usd=10`.
+  - Judge: Groq gpt-oss-120b, whose free tier (200k tokens a day) FreightAudit shares; leave it about 20k a day, stop at the first quota error, resume after 00:00 UTC, never another judge.
+- Code, before the crash, tests first: per-model Claude modes in `providers.py` (`CLAUDE_MODES`, `ADAPTIVE_MAX_TOKENS`, Sonnet's price); the harness flags `--claude-answers`, `--claude-thinking`, `--max-usd` and `--judge-budget`; Sonnet in `evals/providers.json`. `make lint`, `make typecheck`, `make test` 712.
+- The arms' answers, live, without the judge, one after another (each report written before the crash):
+  - Haiku, `runs/20261103T162805Z` (`--claude-first --tag=sonnet-1104 --no-judge --max-usd=0.5`). c03 and c05 errored: "UpstreamError: anthropic:claude-haiku-5-5 did not answer (APIConnectionError)." Cause not confirmed.
+  - Sonnet thinking off, `runs/20261103T163401Z` (`--claude-answers=anthropic:claude-sonnet-5-5 --router-primary=anthropic:claude-haiku-5-5`, the same tag, `--max-usd=4`). 0 errors.
+  - Sonnet adaptive, `runs/20261103T164010Z` (the same plus `--claude-thinking=adaptive`, `--max-usd=10`). 0 errors.
+  - Both Sonnet arms took Haiku's router replies from the cache (`--router-primary`), so all three got the same routes. No Sonnet question was then fully live, so their end-to-end latency is not measured (context.md, the flag).
+- First judged replay, 16:40:34 UTC, the three chained, `--judge-budget=180000`, with `CLAUDE_DAILY_TOKEN_BUDGET` and `DAILY_AI_TOKEN_BUDGET` set to 10,000,000 for the process. The arms had spent about 1.7M live Claude tokens that UTC day, over the ledger's 1.5M default; why `DAILY_AI_TOKEN_BUDGET` was raised too is not confirmed.
+  - Claude Code stopped it for low memory at about 16:42 UTC, after 50 of Haiku's 100 (progress kept in `.cache/evals/runs/6e804915f6aeab9c.jsonl`).
+  - In it, c03 and c05 were answered live (3 Haiku calls, $0.00286), since nothing was cached for them.
+  - 26 live judge calls, 20,743 tokens; Redis's day count showed the same.
+- The PC crashed around 01:10 Taipei (about 17:10 UTC). `filinglens-postgres-1` and `filinglens-redis-1` exited 255.
+- Recovery, in a new session, from the user's updated brief:
+  1. Read the working-tree diff and the three reports. Each report's config names its arm (primary, thinking, `router_primary`). All three are complete: each wrote its report, and an answer run deletes its progress file only when it completes. Haiku's two errored questions already had cached answers from the replay, so no arm was rerun.
+  2. Why the replay stopped: the old session's transcript showed Claude Code's low-memory stop, not a quota error.
+  3. Started both containers by name; healthy.
+  4. Redis had lost part of the day's count: `eval:judge-tokens:groq:openai/gpt-oss-120b:2026-11-03` read 13,941, against 20,743 counted from the progress file. Cause: the dev Redis saves RDB snapshots only (`save 3600 1 300 100 60 10000`, `appendonly no`). The rest of that UTC day ran with `--judge-budget=173198` (180,000 minus the 6,802 lost), the same limit, rather than writing the key by hand.
+  5. The replays, chained: `uv run --env-file .env python -m evals.harness` (what `make eval` runs), output to a scratchpad log, with the first replay's environment. Each had a tight `--max-usd` as a tripwire: 0.0035 for Haiku (its records already held $0.00286), 0.001 for each Sonnet replay. Why: a reply missing from the cache would then stop the run after one question instead of regenerating an arm's answers.
+  6. Haiku resumed its progress file (50 done): `runs/20261103T175043Z`. Sonnet thinking off: `runs/20261103T175921Z`. Sonnet adaptive: stopped by `--judge-budget` (exit 2) at 44 of 100, at 18:01 UTC; progress in `.cache/evals/runs/39d894003bd67cb8.jsonl`.
+  7. Every progress line showed 0 live answer calls, and Groq sent no 429.
+  8. Groq that UTC day, FilingLens's judge: 150 live calls, 179,036 tokens, under 180,000.
+  9. Containers stopped at 18:02 UTC (exit 0).
+- Outstanding: the adaptive replay after 00:00 UTC on 2026-11-04; then the side-by-side report and the user's call on a test run.
+- Resumed at 00:02 UTC on 2026-11-04 (a background wait in the session):
+  1. Started both containers by name; healthy. Redis kept 172,234 for 2026-11-03 (the clean stop saved it) and had no 2026-11-04 key.
+  2. The adaptive replay, same environment, `--max-usd=0.001`, `--judge-budget=180000`: resumed its 44, then 56 questions, `runs/20261104T000849Z`, exit 0. 0 live answer calls, no judge error, no 429.
+  3. Groq that UTC day, FilingLens's judge: 30 live calls, 53,149 tokens (the records and Redis agree).
+  4. Containers stopped at about 00:10 UTC (exit 0).
+- Results (dev, 100 questions; quality and cost from the judged replays, latency from the answer runs):
+  - Numeric exact match: Haiku 0.950 (misses n24 and n39), both Sonnet arms 1.000. Comparison match 1.000 in all three, Haiku's c03 and c05 included.
+  - Citation coverage: Haiku 0.987, both Sonnet arms 1.000. Citation precision: 0.985, 0.984, 0.994. Faithfulness: 0.993, 0.986, 0.993. Paired against Haiku (`--compare`), no precision or faithfulness difference shows (every CI spans 0).
+  - Refusals the same in all three: correct 1.000 (n 25), false 0.013 (x15, n 75).
+  - Cost per query: Haiku $0.0008, Sonnet off $0.0126, Sonnet adaptive $0.0131.
+  - Latency: Haiku measured end to end, TTFT p50 2.31 s and full p95 6.90 s. The Sonnet arms are not measured end to end; their own first token p50 is 1.46 s (off) and 1.05 s (adaptive) against Haiku's 0.72 s. Paired, off is +0.74 s (CI +0.65 to +0.86) and adaptive +0.33 s (CI +0.27 to +0.48).
+  - End-to-end estimate for the Sonnet arms: Haiku's live route on the same question, plus the arm's measured time after its cached route. TTFT p50 3.12 s and 2.97 s; full p95 8.52 s and 12.61 s. It leans slightly slow, since a live route overlaps the early search (Haiku's retrieve stage p50 38 ms). Made by a scratch script outside the repo.
+  - Claude spent in all: $2.60 (Haiku $0.08, Sonnet off $1.23, adaptive $1.29, the replay's c03 and c05 $0.003), under the $0.50, $4 and $10 caps.
+- Outstanding: the user's call on one test run; the test split and the landing untouched until then.
+- Haiku's two numeric misses, analysed at the user's request (report only): n24 and n39 cite the right fact, fiscal year, unit and scale. Haiku rounded to one decimal in billions ($4.1 billion for 4,121,000,000, $6.7 billion for 6,747,000,000). Validation passed both under the rounding rule; exact match counts within 0.5% only. Rule 4 invites it ("or rounded, such as $416.2 billion").
+- The user's decision: Haiku stays; rule 4 gets a precision floor, test first, the rounding rule stays in validation; only the Haiku arm runs again on dev; the comparison goes into `evals/README.md`.
+  1. Test first: `test_rounded_figures_keep_four_significant_digits` (`packages/llm/tests/test_answer.py`) pins rule 4's floor. Red on the old prompt, then green.
+  2. Rule 4 (`answer.py`): "…or rounded to at least four significant digits, such as $416.2 billion or $4.121 billion." The answer prompt's hash went from `a4da1c402e0a` to `25e4578a6d3b`.
+  3. `make lint` failed once on the new test's docstring (E501, 101 characters); rewrapped. Then `make lint` clean, `make typecheck` 0 errors, `make test` 713 passed. `make test-int` not run: no integration path changed, and Testcontainers had no go.
+  4. Both containers started by name at 09:12 UTC.
+  5. The Haiku arm, with a new tag so the router ran live too and latency counts end to end: `--claude-first --tag=rule4-1104 --no-judge --max-usd=0.5`, `runs/20261104T091822Z`. 100 questions, 207 live Claude calls, $0.087, 0 errors. Six routes differ from the earlier run (c09, c13, x12, a03, a06, t06); router accuracy is still 1.000.
+  6. Judged from the cache with the replays' environment, `--max-usd=0.001 --judge-budget=180000`: `runs/20261104T092734Z`. 0 live answer calls; 69 live judge calls, 85,462 tokens; Groq that UTC day 138,611.
+  7. The judging process exited 139 (a crash) after writing its report. Its `eval_runs` row and the progress file's removal come before the report's last lines, and the progress folder was empty, so nothing was lost. Cause not confirmed.
+  8. Judge errors on n40 and c07 ("judged sentences [1], expected 1 to 2"; "[1, 2, 3], expected 1 to 1"); the earlier run had one, x06. n40's reply ended its answer line with "Sources:", so `read_reply` found no block (no quotes), and the block's line stayed in the answer and passed validation as a sentence citing F1. c07 put its markers after each period, so `split_sentences` read three lines as one sentence.
+  9. Containers stopped at about 09:45 UTC.
+- Results against the earlier Haiku run: numeric exact match 1.000 (0.950); 17 figures as stated, 23 rounded within 0.5%, none outside (7, 31, 2). Paired, nothing worse beyond its 95% interval: precision 0.995 (+0.016), faithfulness 0.986 (−0.007), coverage 0.962 (−0.026; three textual answers' quotes, not amounts), draft citation pass rate 0.869 (−0.045). Refusals the same. TTFT p50 2.49 s (2.31), full p95 6.76 s (6.90); the router stage, unchanged, was slower at this hour, and Haiku's own first token is the same.
+- CI's eval on this branch: `packages/llm/src` is an eval input, and the answer prompt changed, so none of CI's cached Gemini answers apply. Estimate for the PR's dev ci run: about 20 to 25 Gemini requests (25 questions, 15 answerable, plus regenerations), router replies cached, no judge. The nightly after the merge (test split, judged) misses too: about 45 to 55 Gemini requests and about 45 judge calls, roughly 55k gpt-oss-120b tokens on the Groq account FreightAudit shares.
+- Outstanding: the user's OK for one Haiku test run; n40's Sources leak and c07's marker layout, each its own PR (the user decides).
+- The user's next go: fix n40 now on this branch, tests first; c07 stays in todo; one Haiku test run after Groq's reset (00:02 UTC on 2026-11-05); then the landing, README and production steps.
+  1. Tests first (`packages/llm/tests/test_answer.py`): n40's layout ("…[K1]. Sources:" closing the answer's line, one source a line after it) joins `DRAFTS`, so the parser test and the stream test (1 to 39 characters a chunk) cover it; a pin row keeps a "Sources:" that ends a line with no source line after it in the answer. Red: 40 failed (the parser case and 39 stream sizes); the pin row passed.
+  2. Fix (`answer.py`): `SOURCES_HEADING`'s inline form (after a sentence end, its first source next) may cross spaces, line breaks and list or emphasis marks before that source (`[\s*_-]*`, was `[ \t*_]*`). Green: 173 in the file.
+  3. n40's cached draft now reads as one sentence and its F1 quote. Offline replay, no model call: 4 of the 1,272 cached drafts parse differently, each only losing a Sources block that had stayed in its answer.
+  4. `make lint` clean, `make typecheck` 0 errors, `make test` 754 passed.
+  5. The landing, prepared before the test run, test first: `e2e/landing.spec.ts` now reads the newest Claude-first report and the newest free-only one each by its own date (it took the free run's date for both), and wants each run's date in the results note. Red on the note (1 failed, 17 passed, 4 skipped without a GPU), then `app/page.tsx`'s note names both runs' dates: green, 18 passed, 4 skipped. Web typecheck clean, build passed.
+  6. A background wait until 00:02 UTC on 2026-11-05, for the test run.
+
 ### 2026-11-03: Phone polish: the evaluation results as cards, and the site icons served to a signed-out browser (uncommitted, branch `fl-mobile-polish`)
 
 - Brief, from the user's iPhone (Safari):

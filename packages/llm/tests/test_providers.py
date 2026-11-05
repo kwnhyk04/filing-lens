@@ -15,7 +15,16 @@ from structlog.testing import capture_logs
 
 from filinglens_core.errors import AiUnavailableError, RateLimitedError, UpstreamError
 from filinglens_llm import router
-from filinglens_llm.providers import Anthropic, Completion, claude_schema, credits_usd
+from filinglens_llm.providers import (
+    ADAPTIVE_MAX_TOKENS,
+    CLAUDE_MODES,
+    CLAUDE_PRICES,
+    Anthropic,
+    ClaudeMode,
+    Completion,
+    claude_schema,
+    credits_usd,
+)
 
 EXPIRES = date(2026, 11, 10)
 SSE = {"content-type": "text/event-stream"}
@@ -83,7 +92,10 @@ def error(status: int, kind: str, text: str, **headers: str) -> httpx2.Response:
 
 
 def claude(
-    *replies: httpx2.Response, today: date = date(2026, 10, 17)
+    *replies: httpx2.Response,
+    today: date = date(2026, 10, 17),
+    model_id: str = "claude-haiku-5-5",
+    mode: ClaudeMode | None = None,
 ) -> tuple[Anthropic, list[httpx2.Request]]:
     """Claude answering each request with the next reply; the requests it sent, in order."""
     sent: list[httpx2.Request] = []
@@ -95,12 +107,13 @@ def claude(
 
     client = httpx2.AsyncClient(transport=httpx2.MockTransport(handle))
     model = Anthropic(
-        "claude-haiku-5-5",
+        model_id,
         "k",
         expires=EXPIRES,
         ledger=cast(Any, Ledger()),
         today=lambda: today,
         http_client=client,
+        mode=mode,
     )
     return model, sent
 
@@ -254,6 +267,45 @@ async def test_a_streamed_answer_gives_its_text_usage_and_credit_cost() -> None:
     assert credits_usd(done.model, 4000, 300) == pytest.approx(0.00055)  # $0.10 / $0.50 per 1M
     assert credits_usd(done.model, 200_000, 1000) == pytest.approx(0.1025)  # past 100K tokens
     assert credits_usd("gemini:gemini-3.5-flash-lite", 4000, 300) == 0.0
+
+
+async def test_sonnet_answers_with_thinking_off_its_own_way_at_effort_high() -> None:
+    # Sonnet 5.5 refuses thinking "disabled" (a 400); "between_tools" is its thinking off, at
+    # effort high or below (Anthropic's model notes, read 2026-11-04).
+    model, sent = claude(streamed("Revenue rose [F1]."), model_id="claude-sonnet-5-5")
+    *_, done = [item async for item in model.stream("system", "question", max_tokens=1024)]
+    body = json.loads(sent[0].content)
+    assert (body["model"], body["thinking"], body["output_config"], body["max_tokens"]) == (
+        "claude-sonnet-5-5",
+        {"type": "between_tools"},
+        {"effort": "high"},
+        1052,
+    )
+    assert isinstance(done, Completion) and done.model == "anthropic:claude-sonnet-5-5"
+    assert credits_usd(done.model, 4000, 300) == pytest.approx(0.011)  # $2 / $10 per 1M
+
+
+async def test_adaptive_thinking_gets_a_cap_for_its_thinking_and_streams_only_the_answer() -> None:
+    adaptive = ClaudeMode("adaptive", "high", ADAPTIVE_MAX_TOKENS)
+    model, sent = claude(
+        streamed("Revenue ", "rose [F1]."), model_id="claude-sonnet-5-5", mode=adaptive
+    )
+    *texts, done = [item async for item in model.stream("system", "question", max_tokens=1024)]
+    assert texts == ["Revenue ", "rose [F1]."]  # its thinking block never reaches the answer
+    assert isinstance(done, Completion) and done.first_token_s is not None
+    body = json.loads(sent[0].content)
+    assert (body["thinking"], body["output_config"], body["max_tokens"]) == (
+        {"type": "adaptive"},
+        {"effort": "high"},
+        4096,
+    )
+
+
+def test_every_priced_claude_model_has_a_mode_and_haikus_is_unchanged() -> None:
+    assert CLAUDE_MODES.keys() == CLAUDE_PRICES.keys()
+    assert CLAUDE_MODES["claude-haiku-5-5"] == ClaudeMode("disabled", "low", 1052)  # 2026-10-17
+    with pytest.raises(ValueError, match="no price"):
+        claude(model_id="claude-opus-5-5")
 
 
 async def test_each_call_gets_a_span_and_metrics_but_never_its_text(

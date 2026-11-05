@@ -30,10 +30,10 @@ from filinglens_llm.validate import (
 
 INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 MAX_TOKENS = 1024  # answers and regenerations: short, fast, cheap, no runaway (docs/context.md)
-# The heading alone on its line, or with its first source after it (c13: "[K1]. Sources: [F1]").
+# The heading alone on its line, or after a sentence with its first source next (c13, n40).
 SOURCES_HEADING = re.compile(
     r"^[ \t*#_]*sources[ \t*_]*:?[ \t*_]*$"
-    r"|(?:^|(?<=[.!?]))[ \t*_]*sources[ \t*_]*:[ \t*_]*(?=\[\s*[CFK]\d+\s*\])",
+    r"|(?:^|(?<=[.!?]))[ \t*_]*sources[ \t*_]*:[\s*_-]*(?=\[\s*[CFK]\d+\s*\])",
     re.IGNORECASE | re.MULTILINE,
 )
 ENTRY_BREAK = re.compile(r"[ \t]*[;,][ \t]*(?=\[\s*[CFK]\d+\s*\])")  # sources on one line
@@ -52,8 +52,8 @@ Rules:
 3. After the answer write a line "Sources:", then one line per source you cited: [id] "quote".
    For a filing excerpt (C1, C2...) the quote is a short span copied word for word from it that
    supports your sentence. For a financial fact (F1, F2...) quote its value as listed.
-4. Give figures as the sources state them, or rounded, such as $416.2 billion. A sentence that
-   compares figures states each of them.
+4. Give figures as the sources state them, or rounded to at least four significant digits, such
+   as $416.2 billion or $4.121 billion. A sentence that compares figures states each of them.
 5. A calculation (K1), when given, states two facts' difference, change in percent and which is
    higher. Cite it for any of these, together with both of its facts, such as [F1][F2][K1], and
    quote the figure you used; compute nothing yourself.

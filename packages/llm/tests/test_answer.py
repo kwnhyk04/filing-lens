@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from filinglens_llm.answer import INSUFFICIENT, Source, Visible, check, read_reply
+from filinglens_llm.answer import INSUFFICIENT, SYSTEM, Source, Visible, check, read_reply
 from filinglens_llm.validate import Calculation
 
 CHUNK = "Services net sales increased due to higher advertising, App Store and cloud revenue."
@@ -44,6 +44,16 @@ def test_a_stream_shows_the_numbered_answer_and_never_the_sources_block(size: in
         "fiscal 2025 [1]. Services grew on advertising, the App Store and cloud [2]."
     )
     assert all("Sources" not in part and "[C1" not in part for part in shown)
+
+
+def test_rounded_figures_keep_four_significant_digits() -> None:
+    """Rule 4's floor: one decimal in billions put Haiku outside numeric exact match's 0.5% on
+    dev ($4.1 billion for 4,121,000,000 in n24, $6.7 billion for 6,747,000,000 in n39; user,
+    2026-11-04). Validation still passes such a figure (validate.rounded): a lapse is no refusal."""
+    assert (
+        "4. Give figures as the sources state them, or rounded to at least four significant"
+        " digits, such as $416.2 billion or $4.121 billion." in " ".join(SYSTEM.split())
+    )
 
 
 def test_a_stream_shows_nothing_of_an_insufficient_evidence_reply() -> None:
@@ -159,8 +169,15 @@ LIST = (
     ' 2,349,000,000 USD, 16.31% less than fiscal 2024."'
 )
 INLINE = f"{ANSWER} [F1][F2][K1]. {LIST}"  # E5's draft of c13, as Haiku wrote it
+ENDS_LINE = (  # n40's layout (dev, rule 4 run): the heading ends the answer's line
+    f"{ANSWER} [F1][F2][K1]. Sources:\n"
+    '[F1] "12,056,000,000 USD"\n[F2] "14,405,000,000 USD"\n'
+    '[K1] "Fiscal 2025 is lower by 2,349,000,000 USD, 16.31% less than fiscal 2024."'
+)
 DRAFTS = pytest.mark.parametrize(
-    "draft", [INLINE, f"{ANSWER} [F1][F2][K1].\n{LIST}"], ids=["after the answer", "own line"]
+    "draft",
+    [INLINE, f"{ANSWER} [F1][F2][K1].\n{LIST}", ENDS_LINE],
+    ids=["after the answer", "own line", "ends the answer's line"],
 )
 
 
@@ -184,6 +201,7 @@ def test_a_sources_block_written_inline_is_read_as_the_sources_block(draft: str)
     [
         "Sources: products and services, as the filing lists them [C1].",  # no source follows
         "Services had three such sources: [C1].",  # not where a sentence starts
+        "Sources:\nproducts and services, as the filing lists them [C1].",  # no source line next
     ],
 )
 def test_the_word_sources_in_the_answer_is_no_heading(sentence: str) -> None:

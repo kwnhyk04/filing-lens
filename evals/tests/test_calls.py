@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections import Counter
 from collections.abc import AsyncIterator, Mapping
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +23,7 @@ from filinglens_api.answering import PostgresEvidence
 from filinglens_api.schemas import Answer, Calculation, Citation, Usage
 from filinglens_core.errors import AiUnavailableError, RateLimitedError
 from filinglens_core.settings import ApiSettings, load_settings
-from filinglens_llm.providers import Completion
+from filinglens_llm.providers import CLAUDE_MODES, ClaudeMode, Completion
 from filinglens_retrieval import Ranking, Scope
 
 TEXTUAL = Path(__file__).parents[2] / "services/api/tests/fixtures/answers/textual.json"
@@ -477,11 +477,20 @@ def test_the_sweep_takes_the_midpoint_of_the_best_range_under_5_percent_false_re
 
 
 CLAUDE = "anthropic:claude-haiku-5-5"
+SONNET = "anthropic:claude-sonnet-5-5"
 REFUSED: list[tuple[str, list[str], dict[str, str], str]] = [
     ("the official eval", [], {"LLM_PRIMARY": CLAUDE}, "official eval runs the free models"),
     ("--ci", ["--claude-first", "--ci"], {}, "local only"),
     ("a CI runner", ["--claude-first"], {"CI": "true"}, "local only"),
     ("no key", ["--claude-first"], {"ANTHROPIC_API_KEY": ""}, "needs ANTHROPIC_API_KEY"),
+    ("Sonnet alone", [f"--claude-answers={SONNET}"], {}, "need --claude-first"),
+    ("adaptive alone", ["--claude-thinking=adaptive"], {}, "need --claude-first"),
+    (
+        "a model with no mode",
+        ["--claude-first", "--claude-answers=anthropic:claude-opus-5-5"],
+        {},
+        "no mode",
+    ),
 ]
 
 
@@ -514,6 +523,70 @@ def test_claude_first_routes_and_answers_with_claude_as_production_does(
     assert (settings.llm_router, settings.llm_primary) == (CLAUDE, CLAUDE)
     assert args.router_primary == ""  # Claude's own routes, not the free run's
     assert settings.llm_judge != CLAUDE  # the judge stays off Claude
+
+
+def test_claude_first_can_answer_with_sonnet_while_haiku_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    for name, value in (ENV | {"ANTHROPIC_API_KEY": "sk-test"}).items():
+        monkeypatch.setenv(name, value)
+    off = harness.parse_args(["--claude-first", f"--claude-answers={SONNET}"])
+    settings = harness.answer_model(off, harness.eval_settings())
+    assert (settings.llm_router, settings.llm_primary) == (CLAUDE, SONNET)
+    assert harness.claude_mode(off, settings) == ClaudeMode("between_tools", "high", 1052)
+    adaptive = harness.parse_args(
+        ["--claude-first", f"--claude-answers={SONNET}", "--claude-thinking=adaptive"]
+    )
+    assert harness.claude_mode(adaptive, settings) == ClaudeMode("adaptive", "high", 4096)
+    # Haiku's cache keys stay as its earlier runs wrote them, so their replies still serve.
+    assert harness.claude_options(CLAUDE_MODES["claude-haiku-5-5"]) == {
+        "thinking": "disabled",
+        "effort": "low",
+    }
+
+
+def test_max_usd_counts_this_runs_live_claude_calls_and_stops_at_the_cap() -> None:
+    calls = [
+        {"model": SONNET, "cached": False, "input_tokens": 8000, "output_tokens": 500},  # $0.021
+        {"model": CLAUDE, "cached": True, "input_tokens": 2000, "output_tokens": 60},  # replayed
+        {"model": "groq:x", "cached": False, "input_tokens": 1300, "output_tokens": 340},  # free
+    ]
+    records = [{"calls": calls}, {"calls": [], "judge": {"calls": []}}]
+    assert harness.spent_usd(records) == pytest.approx(0.021)
+    harness.check_spend(records, None)  # no cap
+    harness.check_spend(records, 0.03)  # under it: the run goes on
+    with pytest.raises(Stop) as stopped:
+        harness.check_spend(records, 0.02)
+    assert stopped.value.code == 4 and "--max-usd" in str(stopped.value)
+
+
+class Counters:
+    """The two Redis calls the judge's daily count makes, in memory."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+
+    async def get(self, key: str) -> bytes | None:
+        return str(self.values[key]).encode() if key in self.values else None
+
+    async def incrby(self, key: str, amount: int) -> int:
+        self.values[key] = self.values.get(key, 0) + amount
+        return self.values[key]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return True
+
+
+async def test_the_judge_keeps_to_its_tokens_a_utc_day_across_runs() -> None:
+    redis, day = Counters(), date(2026, 11, 3)
+    await harness.judge_room(cast(Any, redis), "groq:x", 10_000, 3_000, day)  # 0 + 3,000 fits
+    await harness.count_judged(cast(Any, redis), "groq:x", 8_000, day)
+    with pytest.raises(Stop) as stopped:  # 8,000 + 3,000 would pass it
+        await harness.judge_room(cast(Any, redis), "groq:x", 10_000, 3_000, day)
+    assert stopped.value.code == 2 and "00:00 UTC" in str(stopped.value)
+    await harness.judge_room(cast(Any, redis), "groq:x", 10_000, 3_000, day + timedelta(days=1))
+    await harness.judge_room(cast(Any, redis), "groq:x", 0, 3_000, day)  # 0: no budget set
 
 
 def test_the_official_eval_keeps_the_free_models(monkeypatch: pytest.MonkeyPatch) -> None:

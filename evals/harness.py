@@ -41,7 +41,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -100,10 +100,10 @@ from filinglens_llm import router
 from filinglens_llm.budget import ClaudeLedger
 from filinglens_llm.local import REVISIONS
 from filinglens_llm.providers import (
-    CLAUDE_EFFORT,
-    CLAUDE_MAX_TOKENS,
-    CLAUDE_THINKING,
+    ADAPTIVE_MAX_TOKENS,
+    CLAUDE_MODES,
     TIMEOUT,
+    ClaudeMode,
     Gemini,
     Provider,
     credits_usd,
@@ -165,9 +165,10 @@ BINARY = (
 CI_EXTRA = ("a04", "a07", "a09", "t04", "t08")
 # The labelled Claude-first configuration (--claude-first): Claude routes and answers, as
 # production runs it, beside the free-only run; never a floor, never in CI (user, 2026-10-31).
+# --claude-answers puts another Claude model on the answers while Haiku routes (user, 2026-11-04).
 CLAUDE_MODEL = "anthropic:claude-haiku-5-5"
 CLAUDE_LABEL = "claude-first"
-CLAUDE_OPTIONS = {"thinking": CLAUDE_THINKING, "effort": CLAUDE_EFFORT}  # in its cache keys too
+JUDGE_DAY_TTL_S = 3 * 24 * 3600  # a judge day's token count outlives its UTC day
 STAGES = ("route", "facts", "retrieve", "generate", "regenerate")
 LABELS = {
     "recall@10": "Retrieval recall@10",
@@ -230,8 +231,11 @@ def eval_settings() -> EvalSettings:
 
 def answer_model(args: argparse.Namespace, settings: EvalSettings) -> EvalSettings:
     """The official eval routes and answers with the free models. --claude-first puts Claude at
-    the head of both, as production runs it, for a labelled run; CI never runs it."""
+    the head of both, as production runs it, for a labelled run; CI never runs it. With
+    --claude-answers another Claude model answers while Haiku still routes."""
     if not args.claude_first:
+        if args.claude_answers or args.claude_thinking != "off":
+            raise SystemExit("--claude-answers and --claude-thinking need --claude-first.")
         if any(
             role.startswith("anthropic:") for role in (settings.llm_primary, settings.llm_router)
         ):
@@ -244,7 +248,74 @@ def answer_model(args: argparse.Namespace, settings: EvalSettings) -> EvalSettin
         raise SystemExit("--claude-first is local only: CI runs the official free models.")
     if settings.anthropic_api_key is None or not settings.anthropic_api_key.get_secret_value():
         raise SystemExit("--claude-first needs ANTHROPIC_API_KEY.")
-    return settings.model_copy(update={"llm_router": CLAUDE_MODEL, "llm_primary": CLAUDE_MODEL})
+    answers = args.claude_answers or CLAUDE_MODEL
+    name, _, model = answers.partition(":")
+    if name != "anthropic" or model not in CLAUDE_MODES:
+        raise SystemExit(f"--claude-answers: {answers} has no mode in CLAUDE_MODES.")
+    return settings.model_copy(update={"llm_router": CLAUDE_MODEL, "llm_primary": answers})
+
+
+def claude_mode(args: argparse.Namespace, settings: EvalSettings) -> ClaudeMode | None:
+    """How Claude answers in this run: its model's own mode, or with --claude-thinking=adaptive
+    adaptive thinking at its effort, under a cap that leaves room for the thinking."""
+    name, _, model = settings.llm_primary.partition(":")
+    if name != "anthropic":
+        return None
+    mode = CLAUDE_MODES[model]
+    if args.claude_thinking == "adaptive":
+        return replace(mode, thinking="adaptive", max_tokens=ADAPTIVE_MAX_TOKENS)
+    return mode
+
+
+def claude_options(mode: ClaudeMode) -> dict[str, str]:
+    """Claude's settings in its replies' cache keys; the cap joins them as max_tokens."""
+    return {"thinking": mode.thinking, "effort": mode.effort}
+
+
+def spent_usd(records: Collection[Mapping[str, Any]]) -> float:
+    """What this run's live Claude calls cost at list prices; replies from the cache cost
+    nothing, and the free models bill nothing."""
+    calls = [
+        call
+        for record in records
+        for call in [*record.get("calls", []), *(record.get("judge") or {}).get("calls", [])]
+        if not call["cached"]
+    ]
+    return sum(credits_usd(c["model"], c["input_tokens"], c["output_tokens"]) for c in calls)
+
+
+def check_spend(records: Collection[Mapping[str, Any]], cap: float | None) -> None:
+    """Stop (exit 4) before the next question once this run's live Claude calls have cost
+    --max-usd; it can pass the cap by one question's calls."""
+    if cap is not None and (spent := spent_usd(records)) >= cap:
+        raise Stop(
+            4,
+            f"--max-usd: this run's Claude calls cost ${spent:.2f}, at its ${cap:.2f} cap. Raise"
+            " it to go on: the run resumes.",
+        )
+
+
+def judge_key(model: str, day: date) -> str:
+    return f"eval:judge-tokens:{model}:{day.isoformat()}"
+
+
+async def judge_room(redis: Redis, model: str, budget: int, need: int, day: date) -> None:
+    """Stop (exit 2) when judging one more answer could pass --judge-budget, the judge's tokens
+    a UTC day across runs, which leaves a shared free tier its headroom; 0 sets no budget."""
+    spent = int(await redis.get(judge_key(model, day)) or 0)
+    if budget and spent + need > budget:
+        raise Stop(
+            2,
+            f"--judge-budget: {model} has judged {spent:,} of {budget:,} tokens today. It resumes"
+            " after 00:00 UTC.",
+        )
+
+
+async def count_judged(redis: Redis, model: str, tokens: int, day: date) -> None:
+    """Add a live verdict's tokens to the judge's count for its UTC day."""
+    key = judge_key(model, day)
+    await redis.incrby(key, tokens)
+    await redis.expire(key, JUDGE_DAY_TTL_S)
 
 
 @dataclass(frozen=True)
@@ -512,14 +583,19 @@ def answer_path(
 
 
 def primary_provider(
-    settings: EvalSettings, http: httpx.AsyncClient, thinking: str, ledger: ClaudeLedger
+    settings: EvalSettings,
+    http: httpx.AsyncClient,
+    thinking: str,
+    ledger: ClaudeLedger,
+    mode: ClaudeMode | None = None,
 ) -> Provider:
-    """LLM_PRIMARY; Gemini keeps its own thinking when `thinking` is "default" (decision 3)."""
+    """LLM_PRIMARY; Gemini keeps its own thinking when `thinking` is "default" (decision 3), and
+    Claude answers in `mode`."""
     name, _, model = settings.llm_primary.partition(":")
     if name == "gemini" and thinking == "default":
         key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
         return Gemini(model, key, http, minimal_thinking=False)
-    return provider(settings.llm_primary, settings, http, ledger)
+    return provider(settings.llm_primary, settings, http, ledger, mode)
 
 
 def routed(
@@ -687,21 +763,23 @@ class AnswerSuite:
         self.claude_redis = Redis.from_url(str(settings.redis_url.get_secret_value()))
         ledger = ClaudeLedger(self.claude_redis, settings.claude_daily_token_budget)
         self.router = provider(settings.llm_router, settings, self.http, ledger)
-        claude_routes = settings.llm_router.startswith("anthropic:")
-        self.router_options = dict(CLAUDE_OPTIONS) if claude_routes else {}
-        self.router_max_tokens = CLAUDE_MAX_TOKENS if claude_routes else None
-        self.primary = primary_provider(settings, self.http, args.thinking, ledger)
+        name, _, model = settings.llm_router.partition(":")
+        routes = CLAUDE_MODES[model] if name == "anthropic" else None  # Claude routes in its own
+        self.router_options = claude_options(routes) if routes else {}
+        self.router_max_tokens = routes.max_tokens if routes else None
+        mode = claude_mode(args, settings)
+        self.primary = primary_provider(settings, self.http, args.thinking, ledger, mode)
         self.judge = provider(settings.llm_judge, settings, self.http)
         self.tracked: dict[str, str] = {}  # the router's companies, read when the run starts
         gemini = settings.llm_primary.startswith("gemini:")
         self.options = {"thinking": args.thinking} if gemini else {}
-        if settings.llm_primary.startswith("anthropic:"):  # other settings must not reuse replies
-            self.options = dict(CLAUDE_OPTIONS)
+        if mode is not None:  # Claude: other settings must not reuse its replies
+            self.options = claude_options(mode)
         if args.primary_tag:  # a new key for the primary only: router replies stay cached
             self.options |= {"tag": args.primary_tag}
         self.max_tokens = THINKING_MAX_TOKENS if gemini and args.thinking == "default" else None
-        if settings.llm_primary.startswith("anthropic:"):  # Claude's own cap, in its keys too
-            self.max_tokens = CLAUDE_MAX_TOKENS
+        if mode is not None:  # Claude's own cap, in its keys too
+            self.max_tokens = mode.max_tokens
         self.path = answer_path(settings, index, args.tag)
         # --router-primary: the router replies another primary's run got, so both models get the
         # same routes (a fair comparison); without it, the same path as the primary's.
@@ -745,6 +823,7 @@ class AnswerSuite:
         if todo:
             await self.evidence.search("warm up the local models", Scope())  # no model call
         for n, question in enumerate(todo, 1):
+            check_spend(list(records.values()), self.args.max_usd)
             started = time.perf_counter()
             record = await self.one(question)
             append_jsonl(self.run_file, record)
@@ -812,7 +891,13 @@ class AnswerSuite:
         }
         record |= scores(question, given, stats.get("routing"), calls, sources, self.tracked)
         if given is not None and not given.refused and self.args.judge:
+            today = datetime.now(UTC).date()  # the free tier's day, not the pinned one
+            need = ESTIMATE["judge"][question["category"]]
+            await judge_room(self.redis, self.judge.name, self.args.judge_budget, need, today)
             record["judge"] = await self.judged(question, given, sources)
+            live = [c for c in record["judge"].get("calls", []) if not c["cached"]]
+            if spent := sum(c["input_tokens"] + c["output_tokens"] for c in live):
+                await count_judged(self.redis, self.judge.name, spent, today)
         return record
 
     async def judged(
@@ -1374,9 +1459,10 @@ async def evaluate(args: argparse.Namespace) -> int:
         await check_corpus(engine, golden)
         index = await index_version(engine, settings.retrieval_embedding_column)
         embedder = EMBEDDING_MODELS[settings.retrieval_embedding_column]
+        mode = claude_mode(args, settings)
         thinking = {
             "gemini": args.thinking,
-            "anthropic": f"{CLAUDE_THINKING}, effort {CLAUDE_EFFORT}",
+            "anthropic": f"{mode.thinking}, effort {mode.effort}" if mode else "",
         }
         config = {
             "router": settings.llm_router,
@@ -1641,6 +1727,22 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--claude-first", action="store_true",
         help="Claude routes and answers first, as production runs it: labelled, never floors",
+    )  # fmt: skip
+    parser.add_argument(
+        "--claude-answers", default="", metavar="PROVIDER:MODEL",
+        help="with --claude-first: this Claude model answers while Haiku routes",
+    )  # fmt: skip
+    parser.add_argument(
+        "--claude-thinking", choices=("off", "adaptive"), default="off",
+        help="with --claude-first: adaptive thinking at the model's effort, under a larger cap",
+    )  # fmt: skip
+    parser.add_argument(
+        "--max-usd", type=float, default=None,
+        help="stop before a question once this run's live Claude calls cost this much",
+    )  # fmt: skip
+    parser.add_argument(
+        "--judge-budget", type=int, default=0, metavar="TOKENS",
+        help="the judge's tokens a UTC day across runs (Redis db 15); past it the run stops",
     )  # fmt: skip
     return parser.parse_args(argv)
 

@@ -13,17 +13,18 @@ import { LIVE, OFFLINE, snapshot } from "./env.ts";
 import { audit, expect, noSidewaysScroll, signedOut, signIn, test } from "./fixtures.ts";
 
 const REPORTS = new URL("../../evals/reports/", import.meta.url);
-const newest = readdirSync(REPORTS)
-  .filter((name) => /^\d{4}-\d{2}-\d{2}\.json$/.test(name))
-  .sort()
-  .at(-1);
-if (!newest) throw new Error("No official report in evals/reports");
-const report = JSON.parse(readFileSync(new URL(newest, REPORTS), "utf8"));
-const table = readFileSync(new URL(newest.replace(/json$/, "md"), REPORTS), "utf8");
-// The same day's Claude-first run, the page's first table; the free-only run above is its second.
-const claudeName = newest.replace(/\.json$/, "-claude-first.json");
-const claude = JSON.parse(readFileSync(new URL(claudeName, REPORTS), "utf8"));
-const claudeTable = readFileSync(new URL(claudeName.replace(/json$/, "md"), REPORTS), "utf8");
+/** The newest official report of one kind, with its table: each kind is dated by its own run. */
+function newestReport(kind: RegExp) {
+  const name = readdirSync(REPORTS)
+    .filter((file) => kind.test(file))
+    .sort()
+    .at(-1);
+  if (!name) throw new Error(`No official report in evals/reports matches ${kind}`);
+  return [JSON.parse(readFileSync(new URL(name, REPORTS), "utf8")), readFileSync(new URL(name.replace(/json$/, "md"), REPORTS), "utf8")] as const;
+}
+const [report, table] = newestReport(/^\d{4}-\d{2}-\d{2}\.json$/);
+// The newest Claude-first run, the page's first column, which can be newer than the free-only run above.
+const [claude, claudeTable] = newestReport(/^\d{4}-\d{2}-\d{2}-claude-first\.json$/);
 const RUNS = [
   ["claude-first", claude, claudeTable],
   ["free", report, table],
@@ -139,17 +140,34 @@ test("the evaluation's one comparison table, its runs' models and dates, and its
   const { config, judge_calibration: judge } = report;
   const texts = [
     `${report.records.answer.length} questions`,
-    evalDate(report.created_at),
+    `Claude first on ${evalDate(claude.created_at)}, the free models on ${evalDate(report.created_at)}`,
     config.judge,
     "cross-checked blind by a second model; no human spot check in v2",
     `Cohen's kappa ${judge.kappa.toFixed(2)}`,
     `rests on ${report.metrics.retrieval["recall@10"].n} questions`,
   ];
+  // The columns' answer prompts differ until the free models run again, and the page must say so only then.
+  if (claude.prompts.answer_system !== report.prompts.answer_system) texts.push("The free models' run predates the answer prompt Claude first used.");
   for (const text of texts) await expect(results).toContainText(text);
   await expect(results).toContainText(new RegExp(`labels written by ${judge.labeler}`, "i"));
   const how = page.locator("#how");
   await expect(how).toContainText(`${report.index.chunks.toLocaleString("en-US")} passages`);
   await expect(how).toContainText(`top ${config.rerank_candidates}`);
+});
+
+test("the Sonnet note: the dev split's figures from each arm's judged report, and which split they are", async ({ page }) => {
+  const dev = (stamp: string) => JSON.parse(readFileSync(new URL(`runs/${stamp}-answer-dev-full-claude-first.json`, REPORTS), "utf8"));
+  const [haiku, off, adaptive] = ["20261103T175043Z", "20261103T175921Z", "20261104T000849Z"].map(dev);
+  expect([haiku, off, adaptive].map((run) => run.config.primary)).toEqual(["anthropic:claude-haiku-5-5", "anthropic:claude-sonnet-5-5", "anthropic:claude-sonnet-5-5"]);
+  expect([off, adaptive].map((run) => run.config.thinking.split(",")[0])).toEqual(["between_tools", "adaptive"]);
+  const precision = (run: typeof haiku) => run.metrics.answer.citation_precision.value.toFixed(3);
+  const cost = (run: typeof haiku) => `$${run.metrics.answer.cost_usd.value.toFixed(4)}`;
+  await page.goto("/");
+  const note = page.getByTestId("sonnet-note");
+  await expect(note).toHaveText(
+    `Claude Sonnet 5.5 was measured too, on the ${haiku.records.answer.length} dev questions, not this test set: citation precision ${precision(off)} with thinking off and ${precision(adaptive)} with adaptive thinking against Haiku's ${precision(haiku)}, at ${cost(off)} and ${cost(adaptive)} a query against ${cost(haiku)}. Haiku stayed; see the measured decision.`,
+  );
+  await expect(note.getByRole("link", { name: "the measured decision" })).toHaveAttribute("href", /evals\/README\.md$/);
 });
 
 // Below 40rem each metric is a card, after FreightAudit's landing: its name, its target at the top right, then a

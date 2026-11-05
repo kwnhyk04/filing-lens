@@ -1127,6 +1127,7 @@ From the phone polish (2026-11-03, branch `fl-mobile-polish` from main at bf593b
 - 2026-11-03: Pitfall: Playwright's screenshot `style` option adds a `<style>` tag, which the page's CSP blocks, and the fixtures fail every test with a CSP violation. The results section's shot hides the fixed header through the element's `style` property instead, which CSP allows.
 - 2026-11-03: Mistake: a ` ` written through the edit tool landed in `app/page.tsx` as a raw invisible non-breaking space, and the first fix gave a doubled backslash. The card label's date now keeps to one line with `white-space: nowrap` on a span. Lesson: keep invisible characters out of source and use CSS.
 - 2026-11-03: Event: the session's scratchpad was emptied mid-task, by another Claude Code process's startup cleanup according to the tool's message. The icon previews and main's built home-screen icon, kept for comparison, were lost. The comparison was redone by drawing main's element tree fresh.
+- 2026-11-04: Decision (user): Claude Haiku 5.5 stays the answer model, and rule 4 asks rounded figures for at least four significant digits. Reason: Sonnet 5.5 measured equal in quality on dev at about 16 times the cost and slower, and Haiku's numeric gap was rounding only; with the new rule Haiku reached 1.000 (`evals/README.md`, `docs/prompt-log.md`).
 
 ## Preferences and Instructions
 
@@ -1208,6 +1209,8 @@ From the phone polish (2026-11-03, branch `fl-mobile-polish` from main at bf593b
 
 ## Solved Problems
 
+- 2026-11-04: n40's leaked Sources block (the pitfall of the same day, Known Issues): `SOURCES_HEADING`'s inline form now lets its first source follow on the next line, past spaces, line breaks and list or emphasis marks. Pinned: a "Sources:" that ends a line with no source line next stays in the answer. Offline replay: 4 of 1,272 cached drafts change, each only losing a leaked block.
+
 - 2026-11-01: Two answer-path log lines carried model-written text (found while planning Recent questions; fixed first on `answer-log-privacy`, under the bug-fix-first rule).
   - **Problem:**
     - `answering.py`'s "answer failed validation, regenerating" logged `problems=checked.problems`. Each problem quotes the draft sentence it found (`answer.py:160`), for example `"Apple paid its suppliers $999.9 billion [C1].": the amount … is not in the sources it cites`.
@@ -1259,6 +1262,16 @@ From the phone polish (2026-11-03, branch `fl-mobile-polish` from main at bf593b
     - Entries unused for 7 days are evicted, which would make the next run cold.
 
 ## Known Issues and Pitfalls
+
+- 2026-11-05: Weakness: the amount check does not read a figure written "51.32 USD". `find_amounts` returns nothing for it (checked on "51.32 USD" and "3.04 USD"; it does read "$3.04" and "4,121,000,000 USD"), so `validate`'s amount loop has no amount to check in such a sentence, and a wrong per-share figure with a good citation would pass that loop. The right figures of n44 and n51 (test) and n09 and n16 (dev) took that form under rule 4, which asks for figures "as the sources state them", and a fact's quote reads "51.32 USD/shares". `numbers_in` already reads it for the compare check. Exact match catches a wrong one in evals only. Its own PR (todo.md, bug-fix-first).
+- 2026-11-05: Pitfall: a thin answer can score perfectly. x40 kept 1 of 5 sentences, off the question's point, and the judge gave it 1 of 1. Coverage shows it (1 of 5); read the answers with low coverage after a run.
+- 2026-11-05: Pitfall: a full test run's report is named by its date, so a `--no-judge` run followed by a judged replay on the same day overwrites the live latency. Judge a test run in the same pass.
+- 2026-11-05: `--judge-budget` counts FilingLens's tokens only: FreightAudit's use of the same Groq account is not visible, and Groq shows no daily level. The harness also prints its estimate and goes live at once, so compare it with the approved figure offline first.
+- 2026-11-04: Pitfall: a reply that ends its answer line with "Sources:" and lists its quotes on the next lines keeps the whole block in the answer the user reads. `read_reply` wants the heading alone on its line, so it finds no quotes, and the block's line passes validation as a sentence citing the fact whose value it repeats (n40, Haiku, rule 4 run). Its own PR (todo.md).
+- 2026-11-04: Pitfall: citation markers after the period ("…billion. [F1][F2][K1]", a sentence a line) make `split_sentences` read the lines as one sentence, so each amount is checked against all their citations together; the judge splits them and reports a count mismatch, so the answer goes unscored (c07; x06 earlier).
+- 2026-11-04: The eval harness exited 139 once after printing its report (the rule 4 judge replay); cause not confirmed. The report, its `eval_runs` row and the progress file's removal had all happened, so check those before rerunning such a run.
+- 2026-11-04: Pitfall: the dev Redis saves RDB snapshots only (the image's default `save 3600 1 300 100 60 10000`, `appendonly no`; compose sets no command), so a crash loses the writes since the last snapshot. After the PC crash of 2026-11-04, the judge's day count (`eval:judge-tokens:<judge>:<UTC date>`, db 15) read 13,941, while the run's 26 live judge calls held 20,743. `--judge-budget` reads that key. Reason to recount: after a crash, sum the day's live judge tokens from the records and lower `--judge-budget` by the gap (173,198 for the rest of 2026-11-03), rather than writing the key by hand.
+- 2026-11-04: Claude Code stops a background eval when the PC runs low on memory (the judging chain, 2026-11-03 at 16:42 UTC). The run resumes from its progress file; the PC crashed about 30 minutes later (cause not confirmed).
 
 - 2026-10-21: Pitfall: gitleaks' `generic-api-key` rule matches across CRLF line ends.
   - In `.env.example`, `GEMINI_API_KEY=` followed by `GROQ_API_KEY=` is flagged in a Windows working copy (`core.autocrlf=true`).
