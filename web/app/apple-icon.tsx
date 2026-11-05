@@ -1,4 +1,4 @@
-// The app icon a phone's home screen shows: the dark mark on ink navy, drawn from lib/logo.ts at build time.
+// The app icon a phone's home screen shows: the dark mark on graphite, drawn from lib/logo.ts at build time.
 import { ImageResponse } from "next/og";
 
 import { appIcon } from "../lib/logo.ts";

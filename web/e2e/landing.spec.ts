@@ -371,10 +371,10 @@ test("the theme toggle keeps Light or Dark in a cookie the server reads, and Sys
   await page.goto("/");
   const html = page.locator("html");
   await expect(html).not.toHaveAttribute("data-theme");
-  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(244, 245, 242)");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(245, 246, 247)");
   await page.getByRole("radio", { name: "Dark" }).check();
   await expect(html).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(18, 21, 20)");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(18, 20, 24)");
   expect((await context.cookies()).find((cookie) => cookie.name === "fl-theme")?.value).toBe("dark");
   // Rendered dark on the server, so nothing flashes: the HTML itself carries the theme.
   expect(await (await page.request.get("/demo")).text()).toMatch(/<html[^>]* data-theme="dark"/);
@@ -384,6 +384,26 @@ test("the theme toggle keeps Light or Dark in a cookie the server reads, and Sys
   await expect(html).not.toHaveAttribute("data-theme");
   expect((await context.cookies()).some((cookie) => cookie.name === "fl-theme")).toBe(false);
 });
+
+const STEEL = {
+  light: { accent: "rgb(74, 85, 99)", onAccent: "rgb(255, 255, 255)" },
+  dark: { accent: "rgb(169, 180, 194)", onAccent: "rgb(18, 20, 24)" },
+};
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`the headline's second line, the demo button, links and focus take the steel accent, in ${colorScheme}`, async ({ page }) => {
+    const { accent, onAccent } = STEEL[colorScheme];
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await page.goto("/");
+    await expect(page.locator(".hero-line-2")).toHaveCSS("color", accent);
+    const demo = page.locator(".hero-cta .button");
+    await expect(demo).toHaveCSS("background-color", accent);
+    await expect(demo).toHaveCSS("color", onAccent);
+    await expect(page.locator(".evidence-links a").first()).toHaveCSS("color", accent);
+    await demo.focus();
+    await expect(demo).toHaveCSS("outline-color", accent);
+  });
+}
 
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "no-preference" });

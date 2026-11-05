@@ -92,18 +92,19 @@ type MembraneScene = {
   time?: number;
 };
 type Rgb = [number, number, number];
-type MembranePalette = { tones: Rgb[]; deep: Rgb[]; paper: Rgb; ink: Rgb; dim: number; glow: number; css: { tones: string[]; deep: string[] } };
+type MembranePalette = { tones: Rgb[]; deep: Rgb[]; paper: Rgb; rim: Rgb; css: { tones: string[]; deep: string[] } };
 const MEMBRANE_LIMITS = { cells: 18, strands: 8 } as const;
 
 const rgb = (hex: string): Rgb => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as Rgb;
-function palette(tones: string[], deep: string[], dim: number, glow: number): MembranePalette {
-  return { tones: tones.map(rgb), deep: deep.map(rgb), paper: rgb("#FAF8F3"), ink: rgb("#0F1B2D"), dim, glow, css: { tones, deep } };
+function palette(tones: string[], deep: string[], paper: string, rim: string): MembranePalette {
+  return { tones: tones.map(rgb), deep: deep.map(rgb), paper: rgb(paper), rim: rgb(rim), css: { tones, deep } };
 }
 // Tone 0 the lead and the left of the body, 1 the passages, 2 the partner and the right, 3 the check.
-// Light: pale teal and soft grey-blue on paper. Dark: the same teal glowing on navy, the bodies dimmed.
+// The body is the site's surface, a step raised where the passages and the check join it; the rim draws its hairline
+// (the rim's strongest mix, 0.6 of this colour, comes to --rule). No halo: a faint one bands on these greys.
 const PALETTES: Record<Mode, MembranePalette> = {
-  light: palette(["#A6E6DA", "#BBD6E2", "#C6D4E5", "#E9E2CB"], ["#6CCDBD", "#8DB6C9", "#99AFC9", "#D2C6A1"], 0, 0.16),
-  dark: palette(["#2DD4BF", "#4D8A9C", "#5A7A9B", "#B7A67C"], ["#1EA593", "#3A6E80", "#45617F", "#958559"], 0.42, 0.5),
+  light: palette(["#FFFFFF", "#F9FAFB", "#FFFFFF", "#F5F6F7"], ["#FFFFFF", "#F5F6F7", "#FFFFFF", "#EEF0F2"], "#FFFFFF", "#CACFD5"),
+  dark: palette(["#1A1D22", "#1E2126", "#1A1D22", "#20242A"], ["#1C1F24", "#20242A", "#1C1F24", "#262B32"], "#1A1D22", "#383E47"),
 };
 
 const vertexSource = `
@@ -123,7 +124,7 @@ uniform vec4 uStrandA[${MEMBRANE_LIMITS.strands}];
 uniform vec4 uStrandB[${MEMBRANE_LIMITS.strands}];
 uniform vec3 uTone[4];
 uniform vec3 uDeep[4];
-uniform vec3 uPaper; uniform vec3 uInk; uniform float uDim; uniform float uGlow;
+uniform vec3 uPaper; uniform vec3 uRim;
 uniform float uBlend;
 uniform float uWobble;
 uniform float uContour;
@@ -178,21 +179,18 @@ void main() {
   tone /= max(wsum, 1e-5); deep /= max(wsum, 1e-5);
   d += (sin(p.x * 0.021 + uTime * 0.9) * sin(p.y * 0.027 - uTime * 0.7) * 0.6 + sin((p.x - p.y) * 0.017 + uTime * 1.3) * 0.4) * uWobble;
   float cover = 1.0 - smoothstep(-0.9, 0.9, d);
-  float halo = exp(-max(d, 0.0) / 34.0) * (1.0 - cover) * uGlow;
-  if (cover <= 0.003 && halo <= 0.004) discard;
+  if (cover <= 0.003) discard;
   float depth = clamp(-d / 56.0, 0.0, 1.0);
   vec3 body = mix(mix(tone, uPaper, 0.12), deep, depth * 0.26);
   float rim = 1.0 - smoothstep(0.0, 1.9, abs(d + 1.1));
-  body = mix(body, deep, rim * 0.6);
+  body = mix(body, uRim, rim * 0.6);
   float ring = abs(fract(-d / 14.0) - 0.5);
   float lines = (1.0 - smoothstep(0.06, 0.16, ring)) * smoothstep(0.0, -7.0, d) * exp(d / 90.0) * uContour;
   body = mix(body, deep, lines * 0.34);
-  body = mix(body, uInk, uDim);
-  vec3 light = mix(tone, vec3(1.0), 0.25);
-  gl_FragColor = vec4(body * cover + light * halo, cover + halo);
+  gl_FragColor = vec4(body * cover, cover);
 }
 `;
-const UNIFORMS = ["uSize", "uDpr", "uTime", "uCellCount", "uCellA", "uCellB", "uStrandCount", "uStrandA", "uStrandB", "uTone", "uDeep", "uPaper", "uInk", "uDim", "uGlow", "uBlend", "uWobble", "uContour"];
+const UNIFORMS = ["uSize", "uDpr", "uTime", "uCellCount", "uCellA", "uCellB", "uStrandCount", "uStrandA", "uStrandB", "uTone", "uDeep", "uPaper", "uRim", "uBlend", "uWobble", "uContour"];
 
 type Program = { gl: WebGLRenderingContext; program: WebGLProgram; buffer: WebGLBuffer; shaders: WebGLShader[]; at: Record<string, WebGLUniformLocation | null> };
 type Renderer = { status: "webgl" | "fallback"; resize(w: number, h: number, dpr: number): void; setPalette(p: MembranePalette): void; draw(s: MembraneScene): void; dispose(): void };
@@ -303,9 +301,7 @@ function createRenderer(canvas: HTMLCanvasElement): Renderer {
     gl.uniform3fv(at.uTone, colors.tones.flat());
     gl.uniform3fv(at.uDeep, colors.deep.flat());
     gl.uniform3f(at.uPaper, ...colors.paper);
-    gl.uniform3f(at.uInk, ...colors.ink);
-    gl.uniform1f(at.uDim, colors.dim);
-    gl.uniform1f(at.uGlow, colors.glow);
+    gl.uniform3f(at.uRim, ...colors.rim);
     gl.uniform1f(at.uBlend, scene.blend ?? 26);
     gl.uniform1f(at.uWobble, scene.wobble ?? 0);
     gl.uniform1f(at.uContour, scene.contour ?? 0);
