@@ -12,6 +12,7 @@ export const API_KEY = "e2e-mock-api-key-0123456789abcdef";
 export const SESSION_SECRET = "e2e-session-secret-0123456789abcdef";
 export const PASSWORD = "e2e only, never a real password";
 export const STATE = "e2e/.auth/session.json";
+export const OWN_DATA_QUESTION = "How many companies do you have?"; // the mock answers it from FilingLens's own data
 
 /** An argon2id hash of PASSWORD at the web's lowest accepted cost, so the config loads fast. */
 export function passwordHash(): string {
@@ -36,7 +37,7 @@ export interface DemoAnswer {
 
 export const snapshot = JSON.parse(readFileSync(new URL("../demo/snapshot.json", import.meta.url), "utf8")) as {
   answers: DemoAnswer[];
-  companies: { cik: number; name: string; filings: { edges: unknown[] } }[];
+  companies: { cik: number; ticker: string; name: string; filings: { edges: unknown[] } }[];
   sources: { chunks: { id: string }[]; facts: { id: string }[] };
 };
 

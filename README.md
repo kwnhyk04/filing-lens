@@ -7,7 +7,7 @@ FilingLens answers questions about SEC filings. Every sentence cites the passage
 ## How it works
 
 1. **Ingest:** workers fetch filings from SEC EDGAR, split them into item sections and chunks, embed the chunks into Postgres (pgvector) with a local model, and load the XBRL facts.
-2. **Route:** a small model reads the question: which companies, fiscal years and figure. Off-topic questions, untracked companies and fiscal years with no 10-K yet are refused here.
+2. **Route:** a small model reads the question: which companies, fiscal years and figure. Off-topic questions, untracked companies and fiscal years with no 10-K yet are refused here. Questions about FilingLens itself or its collection get a fixed answer with figures read from the database, and no answer model runs.
 3. **Find:** a figure comes from the XBRL facts first, and text from hybrid search with a reranker. For a comparison of two facts, code does the arithmetic.
 4. **Answer:** the model writes each sentence with its citations and quotes the passages it used.
 5. **Check:** code confirms each quote is in its passage and each amount matches a cited source. A failed draft is rewritten once, then the sentences that still fail are dropped. If none holds, the answer is refused.

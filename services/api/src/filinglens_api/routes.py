@@ -274,7 +274,8 @@ async def stream_answer(
     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
     closing punctuation, over the same companies and years) gets it back at once as one
-    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again. An
+    answer about FilingLens itself is not kept: its figures are read each time it is asked.
     """
     deadline = asyncio.get_running_loop().time() + limits.ANSWER_TIMEOUT_S
     try:
@@ -285,7 +286,7 @@ async def stream_answer(
                 session_id is not None
                 and isinstance(event, AnswerCompleted)
                 and event.stored_at is None  # a new answer, not one from earlier
-                and not (event.answer.refused or event.answer.degraded)
+                and not (event.answer.refused or event.answer.degraded or event.answer.own_data)
             ):
                 await recent.put(session_id, body, event.answer)  # past the deadline's reach
             yield event
@@ -306,7 +307,8 @@ async def list_recent_answers(
 ) -> RecentAnswerPage:
     """This sign-in's questions with their completed answers, newest first. Either key.
 
-    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers
+    about FilingLens itself never are.
     """
     return await recent.page(session_id, limit, cursor)
 

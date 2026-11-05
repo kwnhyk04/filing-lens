@@ -12,7 +12,9 @@ import {
   createSseParser,
   figureRows,
   formLabel,
+  fromOwnData,
   locateQuote,
+  OWN_DATA,
   periodEnded,
   readingChips,
   sourceLabel,
@@ -151,6 +153,7 @@ const CITED: Answer = {
   warnings: [],
   reading: null,
   checks: [],
+  own_data: false,
 };
 
 test("copied text: the answer with its markers, then each source's name, quote and link", () => {
@@ -199,6 +202,14 @@ test("Read as: the kind, each company, the years in order, a quarter and the fig
   const quarter = read({ route: "textual", other_companies: ["Acme"], fiscal_years: [2023, 2025, 2024], fiscal_period: "Q2", metric: "eps_diluted" });
   assert.deepEqual(readingChips(quarter), ["Text question", "Acme", "Fiscal 2023, 2024 and 2025", "Q2", "Diluted EPS"]);
   assert.deepEqual(readingChips(read({ metric: "free_cash_flow" })), ["Number question", "Free cash flow"]); // not in the map
+});
+
+test("an answer about FilingLens comes from its own data; no other answer does", () => {
+  const n01 = saved("n01");
+  assert.equal(fromOwnData({ ...n01, own_data: true }), true);
+  assert.equal(fromOwnData({ ...n01, own_data: false }), false);
+  assert.equal(fromOwnData(n01), false); // a saved answer predates the flag
+  assert.equal(OWN_DATA, "From FilingLens's own data");
 });
 
 const CHECKED = {

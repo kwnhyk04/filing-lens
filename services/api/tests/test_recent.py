@@ -188,7 +188,7 @@ def test_fresh_asks_again_and_replaces_the_stored_answer(
     assert fake.answered == 2
 
 
-@pytest.mark.parametrize("kind", ["refused", "degraded", "failed"])
+@pytest.mark.parametrize("kind", ["refused", "degraded", "failed", "own_data"])
 def test_refusals_degraded_answers_and_failed_streams_are_never_stored(
     server_url: str, api_key: str, fake: Any, fake_redis: Any, kind: str
 ) -> None:

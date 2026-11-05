@@ -97,8 +97,8 @@
   scale: calc(0.6 + 0.4 * var(--check, 0));
 }
 
-/* The capsule: a glass pill the page types the question into. Its edge warms as the organisms arrive
-   (`--line`); the glass dissolves once the membrane takes its place. */
+/* The capsule: the Ask bar's grey pill (globals.css), which the page types the question into. Its edge grows
+   as the organisms arrive (`--line`); the pill dissolves once the membrane takes its place. */
 .pb-capsule {
   position: absolute;
   top: 50%;
@@ -111,7 +111,7 @@
   height: 3.5rem;
   padding: 0 0.5rem 0 1.25rem;
   translate: -50% -50%;
-  color: var(--hero-ink);
+  color: var(--bar-ink);
   font-size: 1.0625rem;
 }
 
@@ -121,11 +121,10 @@
   inset: -4px -3px;
   z-index: -1;
   border-radius: 999px;
-  background: var(--glass);
+  background: var(--bar);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.33),
-    0 0 0 1px var(--glass-edge),
-    0 0 0 calc(max(var(--line, 1) - 1, 0) * 1.4px) rgb(45 212 191 / 0.75),
+    0 0 0 1px var(--bar-line),
+    0 0 0 calc(max(var(--line, 1) - 1, 0) * 1.4px) color-mix(in srgb, var(--bar-send) 75%, transparent),
     0 14px 40px -22px rgb(0 0 0 / 0.45);
   transition: opacity 0.45s;
 }
@@ -156,8 +155,8 @@
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 50%;
-  background: var(--hero-teal);
-  color: var(--hero-paper);
+  background: var(--bar-send);
+  color: var(--on-bar-send);
 }
 
 /* The caption: the cue and the steps so far on one row; Replay and Pause in the hero's corner, as Prompt

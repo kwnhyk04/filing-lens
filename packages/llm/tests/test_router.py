@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import date
 
 import pytest
@@ -165,6 +167,143 @@ def test_a_fiscal_year_is_a_filing_year_only_where_the_question_ties_it_to_a_fil
     assert read("What did its fiscal 2027 10-Q say?") == []  # a quarter can precede its 10-K
     assert read("What happened at the Grasberg mine in September 2025?") == []
     assert read("What are Apple's 2030 goals?") == []
+
+
+def test_an_ordinary_question_sends_the_same_prompt_and_schema_as_ever() -> None:
+    """Sha256s of both on main before the about routes: ordinary questions must route as before,
+    and a changed prompt or schema would also change every eval's call key."""
+    prompt = router.system_prompt(date(2026, 10, 16), COMPANIES)
+    schema = json.dumps(router.schema(COMPANIES), sort_keys=True, default=str)
+    assert hashlib.sha256(prompt.encode()).hexdigest() == (
+        "b6ac0f598de5b722484ea421e2f73541ffe24da87ff9f849a1f1ee31fc777c36"
+    )
+    assert hashlib.sha256(schema.encode()).hexdigest() == (
+        "fdbb1acf1081fa7c0df9cea049113ebe311ad3ef8cf61f55975b8bd9c922c6e0"
+    )
+
+
+def test_the_about_routes_are_offered_only_when_asked_for() -> None:
+    today = date(2026, 10, 16)
+    routes = router.schema(COMPANIES)["properties"]["route"]["enum"]
+    assert routes == ["numeric", "textual", "comparison", "out_of_scope"]
+    wider = router.schema(COMPANIES, about=True)["properties"]["route"]["enum"]
+    assert wider == [*routes, "about_app", "about_collection"]
+    prompt = router.system_prompt(today, COMPANIES, about=True)
+    assert prompt.startswith(router.system_prompt(today, COMPANIES))
+    assert "about_app" in prompt and "about_collection" in prompt
+    assert "about_app" not in router.system_prompt(today, COMPANIES)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        # About the app.
+        "What is this app?",
+        "What can you do?",
+        "How does this work?",
+        "what is filinglens?",
+        "What does FilingLens do?",
+        "Who are you?",
+        "How do you work?",
+        "How does it work?",
+        "What can I ask you?",
+        "Tell me about yourself",
+        "What is this tool for?",
+        "How do I use this site?",
+        # About the collection.
+        "How many companies do you have?",
+        "Which companies?",
+        "What years do you cover?",
+        "What filings are included?",
+        "Do you have Tesla?",
+        "Do you have Netflix?",
+        "Is Tesla covered?",
+        "Is Tesla in the collection?",
+        "Is Netflix included?",
+        "Which companies are covered?",
+        "What companies are available?",
+        "How many companies are there?",
+        "How many filings do you have?",
+        "Which fiscal years are covered?",
+        "What's in the database?",
+        "When was the data last updated?",
+        "How recent is the data?",
+        "List the companies",
+    ],
+)
+def test_wording_about_filinglens_itself_opens_the_about_routes(question: str) -> None:
+    assert router.about_wording(question)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        # Filing questions in nearly the same words.
+        "How does Apple's supply chain work?",
+        "How many companies does Berkshire own?",
+        "Which companies did Apple acquire?",
+        "What companies compete with Visa?",
+        "Which companies mention visa restrictions for workers?",
+        "What years did Amazon report a net loss?",
+        "What filings did Apple make in 2025?",
+        "How many employees does Walmart have?",
+        "What can Apple do about tariffs?",
+        "What is this company's revenue?",
+        "What does Visa do?",
+        "What risks are covered in Apple's 10-K?",
+        "Are Apple's products covered by warranty?",
+        # Questions the router refuses.
+        "What is a 10-K?",
+        "What's the weather in Paris?",
+        "What is the capital of France?",
+        "Who won the 2026 FIFA World Cup?",
+        "Is Microsoft a good long-term investment?",
+        "Should I buy Tesla shares this month?",
+        "Will NVIDIA's stock price go up next year?",
+        # Advice stays out of the about routes even when it says "you" or "your".
+        "Should I buy your top stock?",
+        "Do you think Tesla's stock price will go up?",
+    ],
+)
+def test_a_near_miss_keeps_the_prompt_it_always_had(question: str) -> None:
+    assert not router.about_wording(question)
+
+
+def about(route: str, **fields: object) -> router.Routing:
+    return routing(**{"route": route, "tickers": [], "fiscal_years": [], "metric": None} | fields)
+
+
+def test_a_figure_asked_of_a_named_company_goes_to_the_filings() -> None:
+    """ "Do you have Apple's revenue?" wants the figure, not the news that Apple is covered."""
+    asked = about("about_collection", tickers=["AAPL"], metric="revenue")
+    assert router.settle(asked).route == "numeric"
+    assert router.settle(about("about_app", tickers=["AAPL"], metric="revenue")).route == "numeric"
+
+
+def test_an_app_question_that_names_a_company_goes_to_the_filings() -> None:
+    assert router.settle(about("about_app", tickers=["AAPL"])).route == "textual"
+    assert router.settle(about("about_app", other_companies=["Netflix"])).route == "textual"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        about("about_app"),
+        about("about_collection"),
+        about("about_collection", tickers=["AAPL"]),
+        about("about_collection", other_companies=["Netflix"]),
+        about("about_collection", metric="revenue"),  # "Do you have revenue figures?"
+        routing(),  # a filing route is never touched
+        about("out_of_scope", tickers=["AAPL"]),
+    ],
+)
+def test_any_other_reply_stands(reply: router.Routing) -> None:
+    assert router.settle(reply) == reply
+
+
+def test_the_plan_gives_an_about_question_its_named_company_for_the_collection_only() -> None:
+    assert router.fill(about("about_collection"), ["AAPL"]).tickers == ["AAPL"]
+    assert router.fill(about("about_app"), ["AAPL"]).tickers == []
 
 
 def test_a_reply_without_other_companies_still_parses() -> None:

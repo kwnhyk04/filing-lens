@@ -1048,7 +1048,7 @@
           "answers"
         ],
         "summary": "Stream Answer",
-        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry the answer's text as the model writes it, then one `completed` event\ncarries the whole answer after validation. The two agree unless validation rewrote the draft,\nand then the completed answer has warnings and replaces the streamed text. An error after the\nstream has started arrives as a `failed` event with a problem, and so does a stream still\nrunning after 30 s.\n\nWith `X-Session-ID`, a completed answer that is not refused or degraded is kept for that\nsign-in, and the same question again (same words, ignoring case, spacing, curly quotes and\nclosing punctuation, over the same companies and years) gets it back at once as one\n`completed` event with `stored_at`, without a model call. `fresh=true` answers again.",
+        "description": "POST /v1/answers as Server-Sent Events. Either key; shares the answers limits.\n\n`delta` events carry the answer's text as the model writes it, then one `completed` event\ncarries the whole answer after validation. The two agree unless validation rewrote the draft,\nand then the completed answer has warnings and replaces the streamed text. An error after the\nstream has started arrives as a `failed` event with a problem, and so does a stream still\nrunning after 30 s.\n\nWith `X-Session-ID`, a completed answer that is not refused or degraded is kept for that\nsign-in, and the same question again (same words, ignoring case, spacing, curly quotes and\nclosing punctuation, over the same companies and years) gets it back at once as one\n`completed` event with `stored_at`, without a model call. `fresh=true` answers again. An\nanswer about FilingLens itself is not kept: its figures are read each time it is asked.",
         "operationId": "stream_answer",
         "security": [
           {
@@ -1258,7 +1258,7 @@
           "answers"
         ],
         "summary": "List Recent Answers",
-        "description": "This sign-in's questions with their completed answers, newest first. Either key.\n\nAt most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.",
+        "description": "This sign-in's questions with their completed answers, newest first. Either key.\n\nAt most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers\nabout FilingLens itself never are.",
         "operationId": "list_recent_answers",
         "security": [
           {
@@ -1627,7 +1627,7 @@
                 "type": "null"
               }
             ],
-            "description": "How the router read the question; null if it was not read."
+            "description": "How the router read the question; null if it was not read, and on `own_data` answers."
           },
           "checks": {
             "items": {
@@ -1636,6 +1636,12 @@
             "type": "array",
             "title": "Checks",
             "description": "Each amount in the answer with the cited source that holds it. Validation removes a sentence with an amount no cited source holds, so every listed amount matched."
+          },
+          "own_data": {
+            "type": "boolean",
+            "title": "Own Data",
+            "description": "True when FilingLens answered about itself, the app or its collection, from its own data: no model wrote the text, and it cites no filing.",
+            "default": false
           }
         },
         "type": "object",
@@ -1647,7 +1653,8 @@
           "refused",
           "warnings",
           "reading",
-          "checks"
+          "checks",
+          "own_data"
         ],
         "title": "Answer"
       },

@@ -110,7 +110,8 @@ def sync_detailed(
     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
     closing punctuation, over the same companies and years) gets it back at once as one
-    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again. An
+    answer about FilingLens itself is not kept: its figures are read each time it is asked.
 
     Args:
         fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
@@ -160,7 +161,8 @@ def sync(
     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
     closing punctuation, over the same companies and years) gets it back at once as one
-    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again. An
+    answer about FilingLens itself is not kept: its figures are read each time it is asked.
 
     Args:
         fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
@@ -205,7 +207,8 @@ async def asyncio_detailed(
     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
     closing punctuation, over the same companies and years) gets it back at once as one
-    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again. An
+    answer about FilingLens itself is not kept: its figures are read each time it is asked.
 
     Args:
         fresh (bool | Unset): Answer again, even when this sign-in has the answer already.
@@ -253,7 +256,8 @@ async def asyncio(
     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
     closing punctuation, over the same companies and years) gets it back at once as one
-    `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+    `completed` event with `stored_at`, without a model call. `fresh=true` answers again. An
+    answer about FilingLens itself is not kept: its figures are read each time it is asked.
 
     Args:
         fresh (bool | Unset): Answer again, even when this sign-in has the answer already.

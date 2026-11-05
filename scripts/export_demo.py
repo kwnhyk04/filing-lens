@@ -73,7 +73,8 @@ def reading_of(routing: dict[str, Any] | None, names: dict[str, str]) -> dict[st
     """The run's routing as the API's reading, each ticker with its exported company name."""
     if routing is None:
         return None
-    return pipeline_reading(Routing.model_validate(routing), names).model_dump(mode="json")
+    reading = pipeline_reading(Routing.model_validate(routing), names)
+    return reading.model_dump(mode="json") if reading else None
 
 
 def checks_of(

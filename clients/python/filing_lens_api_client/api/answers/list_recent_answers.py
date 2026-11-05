@@ -103,7 +103,8 @@ def sync_detailed(
 
      This sign-in's questions with their completed answers, newest first. Either key.
 
-    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers
+    about FilingLens itself never are.
 
     Args:
         limit (int | Unset): Page size (at most 100). Default: 10.
@@ -143,7 +144,8 @@ def sync(
 
      This sign-in's questions with their completed answers, newest first. Either key.
 
-    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers
+    about FilingLens itself never are.
 
     Args:
         limit (int | Unset): Page size (at most 100). Default: 10.
@@ -178,7 +180,8 @@ async def asyncio_detailed(
 
      This sign-in's questions with their completed answers, newest first. Either key.
 
-    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers
+    about FilingLens itself never are.
 
     Args:
         limit (int | Unset): Page size (at most 100). Default: 10.
@@ -216,7 +219,8 @@ async def asyncio(
 
      This sign-in's questions with their completed answers, newest first. Either key.
 
-    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+    At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers
+    about FilingLens itself never are.
 
     Args:
         limit (int | Unset): Page size (at most 100). Default: 10.

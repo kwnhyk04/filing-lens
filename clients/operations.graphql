@@ -116,6 +116,7 @@ query Answer($question: String!, $companyIds: [Int!], $fiscalYears: [Int!]) {
       fiscalPeriod
       metric
     }
+    ownData
     checks {
       text
       citation

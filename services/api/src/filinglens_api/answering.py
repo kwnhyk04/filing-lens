@@ -13,7 +13,8 @@ Production puts Claude first (LLM_PRIMARY) and Gemini as LLM_ANSWER_FALLBACK; Cl
 while it cannot answer (filinglens_llm.providers.Anthropic). Evals turn fallbacks off
 (allow_fallback), and each fallback is logged and counted. Out-of-scope questions, unknown
 companies, fiscal years with no 10-K yet and questions without relevant evidence get a refusal
-instead of a model answer.
+instead of a model answer. A question about FilingLens itself gets filinglens_api.about's fixed
+overview or the collection's figures from the database, also without one.
 """
 
 import asyncio
@@ -32,6 +33,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from filinglens_api import about
 from filinglens_api.schemas import (
     Answer,
     AnswerCompleted,
@@ -92,6 +94,10 @@ class Evidence(Protocol):
     ) -> Fact | None: ...
 
     async def search(self, question: str, scope: Scope) -> Ranking: ...
+
+    async def collection(self) -> about.Collection:
+        """What FilingLens holds now, for a question about its collection."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -223,11 +229,13 @@ class Answerer:
             run.lap("route_ms")
             # The plan reads the one company the question names when the router named none;
             # stats keep the router's own reply, which the evals score.
-            planned = router.fill(routing, router.guess(request.question, companies)[0])
-            plan = await self._plan(request, planned)
+            filled = router.fill(routing, router.guess(request.question, companies)[0])
+            planned = router.settle(filled)
+            outcome = await self._about(planned, run)
+            plan = None if outcome else await self._plan(request, planned, companies)
             if isinstance(plan, tuple):
                 outcome = self._refusal(*plan, run)
-            else:
+            elif plan is not None:
                 kept = early.task if early.agrees(request, planned, plan) else None
                 if kept is None:  # a guess the plan does not use must not hold the reranker
                     early.task.cancel()
@@ -239,7 +247,7 @@ class Answerer:
             if outcome is None:  # _answer always completes; this keeps the type checker sure
                 raise UpstreamError("The answer ended without a result.")
             outcome = outcome.model_copy(update={"reading": reading_of(planned, companies)})
-            if outcome.refused:
+            if outcome.refused or planned.route in router.ABOUT:  # no model streamed this text
                 yield AnswerDelta(text=outcome.answer)
             yield AnswerCompleted(answer=outcome)
         except BaseException as exc:  # recorded below, then raised as it was
@@ -297,8 +305,9 @@ class Answerer:
     async def _route(
         self, question: str, companies: Mapping[str, str], run: _Run
     ) -> router.Routing:
-        system = router.system_prompt(self._today(), companies)
-        schema = router.schema(companies)
+        wider = router.about_wording(question)  # any other question sends what it always did
+        system = router.system_prompt(self._today(), companies, about=wider)
+        schema = router.schema(companies, about=wider)
 
         async def ask(provider: Provider, prompt: str) -> router.Routing:
             completion = await provider.complete(
@@ -322,8 +331,19 @@ class Answerer:
 
         return await self._with_fallback("router", route, run)
 
+    async def _about(self, routing: router.Routing, run: _Run) -> Answer | None:
+        """The answer to a question about FilingLens itself, with no answer model: the fixed
+        overview, or the collection's figures read now. None for any other route."""
+        if routing.route not in router.ABOUT:
+            return None
+        text = about.OVERVIEW
+        if routing.route == "about_collection":
+            held = await self._evidence.collection()
+            text = about.collection_answer(held, routing.tickers, routing.other_companies)
+        return Answer(answer=text, citations=[], degraded=False, usage=_usage(run), own_data=True)
+
     async def _plan(
-        self, request: AnswerRequest, routing: router.Routing
+        self, request: AnswerRequest, routing: router.Routing, companies: Mapping[str, str]
     ) -> "_Plan | tuple[str, str]":
         """The companies and years to read, or a refusal's code and text."""
         if routing.route == "out_of_scope":
@@ -333,12 +353,12 @@ class Answerer:
         # tracked; a textual question about a tracked company may mention others (an acquisition).
         others = routing.other_companies
         if ciks is None and others and (not routing.tickers or routing.route != "textual"):
-            return "untracked_company", f"FilingLens has no filings for {', '.join(others)}."
+            return "untracked_company", about.not_held(others, companies)
         if ciks is None and routing.tickers:
             found = await self._evidence.companies(routing.tickers)
             missing = [ticker for ticker in routing.tickers if ticker not in found]
             if missing:
-                return "untracked_company", f"FilingLens has no filings for {', '.join(missing)}."
+                return "untracked_company", about.not_held(missing, companies)
             ciks = [found[ticker] for ticker in routing.tickers]
         years = list(request.fiscal_years or routing.fiscal_years) or None
         asked = sorted({*map(int, years or []), *router.filing_years(request.question)})  # t07
@@ -624,9 +644,12 @@ def _usage(run: _Run) -> Usage:
     )
 
 
-def reading_of(routing: router.Routing, companies: Mapping[str, str]) -> Reading:
+def reading_of(routing: router.Routing, companies: Mapping[str, str]) -> Reading | None:
     """The router's reading as the answer reports it, each tracked ticker with its name; the demo
-    export reads its saved answers' routing the same way."""
+    export reads its saved answers' routing the same way. None for an about route, which the
+    contract does not list: such an answer carries `own_data` instead."""
+    if routing.route == "about_app" or routing.route == "about_collection":
+        return None
     return Reading(
         route=routing.route,
         companies=[ReadCompany(ticker=t, name=companies.get(t, t)) for t in routing.tickers],
@@ -835,6 +858,10 @@ class PostgresEvidence:
     async def latest_fiscal_year(self, cik: int) -> int | None:
         async with self._engine.connect() as connection:
             return await latest_fiscal_year(connection, cik)
+
+    async def collection(self) -> about.Collection:
+        async with self._engine.connect() as connection:
+            return await about.read_collection(connection)
 
     async def fact(
         self, cik: int, concepts: Sequence[str], unit: str, fiscal_year: int | None, period: str

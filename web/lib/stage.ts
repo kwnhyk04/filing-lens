@@ -2,7 +2,7 @@
 // lookup have reported, the card's parts in the hero's order with the reveal's schedule, and what floats round it.
 // While FilingLens reads, only the covered filings float; once the sources load, each cited source takes its own
 // filing's place, so nothing is claimed before it is known.
-import { checkLine, citedFilings, filingName, findSource, formLabel, sourceFiling, type Answer } from "./answer.ts";
+import { checkLine, citedFilings, filingName, findSource, formLabel, fromOwnData, sourceFiling, type Answer } from "./answer.ts";
 import type { Company, Sources } from "./demo.ts";
 
 export type Kind = "passage" | "fact" | "filing";
@@ -87,7 +87,7 @@ export function revealParts(answer: Answer, sources: Sources | undefined, failed
     ...each(Number(checkLine(answer) !== undefined), "check"),
     ...each(Number(answer.checks.length > 0), "table"),
     ...each(Number(answer.warnings.length > 0), "warnings"),
-    ...each(Number(answer.degraded), "note"),
+    ...each(Number(answer.degraded || fromOwnData(answer)), "note"),
     "foot",
   ];
 }

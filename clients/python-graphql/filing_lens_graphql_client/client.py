@@ -178,6 +178,7 @@ class Client(BaseClient):
                   fiscalPeriod
                   metric
                 }
+                ownData
                 checks {
                   text
                   citation

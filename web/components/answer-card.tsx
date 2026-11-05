@@ -5,7 +5,7 @@
 // stored answer and the demo's saved ones show it whole and still. Renders on the server or the client.
 import type { ReactNode } from "react";
 
-import { checkLine, citedFilings, readingChips, sourceLabel, type Answer } from "../lib/answer.ts";
+import { checkLine, citedFilings, fromOwnData, OWN_DATA, readingChips, sourceLabel, type Answer } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
 import { type Part, revealParts } from "../lib/stage.ts";
 import { AnswerText, FigureChecks } from "./answer-view.tsx";
@@ -137,7 +137,14 @@ function Checked({ answer, heading: Heading, parts: shown, sources, head, action
           </ul>
         </div>
       )}
-      {has("note") && <p className="note">Search skipped the reranker after a timeout, so passages keep their first order.</p>}
+      {has("note") &&
+        (fromOwnData(answer) ? (
+          <p className="note" data-testid="own-data">
+            {OWN_DATA}
+          </p>
+        ) : (
+          <p className="note">Search skipped the reranker after a timeout, so passages keep their first order.</p>
+        ))}
       {has("foot") && (
         <div className="card-foot">
           <p className="usage">

@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 
 import { ENTER_MS, LEAVE_MS, RELEASE_MS } from "../lib/stage.ts";
-import { OFFLINE, question } from "./env.ts";
+import { OFFLINE, OWN_DATA_QUESTION, question } from "./env.ts";
 import { audit, expect, signIn, test } from "./fixtures.ts";
 
 const DIR = process.env.SCREENS_DIR ?? "../docs/screenshots/ui";
@@ -102,6 +102,21 @@ const SCREENS: Record<string, (page: Page) => Promise<unknown>> = {
   },
   ask: async (page) => {
     await openAsk(page);
+    await rested(page);
+  },
+  "ask-focused": async (page) => {
+    await openAsk(page);
+    await rested(page);
+    await page.getByLabel("Your question").focus();
+  },
+  "ask-typing": async (page) => {
+    await openAsk(page);
+    await rested(page);
+    await page.getByLabel("Your question").fill("What was Apple's total revenue in");
+  },
+  "ask-own-data": async (page) => {
+    await ask(page, OWN_DATA_QUESTION);
+    await expect(page.getByTestId("own-data")).toBeVisible();
     await rested(page);
   },
   "ask-reading": async (page) => {
@@ -279,9 +294,31 @@ async function twoInARow(page: Page, name: string) {
   }
 }
 
+/** The landing hero's bar, which the moving story types into: Playwright's clock holds it before the first letter,
+    then part way through the question. It takes no focus, so these are its two states. */
+async function landingBar(page: Page, name: string) {
+  const shot = (state: string) => page.screenshot({ path: `${DIR}/landing-bar-${name}-${state}.png`, animations: "disabled" });
+  await page.clock.install();
+  await signedOut(page, "/");
+  await expect(page.locator(".pb-capsule")).toBeAttached({ timeout: 15_000 });
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 50); // just ahead: see `sequence`
+  const capsule = page.locator(".pb-capsule");
+  for (let i = 0; i < 100 && Number(await capsule.evaluate((bar) => getComputedStyle(bar).opacity)) < 1; i++) await page.clock.runFor(30);
+  await expect(page.locator(".pb-typed")).toHaveText(""); // faded in, before the first letter
+  await shot("empty");
+  for (let i = 0; i < 100 && ((await page.locator(".pb-typed").textContent()) ?? "").length < 16; i++) await page.clock.runFor(30);
+  await shot("typing");
+}
+
 if (MOTION && WIDTHS) {
   for (const width of WIDTHS.filter((each) => each >= 1024)) {
     for (const colorScheme of ["light", "dark"] as const) {
+      test(`landing-bar ${width}-${colorScheme}`, async ({ page }) => {
+        test.setTimeout(60_000);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme, reducedMotion: "no-preference" });
+        await landingBar(page, `${width}-${colorScheme}`);
+      });
       for (const id of ["n01", "x04"]) {
         test(`ask-sequence ${id} ${width}-${colorScheme}`, async ({ page }) => {
           test.setTimeout(120_000);
