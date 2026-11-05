@@ -24,6 +24,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from redis.asyncio import Redis
 
 from filinglens_api import limits
+from filinglens_api.about import Collection
 from filinglens_api.answering import Answerer, Evidence, Models, calculation_source
 from filinglens_api.main import models
 from filinglens_api.schemas import (
@@ -132,6 +133,9 @@ class RecordedEvidence:
             for hit in found["hits"]
         ]
         return Ranking(hits, found["degraded"], found["similarity"], found["timings_ms"])
+
+    async def collection(self) -> Collection:
+        raise AssertionError("no recording asks about the collection")
 
 
 def replay(router: respx.MockRouter, exchanges: list[dict[str, Any]]) -> None:
@@ -862,7 +866,8 @@ async def test_a_ticker_still_untracked_after_the_retry_is_refused(
     gemini = mocked.post(host=GEMINI)
     answer, _, _ = await run("numeric")
     assert groq.call_count == 2 and not gemini.called
-    assert answer.refused and answer.answer == "FilingLens has no filings for APPL."
+    assert answer.refused
+    assert answer.answer.startswith("FilingLens has no filings for APPL: it is not in the coll")
 
 
 async def test_a_company_named_as_untracked_is_refused_without_a_retry(
@@ -873,7 +878,8 @@ async def test_a_company_named_as_untracked_is_refused_without_a_retry(
     )
     answer, _, _ = await run("numeric")
     assert groq.call_count == 1
-    assert answer.refused and answer.answer == "FilingLens has no filings for Netflix."
+    assert answer.refused
+    assert answer.answer.startswith("FilingLens has no filings for Netflix: it is not in the coll")
 
 
 async def test_a_textual_question_may_mention_an_untracked_company(
@@ -973,7 +979,7 @@ async def test_a_company_the_router_names_as_untracked_is_never_filled_from_the_
     evidence = BankEvidence(fixture("textual")["evidence"])
     answer, _, _ = await run("textual", evidence, question=question)
     assert answer.refused
-    assert answer.answer == "FilingLens has no filings for Bank of New York Mellon."
+    assert answer.answer.startswith("FilingLens has no filings for Bank of New York Mellon: it is")
     assert not gemini.called
 
 

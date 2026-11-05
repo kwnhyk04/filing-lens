@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { Route } from "@playwright/test";
 
-import { API_KEY, MOCK, question, snapshot } from "./env.ts";
+import { API_KEY, MOCK, OWN_DATA_QUESTION, question, snapshot } from "./env.ts";
 import { ask, audit, expect, test } from "./fixtures.ts";
 
 /** A recorded answer's text and its first citation. */
@@ -58,6 +58,20 @@ test("a refusal says it is not answered, with its reason and no sources", async 
   await expect(answer).toContainText("Not answered");
   await expect(answer).toContainText("SEC filings cannot answer this question");
   await expect(page.getByRole("heading", { name: "Sources" })).toHaveCount(0);
+});
+
+test("an answer about FilingLens shows the card with its own-data note, no sources and no refusal", async ({ page }) => {
+  await ask(page, OWN_DATA_QUESTION);
+  const answer = page.getByTestId("answer");
+  await expect(answer).toContainText(`The collection covers ${snapshot.companies.length} companies`);
+  await expect(page.getByTestId("own-data")).toHaveText("From FilingLens's own data");
+  await expect(page.getByTestId("read-as")).toHaveCount(0);
+  await expect(answer).not.toContainText("Not answered");
+  await expect(page.getByTestId("ask-status")).toHaveText("Answer ready, from FilingLens's own data.");
+  await expect(page.getByRole("heading", { name: "Sources" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy answer with sources" })).toHaveCount(0);
+  await expect(page.getByTestId("recent")).toHaveCount(0); // read afresh each time, so never kept
+  await audit(page);
 });
 
 test("the answer's header says when its first words came, when it was complete, and how many sources it has", async ({ page }) => {

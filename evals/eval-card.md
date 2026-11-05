@@ -49,6 +49,14 @@ Its gold mixes two labelling standards. About 10 of the 150 carried gold passage
   - Retrieval, the same search in both: recall@10 0.596 and MRR@10 0.628 over 25 textual questions.
   - Both ran on uncommitted branches (each report pins its source sha256). The free run was at about 15:30 UTC on 2026-10-31, the Claude-first run at about 07:10 UTC on 2026-11-05, so their latency reflects those hours.
 
+## About category (beside golden v2, 2026-11-05)
+
+- **Questions:** 15 in `evals/golden/about.jsonl`, written by hand: 3 about the app, 4 about the collection, 1 company held, 2 not held, 2 that must go to the filings, 3 that must be refused. Golden v2's frozen files do not change.
+- **Gold:** where each should land (own data, the filings or a refusal), the route, and the words a right answer holds, such as "30 companies". The figures are the corpus's, and a run stops when the corpus drifts.
+- **What it measures:** the router's choice, and what the code does with it. No answer model runs and no judge scores anything; a question for the filings stops at a stand-in.
+- **Limits:** small, no floors, not in CI, and not held out: the prompt text for these routes quotes several of the questions.
+- **Results (2026-11-05, one live run on each router; `evals/README.md` has the table):** gpt-oss-20b and Claude Haiku 5.5 each routed 15 of 15 right, landed 15 of 15, and said the figures on 10 of 10. b12 lands on the filings but gets no answer: its best rerank score, -4.82, falls under the relevance gate's -3.0.
+
 ## Golden set v1
 
 - 100 questions, written on 2026-10-16 against the dev database: the latest 10-K of 30 companies in 11 sectors (11,263 chunks) and their XBRL facts.

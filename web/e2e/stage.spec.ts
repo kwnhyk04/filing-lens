@@ -130,6 +130,31 @@ test.describe("with reduced motion", () => {
   });
 });
 
+const BAR = {
+  light: { bar: "rgb(240, 242, 238)", ink: "rgb(27, 31, 29)", soft: "rgb(95, 103, 99)", arrow: "rgb(255, 255, 255)" },
+  dark: { bar: "rgb(31, 36, 34)", ink: "rgb(230, 233, 231)", soft: "rgb(154, 163, 158)", arrow: "rgb(25, 29, 27)" },
+};
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`the Ask bar reaches the page in its neutral greys, in ${colorScheme}`, async ({ page }) => {
+    const want = BAR[colorScheme];
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await page.goto("/ask");
+    const [bar, field, send] = [page.locator(".stage-input"), page.getByLabel("Your question"), page.locator(".stage-send")];
+    await expect(bar).toHaveCSS("background-color", want.bar);
+    await expect(field).toHaveCSS("color", want.ink);
+    expect(await field.evaluate((box) => getComputedStyle(box, "::placeholder").color)).toBe(want.soft);
+    await expect(send).toHaveCSS("background-color", want.soft);
+    await expect(send).toHaveCSS("border-top-color", want.soft);
+    await expect(send).toHaveCSS("color", want.arrow);
+    await field.focus();
+    await expect(bar).toHaveCSS("outline-color", want.soft);
+    await page.keyboard.press("Tab");
+    await expect(send).toBeFocused();
+    await expect(send).toHaveCSS("outline-color", want.soft);
+  });
+}
+
 test("Recent questions and Sources sit under the stage, 60 to 40 and top-aligned; a lone one takes the row; under 1024 px Sources comes first", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await ask(page, N01);

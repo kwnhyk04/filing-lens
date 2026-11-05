@@ -69,6 +69,11 @@ const KINDS: Record<Reading["route"], string> = {
   textual: "Text question",
   out_of_scope: "Out of scope",
 };
+
+/** The note on an answer about FilingLens itself, which cites no filing. Saved answers predate the flag. */
+export const OWN_DATA = "From FilingLens's own data";
+export const fromOwnData = (answer: Answer) => Boolean(answer.own_data);
+
 // Figures whose key in words reads wrong; any other key reads as its words.
 const FIGURES: Record<string, string> = {
   eps_diluted: "Diluted EPS",

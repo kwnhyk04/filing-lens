@@ -13,6 +13,7 @@ import { flushSync } from "react-dom";
 import {
   answerWithSources,
   createSseParser,
+  fromOwnData,
   storedLine,
   timingLine,
   type Answer,
@@ -84,6 +85,7 @@ const sourceCount = (count: number) => `${count} source${count === 1 ? "" : "s"}
 function readyLine(done: Answer, storedAt: string | null, sourcesFailed: boolean): string {
   if (done.refused) return "Not answered; the reason is below.";
   const ready = storedAt ? "Answer from earlier in this session" : "Answer ready";
+  if (fromOwnData(done)) return `${ready}, from FilingLens's own data.`;
   return `${ready}, with ${sourceCount(done.citations.length)}.${sourcesFailed ? " Sources could not be loaded." : ""}`;
 }
 

@@ -3,6 +3,9 @@
 The router sees the companies FilingLens tracks, and its tickers must come from them: the schema
 holds them as an enum, and `problems` checks each reply in code for providers that do not enforce
 one. The Answerer asks once more on a problem, then refuses a ticker that is still unknown.
+
+A question worded as one about FilingLens itself (`about_wording`) also gets the about routes, for
+the app and for its collection. Any other question sends the prompt and schema it always did.
 """
 
 import re
@@ -53,10 +56,28 @@ METRICS: dict[str, tuple[str, tuple[str, ...]]] = {
     "dividends_per_share": ("USD/shares", ("us-gaap:CommonStockDividendsPerShareDeclared",)),
 }
 ROUTES = ("numeric", "textual", "comparison", "out_of_scope")
+ABOUT = ("about_app", "about_collection")  # questions about FilingLens itself: see about_wording
 # Forecast and advice wording (dev's o01 and o02): such a question keeps its out_of_scope route.
 ADVICE = re.compile(
     r"\b(?:stock|share) price|\bgo(?:es|ing)? (?:up|down)\b|\bshould i\b"
     r"|\b(?:buy|sell)\b.{0,30}\b(?:shares?|stock)\b",
+    re.IGNORECASE,
+)
+# A question about FilingLens itself: it is addressed or named, or the collection is asked about
+# with no company's business in it. Only such a question sees the about routes, so any other one
+# reaches the router with the prompt and schema it always had. No golden question matches.
+HELD = r"(?:companies|filings|documents|tickers|(?:fiscal\s+)?years)"
+ABOUT_WORDING = re.compile(
+    r"\b(?:you|your|yours|yourself|filinglens)\b"
+    r"|\bthis\s+(?:app|application|site|website|tool|service|thing|page)\b"
+    r"|\bhow\s+does\s+(?:this|it)\s+work\b"
+    r"|\b(?:the|this)\s+(?:collection|corpus|database|dataset)\b"
+    r"|\bthe\s+data\s+(?:last\s+)?(?:loaded|updated|refreshed)\b"
+    r"|\bhow\s+(?:recent|fresh|current|old)\s+is\s+the\s+data\b"
+    rf"|^\W*(?:which|what|how\s+many)\s+{HELD}"
+    r"(?:\s+(?:are|is)\s+(?:there|covered|included|available|tracked|indexed|loaded))?\W*$"
+    r"|^\W*(?:is|are)\s+.{1,60}?\s+(?:covered|included|available|tracked)\W*$"
+    r"|^\W*list\s+(?:the\s+|all\s+)*companies\W*$",
     re.IGNORECASE,
 )
 # A fiscal year tied to a filing: "its fiscal 2026 annual report", "FY2027 10-K", "the 10-K for
@@ -87,14 +108,15 @@ NAME_NOISE = {
 }
 
 
-def schema(companies: Mapping[str, str]) -> dict[str, Any]:
+def schema(companies: Mapping[str, str], *, about: bool = False) -> dict[str, Any]:
     """Strict JSON Schema: every property required, null where a value may be missing, and the
-    tickers limited to the tracked companies (`companies`: name by ticker)."""
+    tickers limited to the tracked companies (`companies`: name by ticker). `about` adds the about
+    routes, for a question in about_wording."""
     ticker: dict[str, Any] = {"type": "string"}
     if companies:
         ticker["enum"] = sorted(companies)
     properties = {
-        "route": {"type": "string", "enum": list(ROUTES)},
+        "route": {"type": "string", "enum": [*ROUTES, *ABOUT] if about else list(ROUTES)},
         "tickers": {"type": "array", "items": ticker},
         "other_companies": {"type": "array", "items": {"type": "string"}},
         "fiscal_years": {"type": "array", "items": {"type": "integer"}},
@@ -110,7 +132,9 @@ def schema(companies: Mapping[str, str]) -> dict[str, Any]:
 
 
 class Routing(BaseModel):
-    route: Literal["numeric", "textual", "comparison", "out_of_scope"]
+    route: Literal[
+        "numeric", "textual", "comparison", "out_of_scope", "about_app", "about_collection"
+    ]
     tickers: list[str]
     # Companies the question names that FilingLens does not track, as the question names them.
     other_companies: list[str] = Field(default_factory=list[str])
@@ -134,9 +158,26 @@ class Routing(BaseModel):
         return metric if metric in METRICS else None
 
 
-def system_prompt(today: date, companies: Mapping[str, str]) -> str:
+# Added to the prompt for a question in about_wording; any other question's stays as it was.
+ABOUT_RULES = """
+
+Two more routes, for questions about FilingLens itself rather than a company's filings.
+"about_app": what FilingLens is, what it can do or how it works, such as "What is this app?", "What
+can you do?" or "How does this work?".
+"about_collection": what it holds: how many or which companies, filings, fiscal years or filing
+types, how recent its data is, or whether it has a company, such as "How many companies do you
+have?", "Which companies?", "What years do you cover?", "What filings are included?" or "Do you
+have Tesla?". Put such a company in tickers or other_companies, as above.
+Neither route fits a question about what a company reported or does, whatever its words: "Do you
+have Apple's revenue for fiscal 2025?" is numeric and "What can you tell me about Tesla's risks?"
+is textual. Neither fits anything else: weather, general knowledge and advice stay out_of_scope
+even when they say "you", such as "Can you recommend a stock?" or "Do you know who won the World
+Cup?"."""
+
+
+def system_prompt(today: date, companies: Mapping[str, str], *, about: bool = False) -> str:
     listed = "; ".join(f"{ticker} {name}" for ticker, name in sorted(companies.items()))
-    return f"""\
+    prompt = f"""\
 You route questions about US public companies' SEC filings (10-K and 10-Q) for a research tool.
 Reply with JSON only.
 route: "numeric" when the question asks for one reported financial figure (revenue, net income,
@@ -157,6 +198,13 @@ Today is {today.isoformat()}, so "last year" is {today.year - 1}.
 fiscal_period: "FY" for a full year, "Q1" to "Q4" for a quarter, null if it does not say.
 metric: the figure asked for, one of {", ".join(METRICS)}; null if none fits. A comparison always
 has one: "total revenue" is revenue, "net income" is net_income."""
+    return prompt + ABOUT_RULES if about else prompt
+
+
+def about_wording(question: str) -> bool:
+    """Whether a question may be about FilingLens itself, so the router may route it there. Advice
+    wording never is: "Should I buy your top stock?" stays with the routes it always had."""
+    return bool(ABOUT_WORDING.search(question)) and not ADVICE.search(question)
 
 
 def problems(routing: Routing, companies: Mapping[str, str]) -> list[str]:
@@ -240,9 +288,20 @@ def second_look_prompt(question: str, names: Sequence[str]) -> str:
 def fill(routing: Routing, named: Sequence[str]) -> Routing:
     """The one tracked company the question names (`guess`), when the router named none and no
     other company (x01, x06, t10, a03 searched every company or missed their time trap)."""
-    if routing.route == "out_of_scope" or routing.tickers or routing.other_companies:
+    if routing.route in ("out_of_scope", "about_app") or routing.tickers or routing.other_companies:
         return routing
     return routing.model_copy(update={"tickers": list(named)}) if len(named) == 1 else routing
+
+
+def settle(routing: Routing) -> Routing:
+    """The route the plan follows, for an about reply that asks of a company: a figure a named
+    company reported is numeric, and an app question that names a company is about that company's
+    filings ("Do you have Apple's revenue?", "What can you tell me about Tesla?")."""
+    if routing.route in ABOUT and routing.metric and routing.tickers:
+        return routing.model_copy(update={"route": "numeric"})
+    if routing.route == "about_app" and (routing.tickers or routing.other_companies):
+        return routing.model_copy(update={"route": "textual"})
+    return routing
 
 
 def filing_years(question: str) -> list[int]:

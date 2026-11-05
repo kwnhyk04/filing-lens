@@ -20,6 +20,7 @@ class AnswerAnswer(BaseModel):
     refused: bool
     warnings: list[str]
     reading: Optional["AnswerAnswerReading"]
+    own_data: bool = Field(alias="ownData")
     checks: list["AnswerAnswerChecks"]
 
 

@@ -392,6 +392,18 @@ Rehearsed on 2026-11-01 on a scratch database in dev's Postgres, with corpus-v1 
 59. Clean up. Run `docker exec filinglens-prod-postgres-1 rm -f /tmp/corpus.dump /tmp/backup.dump`. Expire the silence with `amtool silence query`, then `amtool silence expire <id>`, both with `--alertmanager.url=http://127.0.0.1:9093`. Keep the backup in `.cache\corpus` until corpus-v2 has run for a week.
 60. The docs then say corpus-v2: this file's Database line, `docs/context.md` and `docs/guide.md`'s Known limitations, in a docs PR, with the backup's hash and the step times in the activity log.
 
+### Answers about FilingLens: the deploy after their PR merges
+
+Ask answers questions about the app and its collection from a fixed template and the database (`services/api/src/filinglens_api/about.py`). No migration, setting or new outbound host. Vercel deploys the web at the merge; until the api follows, these questions are still refused, as before.
+
+61. Right after the merge: `git switch main` and `git pull --ff-only`, set `IMAGE_TAG` in `.env.prod` to the merge commit's `sha-<7>`, then `docker compose --env-file .env.prod pull` and `docker compose --env-file .env.prod up -d --wait`.
+62. Check, at the cost of one router call each. Signed in, ask "How many companies do you have?": 30 companies, with "From FilingLens's own data" under the answer and no sources. Ask "What's the weather in Paris?": refused, as before.
+63. Optional, the load date. "When the data was last loaded" reads the last finished job in `ingest_jobs`, which a restored corpus leaves empty, so production says "No load date is on record" and gives its newest filing's date. To record a restore, with the day it ran:
+    ```powershell
+    docker exec filinglens-prod-postgres-1 psql -c "insert into ingest_jobs (idempotency_key, request, status, created_at) values ('corpus-restore-YYYY-MM-DD', '{}', 'succeeded', 'YYYY-MM-DD')"
+    ```
+    A restore with `--clean` (step 55) empties that table again, so run this after one, with that restore's day.
+
 ## Rollback
 
 - **Public kill switch** (seconds): `docker compose --env-file .env.prod stop tailscale`. The web serves the demo; `start tailscale` undoes it.

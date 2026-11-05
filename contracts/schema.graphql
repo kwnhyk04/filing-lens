@@ -17,6 +17,11 @@ type Answer {
 
   """Each amount in the answer with the cited source that holds it."""
   checks: [FigureCheck!]!
+
+  """
+  True when FilingLens answered about itself from its own data; no filing cited.
+  """
+  ownData: Boolean!
 }
 
 """Arithmetic FilingLens did on two cited facts of one unit."""

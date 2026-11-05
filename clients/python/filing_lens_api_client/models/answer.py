@@ -28,9 +28,11 @@ class Answer:
             10-K yet, or no evidence relevant enough. `answer` says why. Default: False.
         warnings (list[str]): Validation notes, such as sentences removed because a citation or an amount did not check
             out. A streamed answer with warnings replaces the draft its deltas carried.
-        reading (None | Reading): How the router read the question; null if it was not read.
+        reading (None | Reading): How the router read the question; null if it was not read, and on `own_data` answers.
         checks (list[FigureCheck]): Each amount in the answer with the cited source that holds it. Validation removes a
             sentence with an amount no cited source holds, so every listed amount matched.
+        own_data (bool): True when FilingLens answered about itself, the app or its collection, from its own data: no
+            model wrote the text, and it cites no filing. Default: False.
     """
 
     answer: str
@@ -41,6 +43,7 @@ class Answer:
     reading: None | Reading
     checks: list[FigureCheck]
     refused: bool = False
+    own_data: bool = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,6 +75,8 @@ class Answer:
             checks_item = checks_item_data.to_dict()
             checks.append(checks_item)
 
+        own_data = self.own_data
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -84,6 +89,7 @@ class Answer:
                 "warnings": warnings,
                 "reading": reading,
                 "checks": checks,
+                "own_data": own_data,
             }
         )
 
@@ -136,6 +142,8 @@ class Answer:
 
             checks.append(checks_item)
 
+        own_data = d.pop("own_data")
+
         answer = cls(
             answer=answer,
             citations=citations,
@@ -145,6 +153,7 @@ class Answer:
             warnings=warnings,
             reading=reading,
             checks=checks,
+            own_data=own_data,
         )
 
         answer.additional_properties = d

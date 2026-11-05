@@ -1,0 +1,727 @@
+{
+ "config": {
+  "router": "anthropic:claude-haiku-5-5",
+  "tag": null
+ },
+ "summary": {
+  "questions": 15,
+  "landed": 15,
+  "router_route": 15,
+  "says": [
+   10,
+   10
+  ]
+ },
+ "records": [
+  {
+   "id": "b01",
+   "category": "about",
+   "kind": "app",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "FilingLens is a research tool for the SEC filings of US public companies. It answers questions from their 10-K filings and cites the passages and figures it used. Numbers are checked against XBRL facts, the structured data companies file with the SEC. When the filings don't answer a question, it says so instead of guessing.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_app",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 8.2,
+    "total_ms": 8.3
+   },
+   "first_token_ms": null,
+   "input_tokens": 2302,
+   "output_tokens": 50,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "832cb66d2f7a15080cff0f33836383fcf2569df442b1170908c75e9097ee0652",
+     "cached": true,
+     "input_tokens": 2302,
+     "output_tokens": 50,
+     "latency_s": 2.4374525000021094,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b02",
+   "category": "about",
+   "kind": "app",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "FilingLens is a research tool for the SEC filings of US public companies. It answers questions from their 10-K filings and cites the passages and figures it used. Numbers are checked against XBRL facts, the structured data companies file with the SEC. When the filings don't answer a question, it says so instead of guessing.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_app",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 5.4,
+    "total_ms": 5.5
+   },
+   "first_token_ms": null,
+   "input_tokens": 2302,
+   "output_tokens": 50,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "6a0777def875171fc602b670a83ffce17b4a10149f4b26daf54165413f82e270",
+     "cached": true,
+     "input_tokens": 2302,
+     "output_tokens": 50,
+     "latency_s": 1.4620659999927739,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b03",
+   "category": "about",
+   "kind": "app",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "FilingLens is a research tool for the SEC filings of US public companies. It answers questions from their 10-K filings and cites the passages and figures it used. Numbers are checked against XBRL facts, the structured data companies file with the SEC. When the filings don't answer a question, it says so instead of guessing.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_app",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 5.0,
+    "total_ms": 5.1
+   },
+   "first_token_ms": null,
+   "input_tokens": 2302,
+   "output_tokens": 50,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "142b4a1d4dc167b60cba1ba2bfb79fcb3bc99311eb33faf110fbb44f566bc062",
+     "cached": true,
+     "input_tokens": 2302,
+     "output_tokens": 50,
+     "latency_s": 1.1856435999943642,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b04",
+   "category": "about",
+   "kind": "collection",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "The collection covers 30 companies: AAPL, AMZN, BAC, CAT, COP, CVX, DUK, FCX, GOOGL, GS, HD, JNJ, JPM, KO, LIN, LLY, LMT, META, MSFT, NEE, NVDA, PFE, PG, PLD, TSLA, UNH, UNP, V, VZ and WMT. It holds 30 filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 4.9,
+    "total_ms": 33.6
+   },
+   "first_token_ms": null,
+   "input_tokens": 2305,
+   "output_tokens": 51,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "674948dab1e02cc7e5699d8d9406db43a6ecd800aaca6f30f13b5aac680a3361",
+     "cached": true,
+     "input_tokens": 2305,
+     "output_tokens": 51,
+     "latency_s": 0.9940968000009889,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b05",
+   "category": "about",
+   "kind": "collection",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "The collection covers 30 companies: AAPL, AMZN, BAC, CAT, COP, CVX, DUK, FCX, GOOGL, GS, HD, JNJ, JPM, KO, LIN, LLY, LMT, META, MSFT, NEE, NVDA, PFE, PG, PLD, TSLA, UNH, UNP, V, VZ and WMT. It holds 30 filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 4.8,
+    "total_ms": 27.0
+   },
+   "first_token_ms": null,
+   "input_tokens": 2302,
+   "output_tokens": 52,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "b4744451e040e9c5272658525383b12ebd07961403fd2418e4233bb66d677276",
+     "cached": true,
+     "input_tokens": 2302,
+     "output_tokens": 52,
+     "latency_s": 1.1344580000004498,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b06",
+   "category": "about",
+   "kind": "collection",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "The collection covers 30 companies: AAPL, AMZN, BAC, CAT, COP, CVX, DUK, FCX, GOOGL, GS, HD, JNJ, JPM, KO, LIN, LLY, LMT, META, MSFT, NEE, NVDA, PFE, PG, PLD, TSLA, UNH, UNP, V, VZ and WMT. It holds 30 filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 4.9,
+    "total_ms": 13.2
+   },
+   "first_token_ms": null,
+   "input_tokens": 2304,
+   "output_tokens": 51,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "ce194afc16b568ff1c88cc82c61c66ddae9c7fc2a8b8a86a6abf74fc5d8d7549",
+     "cached": true,
+     "input_tokens": 2304,
+     "output_tokens": 51,
+     "latency_s": 0.9421081000036793,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b07",
+   "category": "about",
+   "kind": "collection",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "The collection covers 30 companies: AAPL, AMZN, BAC, CAT, COP, CVX, DUK, FCX, GOOGL, GS, HD, JNJ, JPM, KO, LIN, LLY, LMT, META, MSFT, NEE, NVDA, PFE, PG, PLD, TSLA, UNH, UNP, V, VZ and WMT. It holds 30 filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 6.7,
+    "total_ms": 16.5
+   },
+   "first_token_ms": null,
+   "input_tokens": 2303,
+   "output_tokens": 51,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "672112dc3e338f8598ca63f146e0a7968c7a9e2b3a21cedff2d1fb92a5602b3f",
+     "cached": true,
+     "input_tokens": 2303,
+     "output_tokens": 51,
+     "latency_s": 1.9377307999966433,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b08",
+   "category": "about",
+   "kind": "company",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "Tesla, Inc. (TSLA) is in the collection, with its 10-K for fiscal 2025. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [
+     "TSLA"
+    ],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 6.2,
+    "total_ms": 14.7
+   },
+   "first_token_ms": null,
+   "input_tokens": 2306,
+   "output_tokens": 56,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "3e3df5a1966a5f3b2fb9a0a34951387e7be2cebc302cd8ba85983f7883417915",
+     "cached": true,
+     "input_tokens": 2306,
+     "output_tokens": 56,
+     "latency_s": 1.0846791000076337,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b09",
+   "category": "about",
+   "kind": "not_held",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "FilingLens has no filings for Netflix: it is not in the collection. The collection covers 30 companies: AAPL, AMZN, BAC, CAT, COP, CVX, DUK, FCX, GOOGL, GS, HD, JNJ, JPM, KO, LIN, LLY, LMT, META, MSFT, NEE, NVDA, PFE, PG, PLD, TSLA, UNH, UNP, V, VZ and WMT. It holds 30 filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [],
+    "other_companies": [
+     "Netflix"
+    ],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 12.0,
+    "total_ms": 26.9
+   },
+   "first_token_ms": null,
+   "input_tokens": 2306,
+   "output_tokens": 56,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "0e09ee4ce172cc36aa0b402b9fa91fd8225f8b95ed4e0cc6fb95aa1c074b8611",
+     "cached": true,
+     "input_tokens": 2306,
+     "output_tokens": 56,
+     "latency_s": 1.6242100999952527,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b10",
+   "category": "about",
+   "kind": "not_held",
+   "expect": "own_data",
+   "outcome": "answered",
+   "error": null,
+   "answer": "FilingLens has no filings for Costco: it is not in the collection. The collection covers 30 companies: AAPL, AMZN, BAC, CAT, COP, CVX, DUK, FCX, GOOGL, GS, HD, JNJ, JPM, KO, LIN, LLY, LMT, META, MSFT, NEE, NVDA, PFE, PG, PLD, TSLA, UNH, UNP, V, VZ and WMT. It holds 30 filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "about_collection",
+    "tickers": [],
+    "other_companies": [
+     "Costco"
+    ],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 5.9,
+    "total_ms": 14.2
+   },
+   "first_token_ms": null,
+   "input_tokens": 2305,
+   "output_tokens": 55,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "576541920cbf26e56eb2dced527dbc14963fc6dcb231645ad6769e2d7763a3d7",
+     "cached": true,
+     "input_tokens": 2305,
+     "output_tokens": 55,
+     "latency_s": 1.3672290999966208,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b11",
+   "category": "about",
+   "kind": "near_filing",
+   "expect": "filings",
+   "outcome": "error",
+   "error": "UpstreamError: a question for the filings reached the answer model",
+   "answer": null,
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "numeric",
+    "tickers": [
+     "AAPL"
+    ],
+    "other_companies": [],
+    "fiscal_years": [
+     2025
+    ],
+    "fiscal_period": "FY",
+    "metric": "revenue"
+   },
+   "timings_ms": {
+    "route_ms": 5.9,
+    "facts_ms": 67.6,
+    "total_ms": 73.5
+   },
+   "first_token_ms": null,
+   "input_tokens": 2317,
+   "output_tokens": 62,
+   "top_score": null,
+   "early_search": null,
+   "sources": {
+    "F1": "37437"
+   },
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "da228b378464b3ec768a9c26b4716d1bdb6ab3148c7ebde259d8ffee83cd2897",
+     "cached": true,
+     "input_tokens": 2317,
+     "output_tokens": 62,
+     "latency_s": 1.0670605999912368,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b12",
+   "category": "about",
+   "kind": "near_filing",
+   "expect": "filings",
+   "outcome": "refused",
+   "error": null,
+   "answer": "The filings in FilingLens hold nothing relevant enough to answer this question.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "textual",
+    "tickers": [
+     "TSLA"
+    ],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 5.6,
+    "retrieve_ms": 222.1,
+    "retrieve_embed_ms": 24.4,
+    "retrieve_sql_ms": 32.7,
+    "retrieve_load_ms": 7.0,
+    "retrieve_rerank_ms": 148.3,
+    "total_ms": 227.8
+   },
+   "first_token_ms": null,
+   "input_tokens": 2314,
+   "output_tokens": 54,
+   "top_score": -4.823647,
+   "early_search": true,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "43f7992d9a79e216ecd8d315ec4d851e92fa883c1045e8697f319b62782b8711",
+     "cached": true,
+     "input_tokens": 2314,
+     "output_tokens": 54,
+     "latency_s": 1.025827899997239,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b13",
+   "category": "about",
+   "kind": "near_refusal",
+   "expect": "refuse",
+   "outcome": "refused",
+   "error": null,
+   "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "out_of_scope",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 5.4,
+    "total_ms": 5.6
+   },
+   "first_token_ms": null,
+   "input_tokens": 2307,
+   "output_tokens": 53,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "f6ec93d58a717aa33b4df131f55d7a70a810a04b09869c01294720dae1e031ea",
+     "cached": true,
+     "input_tokens": 2307,
+     "output_tokens": 53,
+     "latency_s": 1.5895211000024574,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b14",
+   "category": "about",
+   "kind": "near_refusal",
+   "expect": "refuse",
+   "outcome": "refused",
+   "error": null,
+   "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "out_of_scope",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 4.4,
+    "total_ms": 4.5
+   },
+   "first_token_ms": null,
+   "input_tokens": 2317,
+   "output_tokens": 53,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "34b18fe86cb07db04e7e38317d09fa6871301a108541adfcdde44d1f038d948f",
+     "cached": true,
+     "input_tokens": 2317,
+     "output_tokens": 53,
+     "latency_s": 1.3697422000113875,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  },
+  {
+   "id": "b15",
+   "category": "about",
+   "kind": "near_refusal",
+   "expect": "refuse",
+   "outcome": "refused",
+   "error": null,
+   "answer": "SEC filings cannot answer this question, so FilingLens does not answer it.",
+   "citations": [],
+   "warnings": [],
+   "degraded": false,
+   "routing": {
+    "route": "out_of_scope",
+    "tickers": [],
+    "other_companies": [],
+    "fiscal_years": [],
+    "fiscal_period": null,
+    "metric": null
+   },
+   "timings_ms": {
+    "route_ms": 4.7,
+    "total_ms": 4.9
+   },
+   "first_token_ms": null,
+   "input_tokens": 2307,
+   "output_tokens": 53,
+   "top_score": null,
+   "early_search": null,
+   "sources": {},
+   "calls": [
+    {
+     "role": "router",
+     "model": "anthropic:claude-haiku-5-5",
+     "cache_id": "255e9f0f4c727d51ceef1e6420ee5e13c233be1e58dae90344f670c9038da031",
+     "cached": true,
+     "input_tokens": 2307,
+     "output_tokens": 53,
+     "latency_s": 1.4436518000002252,
+     "first_token_s": null,
+     "truncated": false
+    }
+   ],
+   "live": false,
+   "route_ok": true,
+   "router_ok": true
+  }
+ ]
+}

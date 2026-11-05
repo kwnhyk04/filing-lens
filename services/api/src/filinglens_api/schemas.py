@@ -251,13 +251,23 @@ class Answer(Schema):
         ),
     )
     reading: Reading | None = Field(
-        default=None, description="How the router read the question; null if it was not read."
+        default=None,
+        description=(
+            "How the router read the question; null if it was not read, and on `own_data` answers."
+        ),
     )
     checks: list[FigureCheck] = Field(
         default_factory=list[FigureCheck],
         description=(
             "Each amount in the answer with the cited source that holds it. Validation removes a"
             " sentence with an amount no cited source holds, so every listed amount matched."
+        ),
+    )
+    own_data: bool = Field(
+        default=False,
+        description=(
+            "True when FilingLens answered about itself, the app or its collection, from its own"
+            " data: no model wrote the text, and it cites no filing."
         ),
     )
 

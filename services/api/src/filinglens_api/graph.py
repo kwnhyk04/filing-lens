@@ -207,6 +207,9 @@ class Answer:
     checks: list[FigureCheck] = strawberry.field(
         description="Each amount in the answer with the cited source that holds it."
     )
+    own_data: bool = strawberry.field(
+        description="True when FilingLens answered about itself from its own data; no filing cited."
+    )
 
     @classmethod
     def of(cls, answer: schemas.Answer) -> "Answer":
@@ -225,6 +228,7 @@ class Answer:
                 companies=[ReadCompany(**c.model_dump()) for c in reading.companies],
             ),
             checks=[FigureCheck(**check.model_dump()) for check in answer.checks],
+            own_data=answer.own_data,
         )
 
 

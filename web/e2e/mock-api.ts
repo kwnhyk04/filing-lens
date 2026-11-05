@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import type { components } from "../../clients/ts/index.ts";
-import { API_KEY, MOCK, snapshot } from "./env.ts";
+import { API_KEY, MOCK, OWN_DATA_QUESTION, snapshot } from "./env.ts";
 
 type Schemas = components["schemas"];
 type AnswerEvent = Schemas["AnswerDelta"] | Schemas["AnswerCompleted"] | Schemas["AnswerFailed"];
@@ -74,6 +74,24 @@ function calculated(): Answer {
   };
 }
 
+/** An answer about FilingLens itself: the snapshot's own figures in the API's template (filinglens_api.about). */
+function ownData(): Answer {
+  const tickers = snapshot.companies.map((company) => company.ticker).sort();
+  const filings = snapshot.companies.reduce((sum, company) => sum + company.filings.edges.length, 0);
+  const listed = `${tickers.slice(0, -1).join(", ")} and ${tickers.at(-1)}`;
+  return {
+    answer: `The collection covers ${tickers.length} companies: ${listed}. It holds ${filings} filings (10-K) for fiscal 2025 and 2026. The data was last loaded on October 15, 2026.`,
+    citations: [],
+    degraded: false,
+    refused: false,
+    warnings: [],
+    checks: [],
+    reading: null,
+    own_data: true,
+    usage: { input_tokens: 900, output_tokens: 40, cost_usd: 0 },
+  };
+}
+
 /** What the API sends a key it does not know. */
 function rejected(res: ServerResponse) {
   send(res, 401, problem(401, "unauthorized", "Missing or unknown API key."), { "WWW-Authenticate": "APIKey" });
@@ -105,14 +123,15 @@ async function stream(res: ServerResponse, question: string, sid: string | undef
   const rewritten = question === "e2e: rewritten"; // x02's answer carries validation warnings
   const slow = question.startsWith("e2e: slow"); // about 3 s of draft, so a test can leave mid-answer
   const recorded = snapshot.answers.find((item) => item.question === question)?.answer as Answer | undefined;
-  const answer = rewritten ? answerOf("x02") : question === "e2e: calculated" ? calculated() : (recorded ?? answerOf("o02"));
+  const made = question === "e2e: calculated" ? calculated() : question === OWN_DATA_QUESTION ? ownData() : undefined;
+  const answer = rewritten ? answerOf("x02") : (made ?? recorded ?? answerOf("o02"));
   const draft = slow ? "Still drafting. ".repeat(50) : rewritten ? "A first draft that validation will rewrite." : answer.answer;
   for (const piece of draft.match(/[\s\S]{1,40}/g) ?? []) {
     emit({ type: "delta", text: piece });
     res.write(": ping\n\n");
     await sleep(150);
   }
-  if (sid && !answer.refused && !answer.degraded) keep(sid, question, answer); // before the event, as the API
+  if (sid && !answer.refused && !answer.degraded && !answer.own_data) keep(sid, question, answer); // before the event, as the API
   emit({ type: "completed", answer, stored_at: null });
   res.end();
 }

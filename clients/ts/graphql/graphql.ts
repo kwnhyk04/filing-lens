@@ -43,7 +43,7 @@ export type AnswerQueryVariables = Exact<{
 }>;
 
 
-export type AnswerQuery = { answer: { answer: string, degraded: boolean, refused: boolean, warnings: Array<string>, citations: Array<{ chunkId: string | null, factId: string | null, quote: string, filingUrl: string, calculation: { inputs: Array<number> } | null }>, usage: { inputTokens: number, outputTokens: number, costUsd: number }, reading: { route: string, otherCompanies: Array<string>, fiscalYears: Array<number>, fiscalPeriod: string | null, metric: string | null, companies: Array<{ ticker: string, name: string }> } | null, checks: Array<{ text: string, citation: number, sourceValue: string }> } };
+export type AnswerQuery = { answer: { answer: string, degraded: boolean, refused: boolean, warnings: Array<string>, ownData: boolean, citations: Array<{ chunkId: string | null, factId: string | null, quote: string, filingUrl: string, calculation: { inputs: Array<number> } | null }>, usage: { inputTokens: number, outputTokens: number, costUsd: number }, reading: { route: string, otherCompanies: Array<string>, fiscalYears: Array<number>, fiscalPeriod: string | null, metric: string | null, companies: Array<{ ticker: string, name: string }> } | null, checks: Array<{ text: string, citation: number, sourceValue: string }> } };
 
 export type TotalsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -201,6 +201,7 @@ export const AnswerDocument = new TypedDocumentString(`
       fiscalPeriod
       metric
     }
+    ownData
     checks {
       text
       citation

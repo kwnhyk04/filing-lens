@@ -53,6 +53,8 @@ test("the card's parts come one by one in the hero's order: Read as, each source
   assert.deepEqual(revealParts({ ...n01, degraded: true }, data.sources, false).slice(-2), ["note", "foot"]);
   assert.deepEqual(revealParts(n01, undefined, true), ["read", "source", "heading", "sentence", "check", "table", "foot"]); // no lookup, no filing named
   assert.deepEqual(revealParts(o02, undefined, false), ["read", "heading", "sentence", "foot"]); // a refusal: nothing cited or checked
+  const own = { ...o02, refused: false, reading: null, own_data: true };
+  assert.deepEqual(revealParts(own, undefined, false), ["heading", "sentence", "note", "foot"]); // its own data: a note, no source
   assert.deepEqual(revealParts({ ...x04, reading: null }, data.sources, false).slice(0, 2), ["source", "filings"]);
   assert.deepEqual(revealParts(x04, undefined, false).slice(0, 2), ["read", "heading"], "the sources wait for the lookup");
   assert.equal(landed(x04, undefined, false), false);

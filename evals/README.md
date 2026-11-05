@@ -82,6 +82,21 @@ Golden set v2 (`evals/golden/v2`, frozen 2026-10-31) is the set in use. It holds
 - The cross-check: the judge model (gpt-oss-120b, another model family) labeled a fixed-seed sample of 50 of Claude's labels without seeing them. Agreement 90.0%, Cohen's kappa 0.80 (95% CI 0.62 to 0.96). Two models agreeing does not show the labels are right.
 - Its labels only measure agreement: on the 5 disagreements Claude's labels stand.
 
+### The about category
+
+`evals/golden/about.jsonl` holds 15 questions outside the frozen set: 10 about FilingLens itself (the app, the collection, a company it holds, two it does not) and 5 near-misses that must go to the filings or be refused. `make eval-about` runs them through the router and the answer pipeline with no answer model, and checks where each landed and the figures it should state. It has no floors and CI skips it.
+
+Golden v2's files, manifest and floors are unchanged. A test pins that none of its 155 questions reaches the about routes, so each sends the router the same prompt and schema as before and its cached reply still answers. The router's extra prompt text quotes several of these questions, so they are not held out.
+
+Run live on 2026-11-05 (`evals/reports/runs/20261105T162342Z-about` and `20261105T162355Z-about`, replayed from the live calls of `20261105T162150Z-about` and `20261105T162255Z-about`):
+
+| Router | Route right | Landed right | Figures said | Tokens | Cost |
+| --- | --- | --- | --- | --- | --- |
+| Groq gpt-oss-20b | 15 of 15 | 15 of 15 | 10 of 10 | 19,963 | free tier |
+| Claude Haiku 5.5 | 15 of 15 | 15 of 15 | 10 of 10 | 35,396 | $0.00386 |
+
+b12, "What can you tell me about Tesla's risk factors?", routes right but gets no answer: the search runs, and its best rerank score, -4.82, falls under the relevance gate's -3.0. It counts as landing on the filings, and this work changed neither the search nor the gate.
+
 ### Official results, golden v2: test split
 
 Two runs of the same 55 test questions, both judged by gpt-oss-120b. Nothing was tuned on this set.

@@ -154,7 +154,8 @@ export interface paths {
          *     With `X-Session-ID`, a completed answer that is not refused or degraded is kept for that
          *     sign-in, and the same question again (same words, ignoring case, spacing, curly quotes and
          *     closing punctuation, over the same companies and years) gets it back at once as one
-         *     `completed` event with `stored_at`, without a model call. `fresh=true` answers again.
+         *     `completed` event with `stored_at`, without a model call. `fresh=true` answers again. An
+         *     answer about FilingLens itself is not kept: its figures are read each time it is asked.
          */
         post: operations["stream_answer"];
         delete?: never;
@@ -174,7 +175,8 @@ export interface paths {
          * List Recent Answers
          * @description This sign-in's questions with their completed answers, newest first. Either key.
          *
-         *     At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers never are.
+         *     At most 10 are kept, each for RECENT_ANSWERS_TTL_S; refused and degraded answers and answers
+         *     about FilingLens itself never are.
          */
         get: operations["list_recent_answers"];
         put?: never;
@@ -256,13 +258,19 @@ export interface components {
              * @description Validation notes, such as sentences removed because a citation or an amount did not check out. A streamed answer with warnings replaces the draft its deltas carried.
              */
             warnings: string[];
-            /** @description How the router read the question; null if it was not read. */
+            /** @description How the router read the question; null if it was not read, and on `own_data` answers. */
             reading: components["schemas"]["Reading"] | null;
             /**
              * Checks
              * @description Each amount in the answer with the cited source that holds it. Validation removes a sentence with an amount no cited source holds, so every listed amount matched.
              */
             checks: components["schemas"]["FigureCheck"][];
+            /**
+             * Own Data
+             * @description True when FilingLens answered about itself, the app or its collection, from its own data: no model wrote the text, and it cites no filing.
+             * @default false
+             */
+            own_data: boolean;
         };
         /** AnswerCompleted */
         AnswerCompleted: {
