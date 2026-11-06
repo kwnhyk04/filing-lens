@@ -5,7 +5,7 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from fractions import Fraction
 from typing import Any
@@ -20,12 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from filinglens_core.settings import EMBEDDING_MODELS, EmbeddingColumn
 from filinglens_db.models import Chunk, Filing, FilingStatus, Section, Vector
 from filinglens_llm.local import embed, rerank, reranker
+from filinglens_llm.validate import STATED
 from filinglens_telemetry import metrics
 
 RRF_K = 60  # Cormack et al. (2009); a larger k flattens the lead of the top ranks
 VECTOR_K = 50  # nearest chunks by embedding
 TEXT_K = 50  # best full-text matches
 SCORE_DIGITS = 6  # rounded, so a recomputed page compares equal to its cursor
+UNIT_REACH = 40_000  # characters above a chunk: 95% of the units stated above one sit this close
 log = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -114,6 +116,7 @@ class Hit:
     fiscal_year: int
     fiscal_period: str
     primary_document: str
+    unit_above: str = ""  # the nearest table unit its section states above it (with_unit_above)
 
 
 @dataclass(frozen=True)
@@ -200,6 +203,34 @@ async def search(
     )
     similarity = 1 - nearest[0].distance if nearest else None
     return Ranking(hits=hits, degraded=degraded, similarity=similarity, timings_ms=timings)
+
+
+async def with_unit_above(engine: AsyncEngine, hits: Sequence[Hit]) -> list[Hit]:
+    """`hits`, each with the nearest table unit stated in the UNIT_REACH characters of its section
+    above it: a table that runs across chunks states its unit once, and Lilly's Item 7 once for
+    all its tables. Answers read this for the hits they use, for validation."""
+    if not hits:
+        return []
+    offset = Chunk.char_start - Section.char_start
+    query = (
+        select(
+            Chunk.id,
+            func.substr(
+                Section.text,
+                func.greatest(offset - UNIT_REACH + 1, 1),
+                func.least(offset, UNIT_REACH),
+            ),
+        )
+        .join(Section, Section.id == Chunk.section_id)
+        .where(Chunk.id.in_([hit.chunk_id for hit in hits]))
+    )
+    async with engine.connect() as connection:
+        above: dict[str, str | None] = {row[0]: row[1] for row in await connection.execute(query)}
+
+    def unit(hit: Hit) -> str:
+        return next(reversed([m[0] for m in STATED.finditer(above.get(hit.chunk_id) or "")]), "")
+
+    return [replace(hit, unit_above=unit(hit)) for hit in hits]
 
 
 async def _nearest(

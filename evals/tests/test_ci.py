@@ -38,7 +38,10 @@ def report(**metrics: float | None) -> dict[str, Any]:
 @pytest.fixture
 def floors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "thresholds.json"
-    floors = {"v2:retrieval:dev:full": {"recall@10": 0.5, "retrieval_p95_ms": 100}}
+    floors = {
+        key: {"recall@10": 0.5, "retrieval_p95_ms": 100}
+        for key in ("v2:retrieval:dev:full", f"{harness.VERSION}:retrieval:dev:full")
+    }
     path.write_text(json.dumps(floors))
     monkeypatch.setattr(harness, "THRESHOLDS", path)
     return path
@@ -107,7 +110,8 @@ def test_the_ci_subset_holds_ten_should_refuse_dev_questions() -> None:
 
 def test_ci_stops_before_any_call_when_the_setup_has_no_floors(floors: Path) -> None:
     args = argparse.Namespace(suite="all", split="dev", subset="full")
-    assert harness.unfloored(args, "gemini:g") == ["v2:answer:dev:full:gemini:g"]
+    key = f"{harness.VERSION}:answer:dev:full:gemini:g"
+    assert harness.unfloored(args, "gemini:g") == [key]
 
 
 def test_errored_questions_fail_plainly_with_their_reasons() -> None:

@@ -10,7 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from filinglens_ingest.parsing import Parsed, ParseError, Section, decode, parse_filing
+from filinglens_ingest.parsing import (
+    Parsed,
+    ParseError,
+    Section,
+    decode,
+    parse_filing,
+    text_lines,
+)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 SEC_CACHE = Path(__file__).parents[3] / ".cache" / "sec" / "Archives" / "edgar" / "data"
@@ -73,6 +80,93 @@ def test_contents_rows_are_skipped_and_page_headers_do_not_split_an_item() -> No
     assert "hidden fact" not in parsed.text
     assert text(parsed, "1A") == "Item 1A. Risk Factors\nWidgets break.\nItem 1A\nRates move."
     assert text(parsed, "8") == "Item 8. Financial Statements\nRevenue | $ | 391,035"
+
+
+def row(*cells: str) -> str:
+    """A table row as Microsoft's and Prologis' 10-Ks write it: each cell in a <p>, on its own
+    line of the source."""
+    wrapped = (
+        f'<td style="vertical-align:bottom"><p style="margin:0"><span>{cell}</span></p></td>'
+        for cell in cells
+    )
+    return "<tr>\n     " + "\n     ".join(wrapped) + "\n    </tr>"
+
+
+@pytest.mark.parametrize(
+    ("cells", "line"),
+    [
+        # Microsoft: the executive officers' table lost each age.
+        (("Judson B. Althoff", "&#160;", "53", "&#160;", "Chief Executive Officer"),
+         "Judson B. Althoff | 53 | Chief Executive Officer"),
+        (("Bradford L. Smith", "&#160;", "67", "&#160;", "Vice Chair and President"),
+         "Bradford L. Smith | 67 | Vice Chair and President"),
+        # Prologis: its top customers lost their share of the total.
+        (("1. Amazon", "6.3", "35", "&#160;", "1. Amazon", "5.3", "48"),
+         "1. Amazon | 6.3 | 35 | 1. Amazon | 5.3 | 48"),
+        (("Rental expenses", "(488", ")", "(445", ")"), "Rental expenses | (488 | ) | (445 | )"),
+        # The tagged numbers of an inline XBRL filing.
+        (("Revenue", "<ix:nonFraction>365</ix:nonFraction>", "1,234"), "Revenue | 365 | 1,234"),
+        # "LLC" reads as a Roman numeral outside a table.
+        (("Prologis", "LLC"), "Prologis | LLC"),
+    ],
+)  # fmt: skip
+def test_a_row_of_wrapped_cells_is_one_line_with_every_digit(
+    cells: tuple[str, ...], line: str
+) -> None:
+    assert text_lines(page("<table>", row(*cells), "</table>")) == [line]
+
+
+@pytest.mark.parametrize(
+    ("cell", "text"),
+    [
+        ("<div>Total<br>revenue</div>", "Total revenue"),
+        ("<div>Total</div><div>revenue</div>", "Total revenue"),
+        ("<p>Total</p><p>revenue</p>", "Total revenue"),
+        ("<div>Total<br/>revenue</div>", "Total revenue"),
+    ],
+)
+def test_a_cell_keeps_its_blocks_on_one_line(cell: str, text: str) -> None:
+    document = page(f"<table><tr><td>{cell}</td><td><div>365</div></td></tr></table>")
+    assert text_lines(document) == [f"{text} | 365"]
+
+
+def test_a_line_break_in_the_source_is_a_space() -> None:
+    assert text_lines(page("<p>Net sales\nrose</p>\n<p>Costs fell.</p>")) == [
+        "Net sales rose",
+        "Costs fell.",
+    ]
+
+
+def test_page_furniture_goes_outside_tables_and_a_contents_link_goes_anywhere() -> None:
+    document = page(
+        "<p>12</p><p>iv</p><p>LLC</p><p>Net sales rose.</p>",
+        "<table><tr><td>Table of Contents</td></tr><tr><td>Revenue</td><td>12</td></tr></table>",
+    )
+    assert text_lines(document) == ["Net sales rose.", "Revenue | 12"]
+
+
+def test_a_table_inside_a_cell_keeps_its_rows_and_an_unclosed_cell_ends_at_the_row() -> None:
+    nested = "<table><tr><td>Inner</td></tr><tr><td>7</td></tr></table>"
+    assert text_lines(page(f"<table><tr><td>Outer{nested}</td></tr></table>")) == [
+        "Outer",
+        "Inner",
+        "7",
+    ]
+    unclosed = "<table><tr><td><p>A</p><td><p>7</p></tr><tr><td>B</tr></table><p>After</p>"
+    assert text_lines(page(unclosed)) == ["A | 7", "B", "After"]
+
+
+@pytest.mark.skipif(not SEC_CACHE.is_dir(), reason="needs the local SEC cache; CI has none")
+@pytest.mark.parametrize(
+    ("name", "line"),
+    [
+        ("msft-20260630.htm.gz", "Bradford L. Smith | 67 | Vice Chair and President"),
+        ("pld-20251231.htm.gz", "5. Walmart | 0.8 | 5 | 5. DSV | 1.2 | 14"),
+    ],
+)
+def test_the_filings_the_review_found_keep_their_rows(name: str, line: str) -> None:
+    document = next(SEC_CACHE.glob(f"*/*/{name}")).read_bytes()
+    assert line in text_lines(decode(gzip.decompress(document)))
 
 
 def test_a_missing_item_is_listed_and_one_reading_not_applicable_is_found() -> None:
@@ -226,8 +320,9 @@ def test_a_full_item_8_ends_where_the_next_item_starts(following: str) -> None:
 
 @pytest.mark.skipif(not SEC_CACHE.is_dir(), reason="needs the local SEC cache; CI has none")
 def test_the_other_cached_10ks_keep_their_section_ranges() -> None:
-    """The 26 cached golden-set 10-Ks without a separate financial section, as main's parser cut
-    them on 2026-10-27 (section-ranges.json): the item labels fix changes none of them."""
+    """The 26 cached golden-set 10-Ks without a separate financial section, as the parser cut them
+    once table rows kept their cells (section-ranges.json, 2026-11-06). That fix moved the offsets
+    and changed no filing's list of items."""
     pinned = json.loads((FIXTURES / "section-ranges.json").read_text(encoding="utf-8"))
     for folder, ranges in pinned.items():
         document = next(SEC_CACHE.glob(f"*/{folder}/*.htm.gz")).read_bytes()

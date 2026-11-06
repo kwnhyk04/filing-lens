@@ -1,5 +1,6 @@
-// The landing page's results table, from the official eval report's Markdown: the report's own target,
-// result and pass or fail for each row, in the page's words and units.
+// The landing page's results table, from the official eval report's Markdown: each row's target, result, sample
+// size and 95% interval, in the page's words and units. A row is met or below target only where its whole interval
+// says so: reports saved before 2026-11-06 say "pass" on the point alone, and 12 of 12 reaches down to 75.8%.
 
 type Unit = "share" | "ms" | "usd";
 
@@ -21,16 +22,23 @@ export interface ResultRow {
   label: string;
   target: string;
   result: string;
-  status: "Met" | "Below target" | "Not measured";
+  status: "Met" | "Below target" | "Inconclusive" | "Not measured";
+  detail: string;
 }
 
 const percent = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
 const seconds = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-/** A report cell ("0.944", "1,546 ms", "$0.0010") as the page shows it ("94.4%", "1.55 s", "$0.0010"). */
-function shown(cell: string, unit: Unit): string {
+/** The number in a report cell: "0.944", "1,546 ms" or "$0.0010". */
+function read(cell: string): number {
   const value = Number(cell.replace(/[$,]|\s*ms$/g, ""));
   if (Number.isNaN(value)) throw new Error(`Not a number in the eval report: "${cell}"`);
+  return value;
+}
+
+/** A report cell ("0.944", "1,546 ms", "$0.0010") as the page shows it ("94.4%", "1.55 s", "$0.0010"). */
+function shown(cell: string, unit: Unit): string {
+  const value = read(cell);
   if (unit === "ms") return `${seconds.format(value / 1000)} s`;
   if (unit === "usd") return `$${value.toFixed(4)}`;
   return percent.format(value);
@@ -47,12 +55,16 @@ export function resultRows(markdown: string): ResultRow[] {
   return ROWS.map(({ report, label, unit, ceiling }): ResultRow => {
     const cells = table.get(report);
     if (!cells) throw new Error(`The eval report has no "${report}" row`);
-    const [target, measured, , , status] = cells;
+    const [target, measured, interval, n, status] = cells;
+    const [low, high] = interval.split(" to ");
+    const met = (cell: string) => (ceiling ? read(cell) <= read(target) : read(cell) >= read(target));
+    const judged = met(low) && met(high) ? "Met" : met(low) || met(high) ? "Inconclusive" : "Below target";
     return {
       label,
       target: `${ceiling ? "≤ " : ""}${shown(target, unit)}`,
       result: shown(measured, unit),
-      status: status === "pass" ? "Met" : status === "fail" ? "Below target" : "Not measured",
+      status: ["pass", "fail", "inconclusive"].includes(status) ? judged : "Not measured",
+      detail: `n ${n}, 95% CI ${shown(low, unit)} to ${shown(high, unit)}`,
     };
   });
 }
@@ -61,6 +73,7 @@ export function resultRows(markdown: string): ResultRow[] {
 export interface RunCell {
   result: string;
   status: ResultRow["status"];
+  detail: string;
 }
 
 /** A metric's row in the comparison: its target, then each official run's result. */
@@ -80,8 +93,8 @@ export function comparisonRows(claudeMarkdown: string, freeMarkdown: string): Co
     return {
       label: row.label,
       target: row.target,
-      claude: { result: row.result, status: row.status },
-      free: { result: other.result, status: other.status },
+      claude: { result: row.result, status: row.status, detail: row.detail },
+      free: { result: other.result, status: other.status, detail: other.detail },
     };
   });
 }
@@ -122,13 +135,13 @@ export const EVIDENCE: { claim: string; line: string; paths: string[] }[] = [
   },
   {
     claim: "Grounded generation",
-    line: "Quotes must match the passage word for word, and amounts the fact or passage they cite. Unsupported sentences are removed.",
+    line: "Quotes must match the passage word for word. Dollar amounts, percentages and comma-grouped numbers must match a cited source in scale, sign and unit. A sentence that fails is removed.",
     paths: ["packages/llm/src/filinglens_llm/validate.py", "services/api/src/filinglens_api/answering.py"],
   },
   {
     claim: "Reproducible evaluation",
     line: "A frozen test set, a calibrated judge, and reports fingerprinted with the exact code and prompt versions they measured.",
-    paths: ["evals/golden/v2/manifest.json", "evals/judge.py", "evals/harness.py"],
+    paths: ["evals/golden/v3/manifest.json", "evals/judge.py", "evals/harness.py"],
   },
   {
     claim: "Quality gates in CI",

@@ -77,7 +77,7 @@ test("an answer about FilingLens shows the card with its own-data note, no sourc
 test("the answer's header says when its first words came, when it was complete, and how many sources it has", async ({ page }) => {
   await ask(page, question("c12"));
   await expect(page.getByTestId("timings")).toHaveText(
-    /^First words in \d+\.\d s · complete in \d+\.\d s · 4 sources · every number checked$/,
+    /^First words in \d+\.\d s · complete in \d+\.\d s · 4 sources · amounts checked$/,
   );
 });
 

@@ -19,7 +19,7 @@ from starlette.datastructures import State
 from strawberry.fastapi import GraphQLRouter
 
 from filinglens_api import routes
-from filinglens_api.answering import Answerer, Models, PostgresEvidence
+from filinglens_api.answering import Answerer, Deadlines, Models, PostgresEvidence
 from filinglens_api.backend import DiscoverQueue, LiveBackend
 from filinglens_api.graph import get_context, schema
 from filinglens_api.limits import BodyLimit, rate_limit
@@ -94,6 +94,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             models(settings, http, ledger),
             app.state.redis,
             max_inflight=settings.llm_max_inflight,
+            deadlines=Deadlines(
+                settings.llm_router_timeout_ms / 1000,
+                settings.llm_first_token_timeout_ms / 1000,
+                settings.llm_reply_timeout_ms / 1000,
+            ),
         )
     discover = DiscoverQueue(str(settings.broker_url.get_secret_value()))
     app.state.backend = LiveBackend(app.state.engine, discover, settings, answerer)

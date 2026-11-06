@@ -1,7 +1,7 @@
 // The landing page's overview, after Hirael's feature-10 (MIT; docs/third-party.md): a serif head, then one
 // sheet split by hairlines into a saved answer with its passage, two figures, the newest feature and the
 // jobs every answer goes through. Its Tailwind and shadcn cards became FilingLens's CSS (app/landing.css).
-import claude from "../../evals/reports/2026-11-05-claude-first.json";
+import claude from "../../evals/reports/2026-11-06-claude-first.json";
 import { demo } from "../lib/demo.ts";
 import { heroStory, QUOTE } from "../lib/story.ts";
 import { AnswerText } from "./answer-view.tsx";
@@ -11,23 +11,24 @@ const saved = heroStory(demo, QUOTE);
 
 // demo/snapshot.json: the indexed filings it lists, one per company, as the demo header's "30 filings".
 const filings = demo.companies.reduce((sum, company) => sum + company.filings.edges.length, 0);
-// evals/reports/2026-11-05-claude-first.json, metrics.answer.numeric_exact_match: the same 12 of 12 as the
-// free-models run (2026-10-31.json); e2e/landing.spec.ts checks both.
+// evals/reports/2026-11-06-claude-first.json, metrics.answer.numeric_exact_match: the same 12 of 12 as the
+// free-models run (2026-11-06.json); e2e/landing.spec.ts checks both.
 const exact = claude.metrics.answer.numeric_exact_match;
+const whole = (share: number) => `${Math.round(share * 100)}%`;
 
 const FIGURES = [
   { label: "Filings indexed", value: String(filings), caption: "One 10-K from each company." },
   {
     label: "Exact numbers",
-    value: `${Math.round(exact.value * 100)}%`,
-    caption: `${Math.round(exact.value * exact.n)} of ${exact.n} numeric test questions within 0.5%, in both official runs.`,
+    value: whole(exact.value),
+    caption: `${Math.round(exact.value * exact.n)} of ${exact.n} numeric test questions within 0.5% in both official runs (95% CI ${whole(exact.low)} to ${whole(exact.high)}), against gold from the same XBRL lookup the answers use.`,
   },
 ];
 
 const JOBS = [
   ["Ask", "Ask in plain words about a company's 10-K."],
   ["Cite", "Every sentence cites a passage or an XBRL fact from the filing."],
-  ["Check", "Quotes must match their passage word for word, and amounts their source."],
+  ["Check", "Quotes must match their passage word for word, and the amounts code can read a cited source in scale, sign and unit."],
 ];
 
 export function Overview() {

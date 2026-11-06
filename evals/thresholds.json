@@ -74,5 +74,43 @@
   "mrr@10": 0.588048,
   "recall@10": 0.555651,
   "retrieval_p95_ms": 542.25
+ },
+ "v3:answer:dev:ci:gemini:gemini-3.5-flash-lite": {
+  "answer_p95_ms": 10728.75,
+  "citation_coverage": 0.95,
+  "correct_refusal": 0.722467,
+  "cost_billed_usd": 0.0,
+  "cost_usd": 0.002712,
+  "false_refusal": 0.37882,
+  "input_tokens": 8000.0,
+  "numeric_exact_match": 0.675592,
+  "output_tokens": 368.3125,
+  "ttft_p50_ms": 3729.9,
+  "ttft_p95_ms": 7418.25
+ },
+ "v3:answer:test:full:gemini:gemini-3.5-flash-lite": {
+  "answer_p95_ms": 16685.7,
+  "citation_coverage": 0.95,
+  "citation_precision": 0.95,
+  "correct_refusal": 0.722467,
+  "cost_billed_usd": 0.0,
+  "cost_usd": 0.003996,
+  "faithfulness": 0.92,
+  "false_refusal": 0.261773,
+  "input_tokens": 8000.0,
+  "numeric_exact_match": 0.757506,
+  "output_tokens": 600.0,
+  "ttft_p50_ms": 5182.65,
+  "ttft_p95_ms": 16401.0
+ },
+ "v3:retrieval:dev:full": {
+  "mrr@10": 0.641667,
+  "recall@10": 0.533651,
+  "retrieval_p95_ms": 250.0
+ },
+ "v3:retrieval:test:full": {
+  "mrr@10": 0.537,
+  "recall@10": 0.558698,
+  "retrieval_p95_ms": 408.6
  }
 }

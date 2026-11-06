@@ -99,6 +99,11 @@ class ApiSettings(DatabaseSettings, TelemetrySettings):
     # $0.75 (all at the output price), FilingLens's $15 share over the days to 2026-11-10.
     claude_daily_token_budget: int = Field(default=1_500_000, ge=0)
     llm_max_inflight: int = Field(default=4, ge=1)
+    # What a model call may take before the chain moves on: a routing call, an answer's first text,
+    # a whole answer or rewrite. All inside the answer's 30 s.
+    llm_router_timeout_ms: int = Field(default=4_000, ge=1)
+    llm_first_token_timeout_ms: int = Field(default=8_000, ge=1)
+    llm_reply_timeout_ms: int = Field(default=20_000, ge=1)
     # How long a sign-in's answer stays in Redis for a repeat question; at most the 8-hour session.
     recent_answers_ttl_s: int = Field(default=1800, ge=60, le=28_800)
     llm_primary: ModelRole = "gemini:gemini-3.5-flash-lite"

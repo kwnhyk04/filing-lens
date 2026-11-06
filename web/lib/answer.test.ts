@@ -266,6 +266,6 @@ test("a calculation reads as FilingLens's arithmetic on the sources it names, wi
   assert.equal(checksTitle(CALCULATED), "Numbers checked against XBRL data"); // arithmetic on XBRL facts
 });
 
-test("the timing line says every number was checked when the answer has checks", () => {
-  assert.equal(timingLine(900, 2600, 2, true), "First words in 0.9 s · complete in 2.6 s · 2 sources · every number checked");
+test("the timing line says amounts were checked when the answer has checks", () => {
+  assert.equal(timingLine(900, 2600, 2, true), "First words in 0.9 s · complete in 2.6 s · 2 sources · amounts checked");
 });

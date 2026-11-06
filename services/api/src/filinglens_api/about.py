@@ -17,7 +17,7 @@ LIST_MAX = 50  # tickers one answer names; a longer list gives a count of the re
 OVERVIEW = (
     "FilingLens is a research tool for the SEC filings of US public companies."
     " It answers questions from their 10-K filings and cites the passages and figures it used."
-    " Numbers are checked against XBRL facts, the structured data companies file with the SEC."
+    " Quotes and amounts are checked against the passages and XBRL facts it cites."
     " When the filings don't answer a question, it says so instead of guessing."
 )
 

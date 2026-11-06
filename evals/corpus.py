@@ -1,8 +1,8 @@
-"""Golden v2's corpus for CI (step 7): the dev database as a pg_dump that holds rows of the public
-SEC tables only, published as the release asset corpus-v2 (corpus-v1, golden v1's, stays
-published for production until it moves to corpus-v2).
+"""Golden v3's corpus for CI (step 7): the dev database as a pg_dump that holds rows of the public
+SEC tables only, published as the release asset corpus-v3 (corpus-v1 and corpus-v2 stay published
+for production until it moves).
 
-    make corpus-dump      # dev stack (make dev): .cache/corpus/corpus-v2.dump, its tables, sha256
+    make corpus-dump      # dev stack (make dev): .cache/corpus/corpus-v3.dump, its tables, sha256
     make corpus-restore   # an empty Postgres (CI): fetch the asset if missing, check it, restore it
 
 Every table's schema goes in, so a restore stands at the dev revision (0008) with empty job,
@@ -25,10 +25,10 @@ REPO = Path(__file__).parents[1]
 # Filings, sections, chunks (with their vectors) and XBRL facts from SEC EDGAR, the companies,
 # and the revision marker. Nothing else leaves the PC.
 PUBLIC = ("alembic_version", "companies", "filings", "sections", "chunks", "financial_facts")
-NAME = "corpus-v2.dump"
+NAME = "corpus-v3.dump"
 DUMP = REPO / ".cache" / "corpus" / NAME
-URL = f"https://github.com/kwnhyk04/filing-lens/releases/download/corpus-v2/{NAME}"
-SHA256 = "34b9abeb0bae2fed8e6430f63cafc1b789ed570b48adbad100b25e00f8dbcea2"  # made 2026-10-31
+URL = f"https://github.com/kwnhyk04/filing-lens/releases/download/corpus-v3/{NAME}"
+SHA256 = "90423a41da092af7fafa2861f23e179f391a413efb1fc8f9f1e5daab3cae8d51"  # made 2026-11-06
 COMPOSE = ("docker", "compose", "--env-file", ".env", "-f", "infra/docker-compose.yml")
 IN_CONTAINER = "/tmp/corpus.dump"  # noqa: S108 - inside the postgres container
 SECRET_NAMES = re.compile(r"KEY|PASSWORD|SECRET|TOKEN")

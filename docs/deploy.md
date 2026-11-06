@@ -98,6 +98,7 @@ It prints 43 URL-safe characters with no `$`.
 | `LLM_ROUTER` | `anthropic:claude-haiku-5-5`: Claude routes first (since 2026-10-31) |
 | `LLM_ROUTER_FALLBACK` | `groq:openai/gpt-oss-20b`: the free router behind Claude |
 | `LLM_FALLBACK`, `LLM_MAX_INFLIGHT`, `RECENT_ANSWERS_TTL_S`, `LOG_LEVEL` | leave out for the defaults: NVIDIA last in both chains, 4 answers at once, each sign-in's answers kept 30 minutes (60 to 28800 s), `INFO` |
+| `LLM_ROUTER_TIMEOUT_MS`, `LLM_FIRST_TOKEN_TIMEOUT_MS`, `LLM_REPLY_TIMEOUT_MS` | leave out for the defaults: 4,000, 8,000 and 20,000. Past one the chain moves to the next model. Raise them if `model call fell back` logs a model that is slow but healthy; measured: Claude routes in 2.0 s and Groq in 1.3 s at p95 (`evals/reports/`) |
 | `ANTHROPIC_API_KEY` | FilingLens's Anthropic key; here only, never on Vercel |
 | `ANTHROPIC_CREDITS_EXPIRE` | `2026-11-10`: Claude is off for good from that day (UTC) |
 | `CLAUDE_DAILY_TOKEN_BUDGET` | `1500000`: at most $0.75 a day, FilingLens's $15 share over the days to 2026-11-10. It counts this stack's Redis only, routing and answers together; the dev api and the local `--claude-first` evals count apart |
@@ -403,6 +404,55 @@ Ask answers questions about the app and its collection from a fixed template and
     docker exec filinglens-prod-postgres-1 psql -c "insert into ingest_jobs (idempotency_key, request, status, created_at) values ('corpus-restore-YYYY-MM-DD', '{}', 'succeeded', 'YYYY-MM-DD')"
     ```
     A restore with `--clean` (step 55) empties that table again, so run this after one, with that restore's day.
+
+### Re-parse: table rows that keep their digits
+
+The parser fix of 2026-11-06 changes the stored text of all 30 filings, and with it nearly every chunk id: 6 of corpus-v2's 11,257 ids survive, 5,600 chunk texts stay the same, and the corpus becomes 11,375 chunks with 8,950 more digits. No request goes to SEC: the documents come from `.cache\sec`. Each filing leaves search from its re-parse until the embed worker indexes it again, so a company reads as untracked meanwhile; the web serves the demo for the window. Evals run on the dev database, so production's order does not touch them.
+
+64. After the fix's merge, on `main`: set `IMAGE_TAG` in `.env.prod` to the merge's `sha-<7>`, then:
+    ```powershell
+    docker compose --env-file .env.prod pull api ingest embed
+    docker compose --env-file .env.prod up -d --wait api
+    docker compose --env-file .env.prod up -d --wait ingest embed
+    ```
+65. See what it would change. It reads only. Expect 30 filings; corpus-v1's item labels are in the same list.
+    ```powershell
+    docker exec filinglens-prod-ingest-1 python -m filinglens_ingest.reparse --audit
+    ```
+66. Back up, as step 54 does, and note the hash in the activity log. Then close the public path:
+    ```powershell
+    docker exec filinglens-prod-postgres-1 pg_dump --format=custom --compress=zstd --no-owner --no-privileges --file=/tmp/backup.dump postgresql:///
+    docker cp filinglens-prod-postgres-1:/tmp/backup.dump .cache\corpus\prod-backup-<UTC date>.dump
+    (Get-FileHash .cache\corpus\prod-backup-<UTC date>.dump -Algorithm SHA256).Hash
+    docker compose --env-file .env.prod stop tailscale
+    ```
+67. Re-parse every affected filing:
+    ```powershell
+    docker exec filinglens-prod-ingest-1 python -m filinglens_ingest.reparse --affected
+    ```
+68. Wait for the embed worker. Repeat until the first command prints only `indexed|30` and the second `0`:
+    ```powershell
+    docker exec filinglens-prod-postgres-1 psql -At -c "select status, count(*) from filings group by 1" -c "select count(*) from chunks where embedding is null"
+    ```
+69. Check, forget the answers that cite old chunks, reopen, and stop the workers. The audit should print `0 filings affected`.
+    ```powershell
+    docker exec filinglens-prod-ingest-1 python -m filinglens_ingest.reparse --audit
+    docker exec filinglens-prod-redis-1 sh -c 'redis-cli --scan --pattern "recent:*" | xargs -r redis-cli del'
+    docker compose --env-file .env.prod start tailscale
+    docker compose --env-file .env.prod stop ingest embed
+    ```
+70. Ask a passage question and a figure question as in step 29. A failure in steps 67 to 69: Rollback, Data: back to the backup. Then update this file's Database line, and the lines that say production still serves `corpus-v1`: the landing page's note with its check in `web/e2e/landing.spec.ts`, the README's Corpus bullet and Known issues, and `evals/README.md`.
+
+In dev, with `make dev` running, from the repo root, on the host so the tree's parser runs:
+
+```sh
+uv run --env-file .env python -m filinglens_ingest.reparse --audit --json .cache/reparse-audit.json
+uv run --env-file .env python -m filinglens_ingest.reparse --affected
+docker compose exec postgres psql -At -c "select status, count(*) from filings group by 1" -c "select count(*) from chunks where embedding is null"
+uv run --env-file .env python -m filinglens_ingest.reparse --audit
+```
+
+Dev was re-parsed this way on 2026-11-06: `make eval` now needs that corpus, since golden v3's chunk ids are the re-parsed ones (`evals/README.md`). CI restores it from the release asset `corpus-v3`, which must exist before the branch's CI runs.
 
 ## Rollback
 

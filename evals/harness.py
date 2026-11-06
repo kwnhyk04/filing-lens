@@ -73,7 +73,13 @@ from evals.metrics import (
     tighter,
     wilson,
 )
-from filinglens_api.answering import RELEVANCE_MIN, Answerer, Models, PostgresEvidence
+from filinglens_api.answering import (
+    RELEVANCE_MIN,
+    Answerer,
+    Deadlines,
+    Models,
+    PostgresEvidence,
+)
 from filinglens_api.limits import ANSWER_TIMEOUT_S
 from filinglens_api.schemas import Answer, AnswerCompleted, AnswerRequest
 from filinglens_core.errors import AiUnavailableError, FilingLensError
@@ -153,6 +159,10 @@ JUDGED = ("citation_precision", "faithfulness")
 GOLD_LABELS = {
     "v1": "AI-labeled, spot-checked by a non-expert; it is not human-verified",
     "v2": "AI-labeled, cross-checked blind by a second model; no human spot check in v2",
+    "v3": (
+        "v2's labels moved to the re-parsed chunks by exact text or word overlap (AI-labeled,"
+        " cross-checked blind by a second model; no human spot check)"
+    ),
 }
 # Pass/fail per question: their 95% range is a Wilson score interval, which never collapses.
 BINARY = (
@@ -342,6 +352,7 @@ class Src:
     text: str
     value: Decimal | None
     calculation: Calculation | None = None  # never rebuilt: K1's lines come with its citation
+    unit_above: str = ""  # never rebuilt: the judge reads the passage, not the check
 
 
 def now() -> str:
@@ -407,7 +418,7 @@ async def check_corpus(engine: AsyncEngine, golden: Golden) -> None:
     if problems:
         shown = "\n  ".join(problems[:20])
         raise Stop(
-            3, f"The corpus changed since golden {VERSION} froze, so it needs v2:\n  {shown}"
+            3, f"The corpus changed since golden {VERSION} froze, so it needs a new one:\n  {shown}"
         )
 
 
@@ -847,6 +858,8 @@ class AnswerSuite:
                 self.evidence, self.models(qid, calls), self.redis, max_inflight=1,
                 allow_fallback=False, today=lambda: self.as_of,
                 min_relevance=self.args.min_relevance,
+                # A run measures the model, within the question's own limit, not the fallbacks.
+                deadlines=Deadlines(ANSWER_TIMEOUT_S, ANSWER_TIMEOUT_S, ANSWER_TIMEOUT_S),
             )  # fmt: skip
             stats: dict[str, Any] = {}
             answer, error = None, None
@@ -1072,8 +1085,20 @@ def statuses(metrics: dict[str, dict[str, Any]], judge_ok: bool) -> None:
         elif name == "retrieval_p95_ms":
             entry["status"] = "not measured: the target is at about 250k chunks"
         else:
-            met = entry["value"] >= target if kind == "accuracy" else entry["value"] <= target
-            entry["status"] = "pass" if met else "fail"
+            entry["status"] = against_target(entry, target, kind == "accuracy")
+
+
+def against_target(entry: Mapping[str, Any], target: float, accuracy: bool) -> str:
+    """Pass or fail only where the whole 95% interval says so, else inconclusive: 12 of 12 at a
+    target of 0.92 has an interval down to 0.758. With no interval, the value decides."""
+
+    def met(value: float) -> bool:
+        return value >= target if accuracy else value <= target
+
+    ends = [end for end in (entry["low"], entry["high"]) if end is not None] or [entry["value"]]
+    if all(met(end) for end in ends):
+        return "pass"
+    return "inconclusive" if any(met(end) for end in ends) else "fail"
 
 
 def shown(name: str, value: float | None) -> str:

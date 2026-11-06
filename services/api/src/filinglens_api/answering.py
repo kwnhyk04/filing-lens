@@ -9,19 +9,21 @@ writes the answer with [n] markers and quotes, and every sentence must pass vali
 (filinglens_llm.answer.check); a failure gets one regeneration, then the failing sentences are
 dropped with a warning. A router call
 that fails falls back to LLM_FALLBACK; an answer call tries LLM_ANSWER_FALLBACK, then LLM_FALLBACK.
+A call fails over on an error, on an empty reply and past its deadline (Deadlines).
 Production puts Claude first (LLM_PRIMARY) and Gemini as LLM_ANSWER_FALLBACK; Claude sits out
 while it cannot answer (filinglens_llm.providers.Anthropic). Evals turn fallbacks off
 (allow_fallback), and each fallback is logged and counted. Out-of-scope questions, unknown
 companies, fiscal years with no 10-K yet and questions without relevant evidence get a refusal
-instead of a model answer. A question about FilingLens itself gets filinglens_api.about's fixed
-overview or the collection's figures from the database, also without one.
+instead of a model answer, as does a search whose reranker ran late. A question about FilingLens
+itself gets filinglens_api.about's fixed overview or the collection's figures from the database,
+also without one.
 """
 
 import asyncio
 import itertools
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import Any, Protocol, Self
@@ -58,7 +60,7 @@ from filinglens_db.models import Company, Filing, FilingStatus
 from filinglens_llm import answer as drafting
 from filinglens_llm import budget, router, validate
 from filinglens_llm.providers import Anthropic, Completion, Provider, credits_usd
-from filinglens_retrieval import Hit, Ranking, Scope, search
+from filinglens_retrieval import Hit, Ranking, Scope, search, with_unit_above
 from filinglens_retrieval.facts import Fact, get_financial_fact, latest_fiscal_year
 from filinglens_telemetry import metrics
 
@@ -66,6 +68,10 @@ SEC_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 MAX_CHUNKS = 12  # chunks the answer model reads
 RELEVANCE_MIN = -3.0  # provisional: TinyBERT gave 0.7 to 9.4 on topic, -10.9 off; 6b calibrates
 NO_EVIDENCE = "The filings in FilingLens hold nothing relevant enough to answer this question."
+RERANK_LATE = (
+    "FilingLens could not check in time which passages answer this question, so it did not answer."
+    " Try again in a moment."
+)
 OUT_OF_SCOPE = "SEC filings cannot answer this question, so FilingLens does not answer it."
 STAGES = ("route_ms", "facts_ms", "retrieve_ms", "generate_ms", "regenerate_ms", "total_ms")
 log = structlog.get_logger(__name__)
@@ -107,6 +113,16 @@ class Models:
     fallback: Provider
     answer_fallback: Provider | None = None  # LLM_ANSWER_FALLBACK: answers only, before `fallback`
     router_fallback: Provider | None = None  # LLM_ROUTER_FALLBACK: routing only, before `fallback`
+
+
+@dataclass(frozen=True)
+class Deadlines:
+    """Seconds a model call may take before the chain moves on: a slow free tier is the common
+    failure, and without these it used the answer's whole 30 s, so no fallback ran."""
+
+    router: float = 4.0  # LLM_ROUTER_TIMEOUT_MS: each routing call
+    first_token: float = 8.0  # LLM_FIRST_TOKEN_TIMEOUT_MS: an answer's first text
+    reply: float = 20.0  # LLM_REPLY_TIMEOUT_MS: a whole answer or rewrite
 
 
 @dataclass
@@ -182,7 +198,9 @@ class Answerer:
         allow_fallback: bool = True,
         today: Callable[[], date] = date.today,
         min_relevance: float = RELEVANCE_MIN,
+        deadlines: Deadlines = Deadlines(),  # noqa: B008 - frozen
     ) -> None:
+        self._deadlines = deadlines
         self._evidence = evidence
         self._models = models
         self._redis = redis
@@ -310,9 +328,8 @@ class Answerer:
         schema = router.schema(companies, about=wider)
 
         async def ask(provider: Provider, prompt: str) -> router.Routing:
-            completion = await provider.complete(
-                system, prompt, max_tokens=router.MAX_TOKENS, schema=schema
-            )
+            call = provider.complete(system, prompt, max_tokens=router.MAX_TOKENS, schema=schema)
+            completion = await _within(self._deadlines.router, provider, call)
             await self._spent(completion, run)
             return router.parse(completion.text, provider.name)
 
@@ -407,14 +424,17 @@ class Answerer:
             degraded = ranking.degraded
             hits = ranking.hits[:MAX_CHUNKS]
             run.top_score = hits[0].score if hits else None
-            relevant = degraded or (bool(hits) and hits[0].score >= self._min_relevance)
-            if relevant:
+            # A late reranker leaves fused scores, which the gate cannot read, so no passage goes
+            # through unchecked; the cosine similarity could stand in once it is calibrated.
+            if not degraded and hits and hits[0].score >= self._min_relevance:
                 names = plan.names or await self._evidence.names(sorted({h.cik for h in hits}))
                 sources += [_chunk_source(n, hit, names) for n, hit in enumerate(hits, 1)]
         run.sources = {s.alias: s.chunk_id or s.fact_id or "" for s in sources}
         if not sources:
-            refusal = self._refusal("no_relevant_passages", NO_EVIDENCE, run, degraded=degraded)
-            yield AnswerCompleted(answer=refusal)
+            code, text = (
+                ("rerank_late", RERANK_LATE) if degraded else ("no_relevant_passages", NO_EVIDENCE)
+            )
+            yield AnswerCompleted(answer=self._refusal(code, text, run, degraded=degraded))
             return
         by_alias = {source.alias: source for source in sources}
         visible, reply_text = drafting.Visible(), ""
@@ -438,13 +458,14 @@ class Answerer:
             log.info("answer failed validation, regenerating", problems=len(checked.problems))
 
             async def redo(provider: Provider) -> Completion:
-                completion = await provider.complete(
+                call = provider.complete(
                     drafting.SYSTEM,
                     drafting.user_prompt(question, sources, checked.problems),
                     max_tokens=drafting.MAX_TOKENS,
                 )
+                completion = await _within(self._deadlines.reply, provider, call)
                 await self._spent(completion, run)
-                return completion
+                return _with_text(completion)
 
             again = await self._with_fallback("primary", redo, run)
             reply = drafting.read_reply(again.text)
@@ -514,22 +535,44 @@ class Answerer:
         return usable
 
     async def _stream(self, system: str, user: str, run: _Run) -> AsyncIterator[str | Completion]:
-        """The answer's stream; a failure before the first text tries the next model."""
+        """The answer's stream; a failure, an empty reply or a missed deadline before the first
+        text tries the next model."""
         chain = await self._chain("primary")
         for attempt, provider in enumerate(chain):
             started = False
+            stream = provider.stream(system, user, max_tokens=drafting.MAX_TOKENS)
             try:
-                async for item in provider.stream(system, user, max_tokens=drafting.MAX_TOKENS):
+                async for item in self._timed(stream, provider):
                     if isinstance(item, Completion):
                         await self._spent(item, run)
+                        _with_text(item)
                     else:
-                        started = True
+                        started = started or bool(item.strip())
                     yield item
                 return
             except FilingLensError as exc:
                 if started or attempt == len(chain) - 1:
                     raise _final(exc) from exc
                 await self._fell_back("primary", provider, chain[attempt + 1], exc, run)
+
+    async def _timed(
+        self, stream: AsyncIterator[str | Completion], provider: Provider
+    ) -> AsyncIterator[str | Completion]:
+        """`stream`, or UpstreamError past its deadlines: first text, then the whole reply."""
+        clock = asyncio.get_running_loop().time
+        first, whole = self._deadlines.first_token, self._deadlines.reply
+        started, waiting = clock(), True
+        while True:
+            seconds = min(first, whole) if waiting else whole
+            try:
+                async with asyncio.timeout_at(started + seconds):
+                    item = await anext(stream)
+            except StopAsyncIteration:
+                return
+            except TimeoutError:
+                raise UpstreamError(f"{provider.name} took over {seconds:g} s.") from None
+            waiting = waiting and not (isinstance(item, str) and item.strip())
+            yield item
 
     async def _with_fallback[T](
         self, role: str, call: Callable[[Provider], Awaitable[T]], run: _Run
@@ -624,6 +667,24 @@ class _Plan:
     names: dict[int, str]
     latest: dict[int, int | None]  # each company's latest fiscal year with a 10-K
     period: str  # FY, Q1-Q4
+
+
+async def _within[T](seconds: float, provider: Provider, call: Awaitable[T]) -> T:
+    """`call`, or UpstreamError past its deadline, so the chain moves to the next model."""
+    try:
+        async with asyncio.timeout(seconds):
+            return await call
+    except TimeoutError:
+        raise UpstreamError(f"{provider.name} took over {seconds:g} s.") from None
+
+
+def _with_text(completion: Completion) -> Completion:
+    """`completion`, or UpstreamError when it holds no text: a safety stop or a reasoning model out
+    of tokens is the provider's fault, no judgment on the question, so the next model answers."""
+    if not completion.text.strip():
+        reason = completion.finish_reason or "no reason given"
+        raise UpstreamError(f"{completion.model} replied with no text ({reason}).")
+    return completion
 
 
 def _final(exc: FilingLensError) -> FilingLensError:
@@ -822,6 +883,7 @@ def _chunk_source(n: int, hit: Hit, names: dict[int, str]) -> drafting.Source:
         text=hit.text,
         value=None,
         url=_folder(hit.cik, hit.accession_number) + hit.primary_document,
+        unit_above=hit.unit_above,
     )
 
 
@@ -873,7 +935,7 @@ class PostgresEvidence:
 
     async def search(self, question: str, scope: Scope) -> Ranking:
         settings = self._settings
-        return await search(
+        ranking = await search(
             self._engine,
             question,
             embedding=settings.retrieval_embedding_column,
@@ -883,3 +945,5 @@ class PostgresEvidence:
             max_tokens=settings.rerank_max_tokens,
             timeout_s=settings.rerank_timeout_ms / 1000,
         )
+        read = await with_unit_above(self._engine, ranking.hits[:MAX_CHUNKS])
+        return replace(ranking, hits=[*read, *ranking.hits[MAX_CHUNKS:]])
