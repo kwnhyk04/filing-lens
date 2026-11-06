@@ -1,10 +1,13 @@
 """Answers: route the question, gather facts or chunks, write a cited answer, then validate it.
 
 The router (LLM_ROUTER) picks the path and names the companies and periods. Numeric questions read
-XBRL facts first (get_financial_fact) and search filing text only when no fact exists; textual and
-comparison questions search. That search starts while the router runs, on the companies and years
-the question names (router.guess), and is kept only when the router's plan asks for the same
-scope, so it changes when an answer arrives, never what it says. The primary model (LLM_PRIMARY)
+XBRL facts first (get_financial_fact) and search filing text only when no fact exists, or when the
+draft shows that the fact cannot answer; a fact never says what the filings leave out, so such a
+draft reads them and is written again. Textual and comparison questions search, and a question on
+how a figure changed is a comparison of two years (router.over_time, router.change_years). That
+search starts while the router runs, on the companies and years the question names (router.guess),
+and is kept only when the router's plan asks for the same scope, so it changes when an answer
+arrives, never what it says. The primary model (LLM_PRIMARY)
 writes the answer with [n] markers and quotes, and every sentence must pass validation
 (filinglens_llm.answer.check); a failure gets one regeneration, then the failing sentences are
 dropped with a warning. A router call
@@ -73,6 +76,10 @@ RERANK_LATE = (
     " Try again in a moment."
 )
 OUT_OF_SCOPE = "SEC filings cannot answer this question, so FilingLens does not answer it."
+FIGURE_SHORT = (
+    "The reported figure alone did not answer this, so the answer was written again from the"
+    " filing."
+)
 STAGES = ("route_ms", "facts_ms", "retrieve_ms", "generate_ms", "regenerate_ms", "total_ms")
 log = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -248,12 +255,14 @@ class Answerer:
             # The plan reads the one company the question names when the router named none;
             # stats keep the router's own reply, which the evals score.
             filled = router.fill(routing, router.guess(request.question, companies)[0])
-            planned = router.settle(filled)
+            planned = router.over_time(router.settle(filled), request.question)
             outcome = await self._about(planned, run)
             plan = None if outcome else await self._plan(request, planned, companies)
             if isinstance(plan, tuple):
                 outcome = self._refusal(*plan, run)
             elif plan is not None:
+                if not request.fiscal_years:  # the reading shows the years a change read
+                    planned = planned.model_copy(update={"fiscal_years": plan.years or []})
                 kept = early.task if early.agrees(request, planned, plan) else None
                 if kept is None:  # a guess the plan does not use must not hold the reranker
                     early.task.cancel()
@@ -388,7 +397,31 @@ class Answerer:
                 newest = f"its latest is fiscal {latest[cik]}" if latest[cik] else "it has none yet"
                 text = f"{names.get(cik, cik)} has filed no 10-K for fiscal {late[0]}; {newest}."
                 return "time_trap", text
+        # After the time trap, which names the year asked, not the year before it.
+        if routing.route == "comparison" and not request.fiscal_years and len(latest) == 1:
+            newest_year = next(iter(latest.values()))
+            years = router.change_years(request.question, years or [], newest_year) or None
         return _Plan(ciks, years, names, latest, routing.fiscal_period or "FY")
+
+    async def _passages(
+        self, question: str, plan: "_Plan", run: _Run, early: Awaitable[Ranking] | None
+    ) -> tuple[list[drafting.Source], bool]:
+        """The filing text that may answer the question, and whether its reranker ran late."""
+        run.early_search = early is not None
+        if early is not None:  # the same question and scope: the same ranking, sooner
+            ranking = await early
+        else:
+            ranking = await self._evidence.search(question, Scope(plan.ciks, plan.years))
+        run.lap("retrieve_ms")
+        run.timings_ms.update({f"retrieve_{k}": v for k, v in ranking.timings_ms.items()})
+        hits = ranking.hits[:MAX_CHUNKS]
+        run.top_score = hits[0].score if hits else None
+        # A late reranker leaves fused scores, which the gate cannot read, so no passage goes
+        # through unchecked; the cosine similarity could stand in once it is calibrated.
+        if ranking.degraded or not hits or hits[0].score < self._min_relevance:
+            return [], ranking.degraded
+        names = plan.names or await self._evidence.names(sorted({h.cik for h in hits}))
+        return [_chunk_source(n, hit, names) for n, hit in enumerate(hits, 1)], False
 
     async def _answer(
         self,
@@ -413,22 +446,10 @@ class Answerer:
                 sources += [calculated] if calculated is not None else []
             run.lap("facts_ms")
         degraded = False
-        if routing.route != "numeric" or not sources:
-            run.early_search = early is not None
-            if early is not None:  # the same question and scope: the same ranking, sooner
-                ranking = await early
-            else:
-                ranking = await self._evidence.search(question, Scope(plan.ciks, plan.years))
-            run.lap("retrieve_ms")
-            run.timings_ms.update({f"retrieve_{k}": v for k, v in ranking.timings_ms.items()})
-            degraded = ranking.degraded
-            hits = ranking.hits[:MAX_CHUNKS]
-            run.top_score = hits[0].score if hits else None
-            # A late reranker leaves fused scores, which the gate cannot read, so no passage goes
-            # through unchecked; the cosine similarity could stand in once it is calibrated.
-            if not degraded and hits and hits[0].score >= self._min_relevance:
-                names = plan.names or await self._evidence.names(sorted({h.cik for h in hits}))
-                sources += [_chunk_source(n, hit, names) for n, hit in enumerate(hits, 1)]
+        searched = routing.route != "numeric" or not sources
+        if searched:
+            passages, degraded = await self._passages(question, plan, run, early)
+            sources += passages
         run.sources = {s.alias: s.chunk_id or s.fact_id or "" for s in sources}
         if not sources:
             code, text = (
@@ -453,14 +474,23 @@ class Answerer:
         reply = drafting.read_reply(reply_text)
         checked = drafting.check(reply, by_alias)
         warnings: list[str] = []
-        if not reply.insufficient and checked.problems:
+        # A fact cannot tell what the filings hold, so a draft that says so reads them first.
+        silent = any(problem.endswith(validate.ABSENT) for problem in checked.problems)
+        added: list[drafting.Source] = []
+        if not searched and (reply.insufficient or silent):
+            added, degraded = await self._passages(question, plan, run, early)
+            sources += added
+            by_alias = {source.alias: source for source in sources}
+            run.sources = {s.alias: s.chunk_id or s.fact_id or "" for s in sources}
+        if added or (not reply.insufficient and checked.problems):
             # A count only: each problem quotes the draft sentence it found.
             log.info("answer failed validation, regenerating", problems=len(checked.problems))
+            problems = [] if reply.insufficient else checked.problems
 
             async def redo(provider: Provider) -> Completion:
                 call = provider.complete(
                     drafting.SYSTEM,
-                    drafting.user_prompt(question, sources, checked.problems),
+                    drafting.user_prompt(question, sources, problems),
                     max_tokens=drafting.MAX_TOKENS,
                 )
                 completion = await _within(self._deadlines.reply, provider, call)
@@ -470,7 +500,8 @@ class Answerer:
             again = await self._with_fallback("primary", redo, run)
             reply = drafting.read_reply(again.text)
             checked = drafting.check(reply, by_alias)
-            warnings.append("The draft failed validation, so the answer was written again.")
+            redrafted = "The draft failed validation, so the answer was written again."
+            warnings.append(FIGURE_SHORT if added else redrafted)
             run.dropped = checked.removed
             if checked.removed:
                 warnings.append(
@@ -482,12 +513,19 @@ class Answerer:
             warnings.append(
                 f"Removed {checked.pruned} citation(s) whose source or quote did not check out."
             )
-        if reply.insufficient or not checked.text:
-            code, text = (
-                ("insufficient_evidence", NO_EVIDENCE)
-                if reply.insufficient
-                else ("validation_failed", "No sentence of the answer held up.")
+        if checked.unstated:
+            warnings.append(
+                f"Removed {checked.unstated} fact citation(s) whose figures their sentence left to"
+                " its calculation."
             )
+        if reply.insufficient or not checked.text:
+            code, text = ("validation_failed", "No sentence of the answer held up.")
+            if reply.insufficient:  # a late search read no passage, so it says nothing of them
+                code, text = (
+                    ("rerank_late", RERANK_LATE)
+                    if degraded
+                    else ("insufficient_evidence", NO_EVIDENCE)
+                )
             yield AnswerCompleted(answer=self._refusal(code, text, run, degraded, warnings))
             return
         number = {alias: n for n, (alias, _) in enumerate(checked.citations, 1)}

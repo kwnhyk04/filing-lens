@@ -332,6 +332,83 @@ def test_the_plan_gives_an_about_question_its_named_company_for_the_collection_o
     assert router.fill(about("about_app"), ["AAPL"]).tickers == []
 
 
+LAST_YEAR = "What was Apple's revenue last year, and how did it change?"  # the demo, 2026-11-07
+FROM_2024 = "What was Apple's revenue last year, and how did it change from 2024?"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        LAST_YEAR,
+        FROM_2024,
+        "How has Apple's revenue changed?",
+        "How much did Apple's revenue grow in fiscal 2025?",
+        "By how much did Apple's net income fall?",
+        "Did Apple's revenue rise in 2025?",
+        "What was Apple's revenue growth in fiscal 2025?",
+        "What was the decline in Apple's cash?",
+    ],
+)
+def test_a_numeric_reply_on_how_a_figure_changed_becomes_a_comparison(question: str) -> None:
+    assert router.over_time(routing(), question).route == "comparison"
+
+
+@pytest.mark.parametrize(
+    ("reply", "question"),
+    [
+        (routing(), "What was Apple's total revenue in fiscal 2025?"),  # one figure
+        (routing(), "How much cash did Apple hold at the end of fiscal 2025?"),
+        (routing(metric=None), "How did Apple's business change in fiscal 2025?"),  # no figure
+        # x12: Claude names revenue here too, and reasons stay with the filing text.
+        (routing(route="textual"), "Which products drove Eli Lilly's revenue growth in 2025?"),
+        (routing(route="comparison", fiscal_years=[2024, 2025]), FROM_2024),  # already there
+        (about("about_collection", metric="revenue"), "Do you have revenue changes?"),
+    ],
+)
+def test_any_other_reply_keeps_its_route(reply: router.Routing, question: str) -> None:
+    assert router.over_time(reply, question) == reply
+
+
+@pytest.mark.parametrize(
+    ("question", "years", "latest", "reads"),
+    [
+        (LAST_YEAR, [2025], 2025, [2024, 2025]),  # the prior fiscal year
+        ("How did Apple's revenue change?", [], 2025, [2024, 2025]),  # the latest two
+        ("How did Microsoft's revenue change in fiscal 2025?", [2025], 2026, [2024, 2025]),
+        (FROM_2024, [2024, 2025], 2025, [2024, 2025]),
+        (FROM_2024, [2025], 2025, [2024, 2025]),  # the router left the named year out
+        (FROM_2024, [2024], 2025, [2024, 2025]),  # or the year it is compared with
+        ("How did Apple's revenue change from 2024?", [], 2025, [2024, 2025]),
+        ("How did Microsoft's revenue change since 2024?", [2024], 2026, [2024, 2026]),
+        ("How did Microsoft's revenue change versus FY2025?", [2025], 2026, [2025, 2026]),
+        ("How did it change compared with fiscal year 2024?", [2024], 2025, [2024, 2025]),
+        ("How did Apple's revenue change from 2025?", [2025], 2025, [2024, 2025]),  # none later
+        # Two years stand, in the router's order.
+        ("How did its revenue change from 2025 to 2026?", [2026, 2025], 2026, [2026, 2025]),
+    ],
+)
+def test_a_change_reads_two_years(
+    question: str, years: list[int], latest: int, reads: list[int]
+) -> None:
+    assert router.change_years(question, years, latest) == reads
+
+
+@pytest.mark.parametrize(
+    ("question", "years", "latest"),
+    [
+        ("Compare Apple's revenue in 2025.", [2025], 2025),  # no change asked for
+        ("What was Apple's total revenue in fiscal 2025?", [2025], 2025),
+        ("Compare Apple's revenue.", [], 2025),
+        (LAST_YEAR, [2025], None),  # no 10-K to read a year from
+        (LAST_YEAR, [], None),
+    ],
+)
+def test_any_other_question_keeps_its_years(
+    question: str, years: list[int], latest: int | None
+) -> None:
+    assert router.change_years(question, years, latest) == years
+
+
 def test_a_reply_without_other_companies_still_parses() -> None:
     reply = (
         '{"route":"textual","tickers":["aapl"],"fiscal_years":[],'

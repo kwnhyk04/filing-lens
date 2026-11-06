@@ -16,6 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from filinglens_core.errors import UpstreamError
+from filinglens_llm.validate import FELL, ROSE
 
 # XBRL concepts that answer each metric, best first, and the unit to read them in.
 METRICS: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -93,6 +94,14 @@ ANNUAL_REPORT = r"(?:form\s+)?(?:10-?k|annual\s+report)"
 FILING_YEAR = re.compile(
     rf"\b{FISCAL_YEAR}\s+{ANNUAL_REPORT}\b"
     rf"|\b{ANNUAL_REPORT}\s+(?:for|of)\s+(?:the\s+)?{FISCAL_YEAR}\b",
+    re.IGNORECASE,
+)
+# A figure's change: "how did it change", "by how much did it grow", "its revenue growth".
+CHANGE = re.compile(rf"\b(?:chang\w*|{ROSE}|{FELL})\b", re.IGNORECASE)
+# The year a change counts from: "from 2024", "since fiscal 2024", "compared with FY2024".
+START_YEAR = re.compile(
+    r"\b(?:from|since|versus|vs\.?|against|compared\s+(?:with|to))\s+"
+    r"(?:fiscal\s+(?:year\s+)?|FY\s?)?((?:19|20)\d\d)\b",
     re.IGNORECASE,
 )
 # A word written as a name: capitalised, and not only because it opens a sentence.
@@ -309,6 +318,31 @@ def settle(routing: Routing) -> Routing:
     if routing.route == "about_app" and (routing.tickers or routing.other_companies):
         return routing.model_copy(update={"route": "textual"})
     return routing
+
+
+def over_time(routing: Routing, question: str) -> Routing:
+    """Comparison for a numeric reply to a question on how the figure changed, grew or fell: the
+    numeric path reads one fact and no filing text, so it cannot show a change (the demo capture,
+    2026-11-07). A textual reply stands: "why" and "what drove it" are the filing text's."""
+    if routing.route == "numeric" and routing.metric and CHANGE.search(question):
+        return routing.model_copy(update={"route": "comparison"})
+    return routing
+
+
+def change_years(question: str, years: Sequence[int], latest: int | None) -> list[int]:
+    """The fiscal years a question on a figure's change reads when the router names under two: the
+    year it counts from with the router's year or the company's `latest`, or else that year with
+    the one before it. Any other question keeps `years`."""
+    if len(years) > 1 or latest is None or not CHANGE.search(question):
+        return list(years)
+    year = years[0] if years else latest
+    start = START_YEAR.search(question)
+    if start is None:
+        return [year - 1, year]
+    base = int(start[1])
+    if base != year:
+        return sorted((base, year))
+    return [base, latest] if base < latest else [base - 1, base]
 
 
 def filing_years(question: str) -> list[int]:

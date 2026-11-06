@@ -171,6 +171,35 @@ Run live again on 2026-11-06 with who made it and the loosely worded collection 
 
 b12, "What can you tell me about Tesla's risk factors?", routes right but gets no answer: the search runs, and its best rerank score, -4.82, falls under the relevance gate's -3.0. It counts as landing on the filings, and this work changed neither the search nor the gate.
 
+### Regression cases
+
+`evals/golden/regressions.jsonl` holds questions from real bugs, beside the frozen set: no floors, never in CI. Golden v3's files, manifest and floors are unchanged, and a test pins that no question in it changes its plan.
+
+- **r01 and r02 (2026-11-07):** "What was Apple's revenue last year, and how did it change?", and the same with "from 2024". They read c09's two facts, so both should state fiscal 2024's and fiscal 2025's revenue.
+- **Run:** `make dev`, then `make eval SUITE=answer SPLIT=regression ARGS="--claude-first --no-judge --tag=change-1107"`. About 2 router and 2 to 4 answer calls, under $0.01 in credits.
+- **Reading it:** comparison match is the check. Router accuracy scores the model's own reply, which `router.over_time` corrects, so it can read 0 of 2 on a right answer. Read each answer for the 6% change.
+- **Live run, 2026-11-07** (`evals/reports/runs/20261106T215041Z-answer-regression-full-claude-first`, Claude Haiku 5.5, no judge, 6 calls, $0.0044 in credits): comparison match 2 of 2, no refusal, no sentence on what the sources leave out, and a passage citation in each answer.
+  - **r01 passed.** The router replied numeric, as in the bug, and the plan read both years. It states $416.2 billion and 6.43% more than fiscal 2024.
+  - **r02 failed.** It states both years' revenue and no change. In both drafts the change sentence cites K1 and both facts without restating their figures, the check behind c19's refusal, so it was dropped. Comparison match does not see this: it asks only for the two figures.
+  - **Neither read Item 7's 6%.** The chunks holding that row were outside the 12 passages given, so r01's 6.43% is K1's.
+- **Pass points (user, 2026-11-07):** a comparison answer whose figures are held by cited facts and a K calculation needs no passage citation to pass. Facts are the stronger evidence, no rule requires a passage, and c19's correct answer of 2026-11-05 had none.
+- **Rerun, 2026-11-07, after `validate.on_calculation`** (`evals/reports/runs/20261106T221254Z-answer-regression-full-claude-first`, Claude Haiku 5.5, no judge, `--tag=on-calculation-1107`, 7 calls, $0.0044 in credits; c19 joined through a one-off wrapper, so its label there is the regression split): comparison match 3 of 3, no refusal, no sentence on what the sources leave out.
+  - **All three state their change:** r01 and r02 $416.2 billion and 6.43%, c19 both figures, $970,000,000 and 34.38%. c19 and r02 held on the first draft.
+  - **None cites a passage.** r02's first draft cited a quote from another chunk; that citation was removed, and with nothing left failing no rewrite fixed it, as one did on the first run. r01 and c19 cited none.
+  - **Offline replay of 57 saved comparison drafts:** 24 lose fact citations, 16 need no rewrite now, failing sentences 74 to 50.
+- **Judged run of all 23 golden comparisons, 2026-11-07** (`evals/reports/runs/20261106T223736Z-answer-regression-full-claude-first`, Claude Haiku 5.5, judged by gpt-oss-120b, `--tag=comparisons-1107`). A one-off wrapper picked the 23 from dev and test, so "regression" in that report's name is only its label. Against the last judged run of each split: `evals/reports/runs/20261104T092734Z-answer-dev-full-claude-first` for c01 to c15, on `corpus-v2`, and `evals/reports/2026-11-06-claude-first` for c16 to c23, on `corpus-v3`.
+
+| Metric | This run, 95% CI | Last judged, 95% CI | Paired difference (95% CI) |
+| --- | --- | --- | --- |
+| Comparison match | 23 of 23, 1.000 (0.857 to 1.000) | 22 of 23, 0.957 (0.790 to 0.992) | - |
+| False refusal | 0 of 23, 0.0% (0.0% to 14.3%) | 1 of 23, 4.3% (0.8% to 21.0%; c19) | - |
+| Citation precision (judge) | 94 of 94, 1.000 (1.000 to 1.000, n 23) | 81 of 81, 1.000 (1.000 to 1.000, n 21) | +0.000 (+0.000 to +0.000), n 21 |
+| Faithfulness (judge) | 1.000 (1.000 to 1.000, n 23) | 0.976 (0.917 to 1.000, n 21) | +0.024 (+0.000 to +0.083), n 21 |
+
+  - **Citation precision did not drop.** The 8 answers that kept a sentence on K alone include c09, c16 and c19, and the judge supported all of their citations. An interval of 1.000 to 1.000 means every pair passed, not that the uncertainty is nil: a Wilson interval over the 94 pairs starts at about 0.96.
+  - **Limits:** the baseline's two reports used different corpora; c07 and c19 were not judged in it, so the paired figures rest on 21 questions; and the judge's calibration sample holds no K-only sentence.
+  - **Spent:** Claude $0.035 (54 calls, 299,740 tokens in, 10,108 out); the judge 31,324 Groq tokens (23 calls), $0 billed, with 11 per-minute waits.
+
 ### What the official results measured
 
 Read these before the table below (the architecture review of 2026-11-06, E1 to E4).

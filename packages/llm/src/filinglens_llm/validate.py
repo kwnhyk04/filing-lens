@@ -124,6 +124,22 @@ ROSE_TO = re.compile(rf"\b(?:{ROSE}){GOES_TO}", re.IGNORECASE)
 FELL_TO = re.compile(rf"\b(?:{FELL}){GOES_TO}", re.IGNORECASE)
 ROSE_AFTER = re.compile(rf"{FOLLOWS}(?:{ROSE})\b", re.IGNORECASE)
 FELL_AFTER = re.compile(rf"{FOLLOWS}(?:{FELL})\b", re.IGNORECASE)
+# A sentence on what the sources leave out, which only filing text can back. The words of saved
+# drafts: other wording gets through, so the check is a floor, not a proof.
+SILENT = re.compile(
+    r"\b(?:sources?|filings?|facts?|figures?|excerpts?|passages?|documents?|data|information)\b.*?"
+    r"\b(?:do|does|did)(?:\s+not|n\W?t)\b"
+    r"|\bnot\s+(?:\w+\s+)?(?:stated|given|provided|mentioned|disclosed|specified|shown|available)\b"
+    r"|\bcannot\s+be\s+\w+\s+from\b"
+    r"|\bno\s+(?:\w+\s+){0,2}(?:information|details?|data|mention|explanation|breakdown)\b",
+    re.IGNORECASE,
+)
+ABSENT = "it says what the sources do not state; say only what they show"
+UNSTATED = "it compares figures without stating those of "
+# Which way a comparison goes, beside a calculation's result: the rise and fall words do not read
+# these, since "lower" may be right of the other year or company. Used only to keep a citation.
+MORE = re.compile(r"\b(?:higher|more|greater|larger|bigger|above|exceed\w*)\b", re.IGNORECASE)
+LESS = re.compile(r"\b(?:lower|less|smaller|fewer|below)\b", re.IGNORECASE)
 WINDOW = 40  # characters before a number that may name it
 ABOUT = r"(?:(?:about|approximately|nearly|roughly|around)\s+)?"
 FROM = re.compile(rf"\bfrom\s+{ABOUT}\(?$", re.IGNORECASE)
@@ -499,18 +515,21 @@ def check_sentence(
     """Why a sentence of an answer fails, or None when it holds.
 
     It must cite at least one source id, such as [C2], and hold no other bracketed marker such as
-    [12]; a cited chunk needs a quote under Sources that passes citation_error; a cited
-    calculation (K1) needs both its facts cited beside it; and each amount in the sentence must
-    match a number of its kind and scale that a cited source holds (Number), which the sentence
-    must not turn around (_objection). `quotes` maps source ids to the quotes given for them;
-    `sources` maps the ids the model was given (F1, C2, K1) to the sources.
+    [12]; with no filing text among the sources it must not say what they leave out (SILENT); a
+    cited chunk needs a quote under Sources that passes citation_error; a cited calculation (K1)
+    needs both its facts cited beside it; and each amount in the sentence must match a number of
+    its kind and scale that a cited source holds (Number), which the sentence must not turn
+    around (_objection). `quotes` maps source ids to the quotes given for them; `sources` maps the
+    ids the model was given (F1, C2, K1) to the sources.
     """
     if stray := STRAY.search(MARKER.sub("", sentence)):  # shown, it would cite nothing
         return f"{stray[0]} is not one of the sources"
+    chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
+    if not chunks and SILENT.search(sentence):  # before its citation, which would not excuse it
+        return ABSENT
     aliases = cited(sentence)
     if not aliases:
         return "it cites no source"
-    chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
     evidence: list[tuple[str, Number]] = []
     for alias in aliases:
         source = sources.get(alias)
@@ -564,18 +583,34 @@ def check_sentence(
                 return f"it says the figure {word}, but [{alias}] shows {change}"
     if said and (went := _direction(plain, amounts)) and said != went:
         return f"it says the figure {word}, but its amounts {'rise' if went > 0 else 'fall'}"
-    if COMPARES.search(plain):  # the judge counts a cited fact only where its figure is stated
-        stated = [amount.value for amount in amounts if not amount.percent]
-        stated += numbers_in(plain)  # a bare figure: 6.11 in "from 6.11 to 6.63 USD/shares"
-        missing = [
-            f"[{alias}]"
-            for alias in aliases
-            if (value := sources[alias].value) is not None
-            and not (value and any(matches(amount, value) for amount in stated))
-        ]
-        if missing:
-            return f"it compares figures without stating those of {', '.join(missing)}"
+    if COMPARES.search(plain) and (missing := _unstated(plain, amounts, aliases, sources)):
+        return UNSTATED + ", ".join(f"[{alias}]" for alias in missing)
     return None
+
+
+def _unstated(
+    plain: str, amounts: Sequence[Amount], aliases: Sequence[str], sources: Mapping[str, Source]
+) -> list[str]:
+    """The cited facts a comparing sentence does not state: the judge counts one only where its
+    figure is stated."""
+    stated = [amount.value for amount in amounts if not amount.percent]
+    stated += numbers_in(plain)  # a bare figure: 6.11 in "from 6.11 to 6.63 USD/shares"
+    return [
+        alias
+        for alias in aliases
+        if (value := sources[alias].value) is not None
+        and not (value and any(matches(amount, value) for amount in stated))
+    ]
+
+
+def _without(sentence: str, gone: Collection[str]) -> str:
+    """The sentence with the citations in `gone` taken out of its markers."""
+
+    def keep(marker: re.Match[str]) -> str:
+        left = [alias for alias in re.split(r"\s*,\s*", marker[1]) if alias not in gone]
+        return f"[{', '.join(left)}]" if left else ""
+
+    return re.sub(r"\s+([.!?,;:])", r"\1", " ".join(MARKER.sub(keep, sentence).split()))
 
 
 def pruned(
@@ -597,13 +632,42 @@ def pruned(
     bad = [alias for alias in aliases if not holds(alias)]
     if not bad or len(bad) == len(aliases):
         return None
-
-    def keep(marker: re.Match[str]) -> str:
-        left = [alias for alias in re.split(r"\s*,\s*", marker[1]) if alias not in bad]
-        return f"[{', '.join(left)}]" if left else ""
-
-    text = re.sub(r"\s+([.!?,;:])", r"\1", " ".join(MARKER.sub(keep, sentence).split()))
+    text = _without(sentence, bad)
     return (text, len(bad)) if check_sentence(text, quotes, sources) is None else None
+
+
+def on_calculation(
+    sentence: str, quotes: Mapping[str, Sequence[str]], sources: Mapping[str, Source]
+) -> tuple[str, list[str]] | None:
+    """The sentence without the cited facts it does not state, and those facts, when only they
+    fail it and a calculation it cites on them states the comparison: an amount its difference or
+    percent backs as any number does, no minus on a rise, and no word against its direction. The
+    calculation's lines hold the facts' figures (r02, c19). None for any other sentence. The caller
+    must keep those facts cited elsewhere, since the calculation's citation names theirs."""
+    problem = check_sentence(sentence, quotes, sources)
+    if problem is None or not problem.startswith(UNSTATED):
+        return None
+    plain = MARKER.sub("", sentence)
+    amounts = _amounts(plain)
+    aliases = cited(sentence)
+    gone = _unstated(plain, amounts, aliases, sources)
+    said = bool(MORE.search(plain)) - bool(LESS.search(plain))  # 0: neither, or both
+    for alias in aliases:
+        calculation = sources[alias].calculation
+        if calculation is None or not set(gone) <= set(calculation.inputs):
+            continue
+        shows = (calculation.difference > 0) - (calculation.difference < 0)
+        numbers = _numbers(alias, sources[alias], quotes, {})
+        states = any(
+            number.backs(amount)
+            and _objection(alias, number, amount, plain) is None
+            and not (amount.marked and number.value > 0)
+            for amount in amounts
+            for number in numbers
+        )
+        if states and said * shows >= 0:
+            return _without(sentence, gone), gone
+    return None
 
 
 @dataclass(frozen=True)

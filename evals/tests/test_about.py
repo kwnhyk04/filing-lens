@@ -1,5 +1,6 @@
-"""The about category beside the frozen golden set: its questions, its scoring, and proof that every
-existing case keeps the routing it had. No model or database is touched."""
+"""The about category and the regression cases beside the frozen golden set: their questions, the
+about scoring, and proof that every existing case keeps the routing it had. No model or database is
+touched."""
 
 import json
 from pathlib import Path
@@ -22,6 +23,40 @@ def test_no_golden_question_sees_the_about_routes() -> None:
     keeps refusing, and every cached router reply still answers its key."""
     assert len(GOLDEN) == 155
     assert [q["id"] for q in GOLDEN if router.about_wording(q["question"])] == []
+
+
+def test_no_golden_question_changes_its_plan_for_asking_how_a_figure_changed() -> None:
+    """None is routed numeric and each comparison names both years, so its router reply, its
+    prompts and its cached answers stay as they are."""
+    asked = [q for q in GOLDEN if router.CHANGE.search(q["question"])]
+    assert {q["routing"]["route"] for q in asked} == {"comparison", "textual"}
+    compared = [q for q in asked if q["routing"]["route"] == "comparison"]
+    assert {len(q["routing"]["fiscal_years"]) for q in compared} == {2}
+
+
+def test_the_regression_cases_sit_beside_the_frozen_set() -> None:
+    golden = harness.load_golden()  # Stop(3) when a frozen file changed
+    cases = harness.selected(golden, "regression", "full")
+    assert [q["question"] for q in cases] == [
+        "What was Apple's revenue last year, and how did it change?",
+        "What was Apple's revenue last year, and how did it change from 2024?",
+    ]
+    assert not {q["id"] for q in cases} & {q["id"] for q in golden.questions}
+    assert harness.REGRESSIONS.name not in golden.manifest["files"]
+    assert [len(harness.selected(golden, split, "full")) for split in ("dev", "test")] == [100, 55]
+
+
+def test_each_regression_case_plans_the_two_years_c09_reads() -> None:
+    """The bug: the router's numeric reply for fiscal 2025 alone. The plan must not depend on it."""
+    golden = harness.load_golden()
+    c09 = next(q for q in golden.questions if q["id"] == "c09")
+    reply = router.Routing(
+        route="numeric", tickers=["AAPL"], fiscal_years=[2025], fiscal_period="FY", metric="revenue"
+    )
+    for case in harness.selected(golden, "regression", "full"):
+        assert case["facts"] == c09["facts"] and case["routing"] == c09["routing"]
+        assert router.over_time(reply, case["question"]).route == "comparison"
+        assert router.change_years(case["question"], [2025], 2025) == [2024, 2025]
 
 
 def test_the_category_is_new_and_leaves_the_frozen_set_as_it_was() -> None:

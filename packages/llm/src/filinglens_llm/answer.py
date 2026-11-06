@@ -24,6 +24,7 @@ from filinglens_llm.validate import (
     citation_error,
     cited,
     figures,
+    on_calculation,
     pruned,
     split_sentences,
 )
@@ -148,26 +149,38 @@ class Checked:
     removed: int  # sentences dropped because they failed
     figures: list[Figure] = field(default_factory=list[Figure])  # each kept amount and its source
     pruned: int = 0  # citations dropped from sentences their other citations hold
+    unstated: int = 0  # facts dropped from sentences that state the calculation on them
 
 
 def check(reply: Reply, sources: Mapping[str, Source]) -> Checked:
     """Validate each sentence, drop the failures, and number the remaining citations 1, 2, 3. A
-    sentence that fails only through citations its other citations make up for loses those."""
-    kept: list[str] = []
-    problems: list[str] = []
-    found: list[Figure] = []
+    sentence that fails only through citations its other citations make up for loses those. One
+    that fails only through facts it does not state, and states the calculation on them, loses
+    those facts if a sentence that holds still cites them: a calculation's citation names theirs."""
+    settled: list[tuple[str, str | None]] = []  # each sentence as it stands, and why it fails
     dropped = 0
     for sentence in split_sentences(reply.text):
         problem = check_sentence(sentence, reply.quotes, sources)
         if problem is not None and (held := pruned(sentence, reply.quotes, sources)):
             (sentence, gone), problem = held, None
             dropped += gone
+        settled.append((sentence, problem))
+    standing = {alias for text, problem in settled if problem is None for alias in cited(text)}
+    kept: list[str] = []
+    problems: list[str] = []
+    found: list[Figure] = []
+    unstated = 0
+    for sentence, problem in settled:
+        spoken_for = on_calculation(sentence, reply.quotes, sources) if problem else None
+        if spoken_for is not None and standing.issuperset(spoken_for[1]):
+            sentence, problem = spoken_for[0], None
+            unstated += len(spoken_for[1])
         if problem is None:
             kept.append(sentence)
             found += figures(sentence, reply.quotes, sources)
         else:
             problems.append(f'"{sentence}": {problem}')
-    text = reply.text if not problems and not dropped else " ".join(kept)
+    text = reply.text if not problems and not dropped and not unstated else " ".join(kept)
     chunks = {s.chunk_id: s.text for s in sources.values() if s.chunk_id is not None}
     citations: list[tuple[str, str]] = []
     for alias in cited(text):
@@ -182,5 +195,11 @@ def check(reply: Reply, sources: Mapping[str, Source]) -> Checked:
         ]
         citations.append((alias, good[0]))
     return Checked(
-        numbered(text, {}), citations, problems, len(problems), figures=found, pruned=dropped
+        numbered(text, {}),
+        citations,
+        problems,
+        len(problems),
+        figures=found,
+        pruned=dropped,
+        unstated=unstated,
     )
