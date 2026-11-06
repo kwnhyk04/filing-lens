@@ -202,12 +202,12 @@ export const splitFigures = (text: string): string[] => text.split(FIGURE);
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
-/** "First words in 0.9 s · complete in 2.6 s · 2 sources · every number checked", as the browser timed the stream. */
+/** "First words in 0.9 s · complete in 2.6 s · 2 sources · amounts checked", as the browser timed the stream. */
 export function timingLine(firstWordsMs: number | undefined, completeMs: number, sources: number, checked = false): string {
   const parts = [`complete in ${seconds(completeMs)}`];
   if (firstWordsMs !== undefined) parts.unshift(`First words in ${seconds(firstWordsMs)}`);
   if (sources) parts.push(`${sources} source${sources === 1 ? "" : "s"}`);
-  if (checked) parts.push("every number checked");
+  if (checked) parts.push("amounts checked");
   const line = parts.join(" · ");
   return line[0].toUpperCase() + line.slice(1);
 }

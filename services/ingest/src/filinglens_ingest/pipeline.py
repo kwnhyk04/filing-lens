@@ -22,13 +22,13 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import date
 from functools import cache, partial
 from itertools import batched
-from typing import Any, NoReturn, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import structlog
 from amqp.exceptions import MessageNacked
 from celery import Task, shared_task
-from celery.exceptions import Reject
+from celery.exceptions import Reject, SoftTimeLimitExceeded
 from kombu.exceptions import OperationalError
 from opentelemetry import trace
 from redis import Redis
@@ -47,6 +47,10 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import InterfaceError as SqlInterfaceError
+from sqlalchemy.exc import OperationalError as SqlOperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from filinglens_core import queues
@@ -84,6 +88,9 @@ from filinglens_telemetry import metrics
 MAX_RETRIES = 6
 QUEUE_FULL_BACKOFF_MAX_S = 60
 LIMITER_PAUSE_S = 30  # without Redis no SEC request is allowed, so tasks check back this often
+# Postgres errors that clear by themselves: connections (08), a deadlock or conflict (40), out of
+# resources (53), a held lock (55P03), a statement timeout or restart (57), the system (58).
+TRANSIENT_SQLSTATES = ("08", "40", "53", "55P03", "57", "58")
 NEEDS_FETCH = (FilingStatus.DISCOVERED, FilingStatus.FAILED)  # anything else is at or past fetched
 DONE = (FilingStatus.EMBEDDED, FilingStatus.INDEXED)  # vectors stored: a new job skips the filing
 CHUNKED = (FilingStatus.PARSED, *DONE)  # sections and chunks stored
@@ -281,63 +288,99 @@ def _queue(task: Task, *args: object) -> None:
         raise UpstreamError(f"RabbitMQ did not take the {task.name} message.") from exc
 
 
+def transient(error: BaseException) -> bool:
+    """Whether a failure should clear by itself, so a retry is worth it: Postgres down, restarting
+    or out of connections, a deadlock, the statement timeout, a task's time limit. A missing or
+    unwritable file and any other error would only fail again."""
+    if isinstance(error, DBAPIError):
+        state = str(getattr(error.orig, "sqlstate", "") or "")
+        return (
+            isinstance(error, SqlOperationalError | SqlInterfaceError)
+            or error.connection_invalidated
+            or state.startswith(TRANSIENT_SQLSTATES)
+        )
+    if isinstance(error, FileNotFoundError | PermissionError):
+        return False
+    return isinstance(error, OSError | SoftTimeLimitExceeded | PoolTimeout)
+
+
 def _attempt(task: Task, work: Callable[[], None], settle: Settle, queue: str) -> None:
-    """Run a task's work: pause without Redis, retry transient errors, dead-letter the rest."""
+    """Run a task's work: pause without Redis, retry what may clear by itself, dead-letter the rest
+    with its reason."""
     name, started, outcome = str(task.name).rsplit(".", 1)[-1], time.perf_counter(), "succeeded"
     try:
         work()
     except LimiterUnavailableError:
         outcome = "paused"
         _pause(task, queue)
-    except TransientError as exc:
-        if task.request.retries < MAX_RETRIES:
-            outcome = "retried"
-            raise  # autoretry_for queues the next attempt with backoff
-        outcome = "dead_lettered"
-        _give_up(task, exc, settle)
     except Exception as exc:
+        known = isinstance(exc, TransientError)
+        if (known or transient(exc)) and task.request.retries < MAX_RETRIES:
+            outcome = "retried"
+            if known:
+                raise  # autoretry_for queues the next attempt with backoff
+            raise UpstreamError(f"{type(exc).__name__}: {exc}") from exc
         outcome = "dead_lettered"
-        _give_up(task, exc, settle)
+        if not _give_up(task, exc, settle, queue):
+            outcome = "retried"
     finally:
         metrics.INGEST_TASKS.add(1, {"task": name, "outcome": outcome})
         metrics.INGEST_TASK_DURATION.record(time.perf_counter() - started, {"task": name})
         trace.get_current_span().set_attribute("filinglens.ingest.outcome", outcome)
 
 
+def _send_again(task: Task, queue: str, retries: int) -> float:
+    """Send the task again after a pause; returns the pause in seconds."""
+    delay = LIMITER_PAUSE_S * random.uniform(0.5, 1.5)  # noqa: S311 - jitter
+    task.apply_async(
+        task.request.args,
+        task.request.kwargs,
+        task_id=task.request.id,
+        countdown=delay,
+        retries=retries,
+        queue=queue,
+    )
+    return delay
+
+
 def _pause(task: Task, queue: str) -> None:
     """Send the task again after a pause, with its retry count unchanged: nothing reached SEC."""
-    delay = LIMITER_PAUSE_S * random.uniform(0.5, 1.5)  # noqa: S311 - jitter
+    delay = _send_again(task, queue, task.request.retries)
     log.warning(
         "SEC rate limiter unavailable, task paused",
         task=task.name,
         task_id=task.request.id,
         delay_s=round(delay, 1),
     )
-    task.apply_async(
-        task.request.args,
-        task.request.kwargs,
-        task_id=task.request.id,
-        countdown=delay,
-        retries=task.request.retries,
-        queue=queue,
-    )
 
 
-def _give_up(task: Task, exc: Exception, settle: Settle) -> NoReturn:
-    """Record a final failure, then reject the message into its dead-letter queue."""
+def _give_up(task: Task, exc: Exception, settle: Settle, queue: str) -> Literal[False]:
+    """Record a final failure, then reject the message into its dead-letter queue. While the
+    failure cannot be recorded (Postgres is down too), a rejected message would leave no row, its
+    item running and its job open for good, so the task comes back later, its retries counted;
+    returns False. Past MAX_RETRIES it is rejected with an error line that says so."""
     error = f"{type(exc).__name__}: {exc}"
     log.error("task failed for good", task=task.name, task_id=task.request.id, error=error)
     payload = {"args": list(task.request.args or ()), "kwargs": dict(task.request.kwargs or {})}
-    _run(
-        partial(
-            _record_failure,
-            task_id=task.request.id,
-            task_name=str(task.name),
-            payload=payload,
-            error=error,
-            settle=settle,
+    try:
+        _run(
+            partial(
+                _record_failure,
+                task_id=task.request.id,
+                task_name=str(task.name),
+                payload=payload,
+                error=error,
+                settle=settle,
+            )
         )
-    )
+    except Exception as failure:
+        reason = f"{type(failure).__name__}: {failure}"
+        task_log = log.bind(task=task.name, task_id=task.request.id, error=error, record=reason)
+        if task.request.retries < MAX_RETRIES:
+            delay = _send_again(task, queue, task.request.retries + 1)
+            task_log.warning("failure not recorded, task comes back", delay_s=round(delay, 1))
+            return False
+        task_log.error("dead letter not recorded: no dead_letters row, the job stays open")
     raise Reject(error, requeue=False) from exc
 
 

@@ -1,8 +1,26 @@
-# Eval card: FilingLens golden sets v2 and v1
+# Eval card: FilingLens golden sets v3, v2 and v1
+
+## Golden set v3 (2026-11-06)
+
+Golden set v3 is the set in use: golden v2's 155 questions, byte for byte, with v2's labels moved to the re-parsed corpus. It holds no new label, so its passage gold is v2's: AI-labeled, cross-checked blind by a second model; no human spot check in v2.
+
+- **Corpus:** `corpus-v3`, the dev database after the parser fix of 2026-11-06: 30 indexed 10-Ks, 11,375 chunks with model A vectors, published for CI as the release asset `corpus-v3` (sha256 pinned in `evals/corpus.py`).
+- **Labels:** `evals/carry.py` moved v2's 1,129 labels.
+  - 678 kept their exact text (201 gold).
+  - 243 moved to the one chunk holding at least 90% of their words, 25 points ahead of any other (63 gold). `remap-report.md` lists each with its score.
+  - 208 no chunk holds confidently (54 gold, 33 of them on test). They keep their v2 label in `review.md`, wait for a person and stay out of the metrics. Every question keeps at least one gold passage.
+- **What the labels support:** what v2's support (below). Recall on v3 is measured on 264 of 318 gold, so it does not compare with v2's until the review is done.
+- **Judge calibration:** v1's, unchanged (`evals/calibration/v1/result.json`, kappa 0.84).
+- **Floors:** keyed `v3:...` in `evals/thresholds.json`, by the floor rule, from the free models' runs of 2026-11-06 and the offline retrieval runs before them. CI's gate, replayed from the cache on these floors, passes for answer dev ci and retrieval dev full.
+  - `v3:answer:test:full:gemini:gemini-3.5-flash-lite` from `evals/reports/2026-11-06` (55 questions, judged).
+  - `v3:answer:dev:ci:gemini:gemini-3.5-flash-lite` from `evals/reports/runs/20261106T011828Z-answer-dev-ci` (25 questions, no judge), where c06 hit a Gemini 503, and its rerun `20261106T012036Z`, where c06 answered and errors were 0: numeric exact match 1.000 (n 8), comparison match 1.000 (3), citation coverage 1.000 (13), correct refusal 1.000 (10), false refusal 0.133 (2 of 15: x11, x15). The floor keeps the tighter of the two reports, so the output token and cost floors and every latency floor come from the first.
+  - `v3:retrieval:dev:full` and `v3:retrieval:test:full` from `evals/reports/runs/20261105T215201Z-retrieval-dev-full` and `20261105T215227Z-retrieval-test-full`, the test floors tightened by `evals/reports/2026-11-06`.
+  - The latency floors are loose, because Gemini's first token came slowly in bursts during these runs (`evals/README.md`). CI does not gate latency.
+- **Results:** `evals/README.md` has the table, and what the stricter check and the corpus changed.
 
 ## Golden set v2 (frozen 2026-10-31)
 
-Golden set v2 is the set in use. Its passage gold is AI-labeled, cross-checked blind by a second model; no human spot check in v2.
+Golden set v2 was the set in use until 2026-11-06, and v3's labels come from it. Its passage gold is AI-labeled, cross-checked blind by a second model; no human spot check in v2.
 
 Its gold mixes two labelling standards. About 10 of the 150 carried gold passages would fail the strict qualifier rule, and they were left as they are. So Claude's 168 gold follow the qualifier rule and the 150 carried follow v1's looser rule (details below).
 

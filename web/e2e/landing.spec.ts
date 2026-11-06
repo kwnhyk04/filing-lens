@@ -120,8 +120,8 @@ const tableRows = () =>
   comparisonRows(claudeTable, table).map((row) => [
     row.label,
     row.target,
-    `${row.claude.result} ${row.claude.status}`,
-    `${row.free.result} ${row.free.status}`,
+    `${row.claude.result} ${row.claude.status} ${row.claude.detail}`,
+    `${row.free.result} ${row.free.status} ${row.free.detail}`,
   ]);
 
 test("the evaluation's one comparison table, its runs' models and dates, and its notes are the newest reports'", async ({ page }) => {
@@ -147,7 +147,7 @@ test("the evaluation's one comparison table, its runs' models and dates, and its
     `rests on ${report.metrics.retrieval["recall@10"].n} questions`,
   ];
   // The columns' answer prompts differ until the free models run again, and the page must say so only then.
-  if (claude.prompts.answer_system !== report.prompts.answer_system) texts.push("The free models' run predates the answer prompt Claude first used.");
+  if (claude.prompts.answer_system !== report.prompts.answer_system) texts.push("The free models' run also predates the answer prompt Claude first used.");
   for (const text of texts) await expect(results).toContainText(text);
   await expect(results).toContainText(new RegExp(`labels written by ${judge.labeler}`, "i"));
   const how = page.locator("#how");
@@ -204,8 +204,8 @@ for (const width of [390, 430]) {
         rows.map((row) => [
           row.label,
           `Target ${row.target}`,
-          `${RUN_LABELS[0]} ${row.claude.result} ${row.claude.status}`,
-          `${RUN_LABELS[1]} ${row.free.result} ${row.free.status}`,
+          `${RUN_LABELS[0]} ${row.claude.result} ${row.claude.status} ${row.claude.detail}`,
+          `${RUN_LABELS[1]} ${row.free.result} ${row.free.status} ${row.free.detail}`,
         ]),
       );
       const cards = await page.locator("#results tbody tr").evaluateAll((trs) =>
@@ -297,8 +297,10 @@ test("the overview: another saved answer and its passage, two figures from the s
   await expect(figure("Filings indexed")).toContainText("One 10-K from each company");
   await expect(figure("Exact numbers").locator(".overview-value")).toHaveText(`${Math.round(exact.value * 100)}%`);
   await expect(figure("Exact numbers")).toContainText(
-    `${Math.round(exact.value * exact.n)} of ${exact.n} numeric test questions within 0.5%, in both official runs`,
+    `${Math.round(exact.value * exact.n)} of ${exact.n} numeric test questions within 0.5% in both official runs (95% CI ${Math.round(exact.low * 100)}% to ${Math.round(exact.high * 100)}%), against gold from the same XBRL lookup`,
   );
+  await expect(page.getByTestId("measured-on")).toContainText("corpus-v1");
+  await expect(page.getByTestId("gold-note")).toContainText("no human checked golden v3");
   await expect(overview.getByRole("heading", { level: 3, name: "Recent questions" })).toBeVisible();
   await expect(overview.getByRole("link", { name: "Read the pull request" })).toHaveAttribute("href", `${REPO}/pull/42`);
   await expect(overview.locator(".overview-jobs dt")).toHaveText(["Ask", "Cite", "Check"]);

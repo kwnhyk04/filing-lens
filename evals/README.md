@@ -72,9 +72,76 @@ The golden-set evals: commands and flags in `docs/guide.md` and `evals/harness.p
 - **Spent:** Claude $0.065 (120 live calls, 544,060 tokens); the judge 71,019 tokens (42 live calls, 12 per-minute 429s waited out, none daily). About as approved: $0.07 and 72k.
 - **Sonnet:** measured on dev only, above, never on this split, so its figures do not compare with this table. Its decision stands: on dev, quality equal to Haiku's at about 16 times the cost.
 
+### 2026-11-06: the stricter amount check changed no verdict, and the re-parsed corpus no cited quote
+
+- **Question:** what did the stricter amount check and the parser fix change, and which one changed what?
+- **Runs:** golden set v3's test split, 55 questions on `corpus-v3`, one source sha256 (`986c1cd564e965b8`), judged by Groq gpt-oss-120b.
+  - Claude first: `evals/reports/2026-11-06-claude-first` (00:40 UTC, `--claude-first --tag=v3-1106 --judge-budget=180000 --max-usd=0.10`), against `evals/reports/2026-11-05-claude-first` (golden v2, `corpus-v2`, 07:15 UTC). All five prompt and schema hashes match, so what differs is the code, the corpus, the labels and the model's own randomness.
+  - Free models only: `evals/reports/2026-11-06` (00:41 to 01:12 UTC, `--tag=v3-1106`), against `evals/reports/2026-10-31`. No free run was made on 2026-11-05, so this pair also spans answer rule 4's prompt change. A Groq 429 stopped its first pass at 34 of 55; the rest resumed from the cache on a second Groq account's key, with the same judge model.
+
+Claude first:
+
+| Metric | Target | 2026-11-05 | 2026-11-06 | Paired difference (95% CI) |
+| --- | --- | --- | --- | --- |
+| Numeric exact match (0.5%), n 12 | 0.92 | 1.000 | 1.000 | +0.000 |
+| Comparison match, n 8 | - | 1.000 | 0.875 | - |
+| Citation coverage | 0.95 | 0.950 (n 43) | 0.945 (n 43) | - |
+| Citation precision (judge) | 0.95 | 0.993 (n 43) | 1.000 (n 42) | +0.007 (0.000 to +0.023), n 42 |
+| Faithfulness (judge) | 0.92 | 0.976 (n 43) | 0.985 (n 42) | +0.009 (-0.001 to +0.028), n 42 |
+| Correct refusal, n 10 | 0.90 | 1.000 | 1.000 | - |
+| False refusal, n 45 | 5% or lower | 4.4% (x21, x42) | 6.7% (c19, x21, x42) | - |
+| Router accuracy, n 55 | - | 0.982 | 0.982 | - |
+| Retrieval recall@10, n 25 | 0.90 | 0.596 | 0.599 | +0.003 (-0.048 to +0.049), labels differ |
+| MRR@10, n 25 | 0.70 | 0.628 | 0.577 | -0.051 (-0.143 to +0.029), labels differ |
+| Time to first token p50 | 1.0 s | 2.41 s (n 43) | 1.95 s (n 43) | - |
+| Time to first token p95 | 2.0 s | 3.03 s (n 43) | 2.50 s (n 43) | - |
+| Full answer p95 | 6 s | 7.29 s (n 47) | 6.74 s (n 47) | - |
+| Answer model's own first token p50 | - | 0.825 s | 0.688 s | -0.138 s (-0.293 to -0.074), n 47 |
+| Answer model's own first token p95 | - | 1.707 s | 0.895 s | -0.812 s (-1.301 to -0.348), n 47 |
+| Answer model's own full reply p95 | - | 3.512 s | 3.162 s | -0.349 s (-0.798 to +0.111), n 47 |
+| Cost per query, n 55 | $0.015 | $0.0012 | $0.0011 | - |
+
+Free models only:
+
+| Metric | Target | 2026-10-31 | 2026-11-06 | Paired difference (95% CI) |
+| --- | --- | --- | --- | --- |
+| Numeric exact match (0.5%), n 12 | 0.92 | 1.000 | 1.000 | +0.000 |
+| Comparison match, n 8 | - | 1.000 | 1.000 | - |
+| Citation coverage | 0.95 | 1.000 (n 39) | 0.991 (n 39) | - |
+| Citation precision (judge) | 0.95 | 1.000 (n 37) | 0.992 (n 39) | +0.000 on the 36 judged in both |
+| Faithfulness (judge) | 0.92 | 0.990 (n 37) | 0.990 (n 39) | +0.000 (-0.030 to +0.029), n 36 |
+| Correct refusal, n 10 | 0.90 | 1.000 | 1.000 | - |
+| False refusal, n 45 | 5% or lower | 13.3% (x21, x25, x26, x35, x40, x42) | 13.3% (x21, x25, x26, x36, x40, x42) | - |
+| Router accuracy, n 55 | - | 0.564 | 0.509 | - |
+| Time to first token p50 | 1.0 s | 1.47 s (n 38) | 1.97 s (n 37) | - |
+| Time to first token p95 | 2.0 s | 2.12 s (n 38) | 8.10 s (n 37) | - |
+| Full answer p95 | 6 s | 3.98 s (n 44) | 9.09 s (n 42) | - |
+| Answer model's own first token p50 | - | 0.817 s | 1.254 s | +0.437 s (+0.237 to +0.986), n 41 |
+| Answer model's own first token p95 | - | 1.199 s | 6.075 s | +4.876 s (+3.030 to +6.035), n 41 |
+| Answer model's own full reply p95 | - | 2.508 s | 7.811 s | +5.304 s (+2.033 to +7.678), n 41 |
+
+- **The stricter amount check changed nothing here.** Every distinct draft of both 2026-11-06 runs that tried to answer went through the check as it stood before and as it stands now, offline: 346 sentences in 106 drafts. 280 pass both, 121 of them holding amounts; 66 fail both; 0 differ. The replay matches the runs: on 80 of 82 first drafts it agrees with whether the run rewrote, and on the other 2 the run dropped a citation instead. So on this split the check neither caught a wrong figure nor dropped a right one. Its case rests on its tests, not on these runs.
+- **The corpus gave the models different text, and they quoted none of the difference.** 30 of the 55 questions saw at least one different passage. Yet all 130 quotes cited on 2026-11-06 are also in `corpus-v2`, and all 138 cited before are also in `corpus-v3`, read the way the quote check reads them and with table separators ignored. So no figure in these answers depends on the digits the parser restored.
+- **Redrafts cannot be split between the corpus and chance.** Under Claude first, drafts rewritten fell from 15 to 12 and answers with sentences removed from 11 to 7. Of the 17 drafted questions with unchanged passages, 3 changed either way (c23, n42, x25), all for the better. Of the 30 with changed passages, 9 changed: 4 better, 5 worse. Those samples are too small to separate the corpus from the model's randomness.
+- **c19 is the one new false refusal, and the old check refuses it too.** Every sentence gets the same verdict from both checks. On both days the first draft fails the sentence stating the difference: "it compares figures without stating those of [F1], [F2]", a rule from #35. On 2026-11-05 the rewrite kept the first sentence, which holds both figures. On 2026-11-06 Haiku split it into four sentences: one cites nothing, two cite K1 with one fact (a rule from #36), and the last compares again. None held, so a right answer was refused, and comparison match fell to 7 of 8. Neither draft of 2026-11-06 cites a passage, and 1 of the question's 12 passages changed.
+- **The free models' false refusals swapped one question.** x35 (10 of 12 passages changed) now answers; x36 (2 of 12 changed) now refuses as insufficient evidence. x25's refusal moved from the relevance gate to the model. The answer prompt also changed between these runs, so the cause is not confirmed. Router accuracy fell by 3 of 55 under the same router prompt, with 11 questions flipping both ways.
+- **Latency moved with the models' own time, not with either change.**
+  - Claude first was faster: its own first token beyond the 95% interval, and routing p50 from 1.32 s to 1.01 s. The runs were at different hours.
+  - The free models were slower. Gemini's own first token took over 3 s on 12 of 43 calls, against none on 2026-10-31 (slowest 1.36 s), in two bursts, 00:41 to 00:43 and at 01:10 UTC. Nine of the 12 were numeric questions with a prompt of about 420 tokens and no passage, so neither the corpus nor the check is involved. The cause is not confirmed.
+  - The latency floors set from this run are loose for that reason. CI does not gate latency.
+- **Retrieval does not compare yet.** recall@10 and MRR@10 both stay within their paired intervals, but v3 leaves 33 of this split's gold passages out until a person reviews them, and judged@10 fell from 1.000 to 0.776, since the new chunks a search finds carry no label yet.
+- **Spent:** Claude about $0.06 (117 live calls); the judge 125,158 tokens of the 180,000 cap, 71,266 for Claude first and 53,892 for the free models. The dev ci run behind the floors took 32,361 gpt-oss-20b tokens, past the 28K estimate, and 21 Gemini requests, 2 of them c06's retry after a Gemini 503.
+
 ## Evaluation
 
-Golden set v2 (`evals/golden/v2`, frozen 2026-10-31) is the set in use. It holds 155 questions: v1's 100, all in dev now, and 55 new test questions, hashed before any fix of the answer-quality round. Its corpus is the re-parsed dev database (11,257 chunks, release asset `corpus-v2`). How it was built and labeled is in `evals/eval-card.md` (Golden set v2).
+Golden set v3 (`evals/golden/v3`, 2026-11-06) is the set in use: golden v2's 155 questions, byte for byte, with v2's labels moved by `evals/carry.py` to the re-parsed corpus `corpus-v3` (11,375 chunks). No label was made new, and v2 stays as it was.
+
+- **Moved:** of v2's 1,129 labels, 678 kept their exact text (201 gold) and 243 moved to the one chunk holding at least 90% of their words, 25 points ahead of any other (63 gold). `remap-report.md` lists each with its score.
+- **Waiting for a person:** 208 passages no chunk holds confidently (54 gold, 33 of them on test), in `review.md`. They keep their v2 label there and stay out of the metrics. Every question keeps at least one gold passage. So v3's recall is measured on 264 of 318 gold, and its numbers do not compare with v2's until the review is done.
+- **Offline run, no model call (2026-11-06):** retrieval, dev, recall@10 0.584 (0.428 to 0.734, n 20), MRR@10 0.692 (0.508 to 0.867), judged@10 0.865; test, recall@10 0.599 (0.485 to 0.713, n 25), MRR@10 0.577 (0.424 to 0.732), judged@10 0.776. Judged@10 was 1.000 on v2: the new chunks a search finds carry no label yet.
+- The official results below ran on v3 and `corpus-v3` on 2026-11-06. Its floors come from the free models' runs of that day (`evals/eval-card.md`).
+
+Golden set v2 (`evals/golden/v2`, frozen 2026-10-31) holds 155 questions: v1's 100, all in dev now, and 55 new test questions, hashed before any fix of the answer-quality round. Its corpus is the re-parsed dev database (11,257 chunks, release asset `corpus-v2`). How it was built and labeled is in `evals/eval-card.md` (Golden set v2).
 
 - Textual gold is AI-labeled, cross-checked blind by a second model; no human spot check in v2.
 - Claude labeled the 591 passages that carry no v1 label, under v1's rule plus the qualifier rule: a passage is gold only if it answers the question as asked, qualifier included. The other 538 keep v1's final label (below).
@@ -97,31 +164,75 @@ Run live on 2026-11-05 (`evals/reports/runs/20261105T162342Z-about` and `2026110
 
 b12, "What can you tell me about Tesla's risk factors?", routes right but gets no answer: the search runs, and its best rerank score, -4.82, falls under the relevance gate's -3.0. It counts as landing on the filings, and this work changed neither the search nor the gate.
 
-### Official results, golden v2: test split
+### What the official results measured
 
-Two runs of the same 55 test questions, both judged by gpt-oss-120b. Nothing was tuned on this set.
+Read these before the table below (the architecture review of 2026-11-06, E1 to E4).
+
+- **Corpus:** both runs used `corpus-v3` (11,375 chunks) in the dev database, with the parser fix of 2026-11-06, which restored 8,950 digits lost from table cells across all 30 filings and changed nearly every chunk id. Production serves `corpus-v1` (11,263 chunks), where 1,373 chunks carry the wrong item label, until its re-parse (`docs/deploy.md`, steps 64 to 70). Six of the 55 test questions touch those companies.
+- **Code:** both runs measured the same source, sha256 `986c1cd564e965b8`, with the review fixes of 2026-11-05 and the amount check of 2026-11-06. Each report's "uncommitted changes" means nobody can check out exactly what ran; its source sha256 pins it instead.
+- **Models:** the fallback models never answered a measured question, since evals turn fallbacks off, and the degraded search path was never measured, since evals give the reranker 60 s and stop if a search degrades.
+- **Numeric and comparison gold** was built with `get_financial_fact` and the router's `METRICS`, the function and map that answer in production, and pairs where the lookup was known to be wrong were left out. Exact match shows the model repeats the figure the lookup returned, not that the lookup is right. The scorer compares absolute values, so it does not see a wrong sign.
+- **Passage gold and the judge:** Claude labeled the passages, Claude's labels calibrated the judge, and Claude Haiku wrote the Claude-first answers. A second model cross-checked 50 passages (kappa 0.80), and Claude's label stood on all five disagreements. v3 moved those labels to the re-parsed chunks, and 33 of this split's gold passages wait in `review.md`. No human checked v2 or v3. A sample of 20 gold answers for a hand check was drawn on 2026-11-06.
+- **Test split:** no prompt was tuned on it. Its answers were read by hand on 2026-11-05, and the amount parsing that both validation and the exact-match scorer use changed 90 minutes after that day's Claude-first run, before these runs. Treat it as seen.
+- **Pass or fail:** the harness prints "inconclusive" unless the whole 95% interval clears or misses the target; reports saved before 2026-11-06 print "pass" on the point estimate. False refusal for Claude first is 3 of 45, and its interval straddles 5%.
+
+### Official results, golden v3: test split
+
+Two runs of the same 55 test questions on the same code, both judged by gpt-oss-120b. Their comparison with the runs before is under Measured decisions, above.
+- **Claude first (the headline):** Claude Haiku 5.5 routes and answers, as the live site runs while its credits last (`evals/reports/2026-11-06-claude-first`, 00:40 UTC).
+- **Free models only:** Gemini 3.5 Flash-Lite answers and gpt-oss-20b routes. The site falls back to them when Claude stops, and v3's test floors come from this run (`evals/reports/2026-11-06`, 01:12 UTC).
+
+| Metric | Target | Claude first (headline), 95% CI | Status | Free models only, 95% CI | Status |
+| --- | --- | --- | --- | --- | --- |
+| Retrieval recall@10 (n 25) | 0.90 | 0.599 (0.485 to 0.713) | fail | 0.599, the same search | fail |
+| MRR@10 (n 25) | 0.70 | 0.577 (0.424 to 0.732) | inconclusive | 0.577, the same search | inconclusive |
+| Numeric exact match (n 12) | 0.92 | 1.000 (0.758 to 1.000) | inconclusive | 1.000 (0.758 to 1.000) | inconclusive |
+| Comparison match (n 8) | - | 0.875 (0.529 to 0.978) | - | 1.000 (0.676 to 1.000) | - |
+| Citation precision (judge) | 0.95 | 1.000 (1.000 to 1.000, n 42) | pass | 0.992 (0.974 to 1.000, n 39) | pass |
+| Citation coverage | 0.95 | 0.945 (0.891 to 0.987, n 43) | inconclusive | 0.991 (0.971 to 1.000, n 39) | pass |
+| Faithfulness (judge) | 0.92 | 0.985 (0.961 to 1.000, n 42) | pass | 0.990 (0.968 to 1.000, n 39) | pass |
+| Correct refusal (n 10) | 0.90 | 1.000 (0.722 to 1.000) | inconclusive | 1.000 (0.722 to 1.000) | inconclusive |
+| False refusal (n 45) | 5% or lower | 6.7% (2.3% to 17.9%; c19, x21, x42) | inconclusive | 13.3% (6.3% to 26.2%; x21, x25, x26, x36, x40, x42) | fail |
+| Router accuracy (route, tickers, years, metric, n 55) | - | 0.982 (0.904 to 0.997) | - | 0.509 (0.381 to 0.636) | - |
+| Time to first token p50 | 1.0 s | 1.95 s (1.93 to 2.06, n 43) | fail | 1.97 s (1.84 to 3.46, n 37) | fail |
+| Time to first token p95 | 2.0 s | 2.50 s (2.30 to 2.61, n 43) | fail | 8.10 s (6.83 to 10.93, n 37) | fail |
+| Full answer latency p95 | 6 s | 6.74 s (4.54 to 7.51, n 47) | inconclusive | 9.09 s (6.96 to 11.12, n 42) | fail |
+| Tokens per query, in | 8,000 | 9,057 (7,563 to 10,571, n 55) | inconclusive | 5,746 (4,618 to 6,931, n 55) | pass |
+| Tokens per query, out | 600 | 458 (360 to 567, n 55) | pass | 340 (270 to 415, n 55) | pass |
+| Cost per query, as billed | $0.015 | $0.0011 in credits ($0.0009 to $0.0013, n 55) | pass | $0 | pass |
+
+- **Claude first:** the whole interval misses on recall and on first token. Numeric match, refusals, coverage, MRR, full answer latency and input tokens are too thin to call.
+- **Free models only:** false refusal (13.3%) and all three latency rows miss across their whole interval, the latency on Gemini's slow bursts (above). Their router reads 51% of questions fully right, against Claude's 98%.
+- Recall@10 (0.599) misses for both: the search is the same, its gold labels are Claude's, and 33 of them wait for a person (above).
+- Golden v2's results below are history.
+
+### Golden v2's official results: test split (history)
+
+Two runs of the same 55 test questions on `corpus-v2`, both judged by gpt-oss-120b. Both predate the parser fix and the amount check of 2026-11-06.
 - **Claude first (the headline):** Claude Haiku 5.5 routes and answers, as the live site runs while its credits last (`evals/reports/2026-11-05-claude-first`, 07:15 UTC). Its comparison with the run of 2026-10-31 is under Measured decisions, above.
-- **Free models only:** Gemini 3.5 Flash-Lite answers and gpt-oss-20b routes. The site falls back to them when Claude stops, and CI's test floors come from this run (`evals/reports/2026-10-31`, 15:31 UTC). It predates answer rule 4's four significant digits.
-- Both ran on uncommitted branches; each report pins its source sha256.
+- **Free models only:** Gemini 3.5 Flash-Lite answers and gpt-oss-20b routes. The site falls back to them when Claude stops, and v2's test floors come from this run (`evals/reports/2026-10-31`, 15:31 UTC). It predates answer rule 4's four significant digits.
+- Both ran on uncommitted branches; each report pins its source sha256. These reports print "pass" on the point estimate; the table below reads the whole interval.
 
-| Metric | Target | Claude first (headline) | Free models only |
-| --- | --- | --- | --- |
-| Retrieval recall@10 (n 25) | 0.90 | 0.596 | 0.596 (the same search) |
-| MRR@10 | 0.70 | 0.628 | 0.628 |
-| Numeric exact match (n 12) | 0.92 | 1.000 | 1.000 |
-| Citation precision (judge) | 0.95 | 0.993 (n 43) | 1.000 (n 37) |
-| Citation coverage | 0.95 | 0.950 | 1.000 |
-| Faithfulness (judge) | 0.92 | 0.976 | 0.990 |
-| Correct refusal (n 10) | 0.90 | 1.000 | 1.000 |
-| False refusal (n 45) | 5% or lower | 4.4% (x21, x42) | 13.3% (x21, x25, x26, x35, x40, x42) |
-| Router accuracy (route, tickers, years, metric) | - | 0.982 | 0.564 |
-| Time to first token p50 / p95 | 1.0 s / 2.0 s | 2.41 s / 3.03 s | 1.47 s / 2.12 s |
-| Full answer latency p95 | 6 s | 7.29 s | 3.98 s |
-| Tokens per query, in / out | 8,000 / 600 | 9,408 / 484 | 5,715 / 321 |
-| Cost per query, as billed | $0.015 | $0.0012 in credits | $0 |
+| Metric | Target | Claude first (headline), 95% CI | Status | Free models only, 95% CI | Status |
+| --- | --- | --- | --- | --- | --- |
+| Retrieval recall@10 (n 25) | 0.90 | 0.596 (0.490 to 0.698) | fail | 0.596, the same search | fail |
+| MRR@10 (n 25) | 0.70 | 0.628 (0.480 to 0.772) | inconclusive | 0.628, the same search | inconclusive |
+| Numeric exact match (n 12) | 0.92 | 1.000 (0.758 to 1.000) | inconclusive | 1.000 (0.758 to 1.000) | inconclusive |
+| Citation precision (judge) | 0.95 | 0.993 (0.977 to 1.000, n 43) | pass | 1.000 (1.000 to 1.000, n 37) | pass |
+| Citation coverage | 0.95 | 0.950 (0.882 to 1.000, n 43) | inconclusive | 1.000 (1.000 to 1.000, n 39) | pass |
+| Faithfulness (judge) | 0.92 | 0.976 (0.946 to 1.000, n 43) | pass | 0.990 (0.968 to 1.000, n 37) | pass |
+| Correct refusal (n 10) | 0.90 | 1.000 (0.722 to 1.000) | inconclusive | 1.000 (0.722 to 1.000) | inconclusive |
+| False refusal (n 45) | 5% or lower | 4.4% (1.2% to 14.8%; x21, x42) | inconclusive | 13.3% (6.3% to 26.2%; x21, x25, x26, x35, x40, x42) | fail |
+| Router accuracy (route, tickers, years, metric, n 55) | - | 0.982 (0.904 to 0.997) | - | 0.564 (0.433 to 0.686) | - |
+| Time to first token p50 | 1.0 s | 2.41 s (2.24 to 2.50, n 43) | fail | 1.47 s (1.39 to 1.61, n 38) | fail |
+| Time to first token p95 | 2.0 s | 3.03 s (2.90 to 3.25, n 43) | fail | 2.12 s (1.85 to 2.38, n 38) | inconclusive |
+| Full answer latency p95 | 6 s | 7.29 s (6.29 to 8.81, n 47) | fail | 3.98 s (3.73 to 4.70, n 44) | pass |
+| Tokens per query, in | 8,000 | 9,408 (7,827 to 11,025, n 55) | inconclusive | 5,715 (4,589 to 6,905, n 55) | pass |
+| Tokens per query, out | 600 | 484 (376 to 603, n 55) | inconclusive | 321 (256 to 392, n 55) | pass |
+| Cost per query, as billed | $0.015 | $0.0012 in credits ($0.0010 to $0.0014, n 55) | pass | $0 | pass |
 
-- **Claude first** misses only speed and input tokens. It routes in 1.32 s at p50 against Groq's 0.66 s, its first draft takes longer (2.03 s against 1.45 s at p50), and it redrafts more often (draft citation pass rate 0.921 against 0.972). Its routing prompt is about twice Groq's in tokens.
-- **Free models only** miss false refusal (13.3%) and time to first token p50. Their router reads 56% of questions fully right, against Claude's 98%.
+- **Claude first:** the whole interval misses on recall and on speed. Numeric match, refusals, coverage, MRR and tokens are too thin to call. It routes in 1.32 s at p50 against Groq's 0.66 s, its first draft takes longer (2.03 s against 1.45 s at p50), and it redrafts more often (draft citation pass rate 0.921 against 0.972). Its routing prompt is about twice Groq's in tokens.
+- **Free models only:** false refusal (13.3%) and time to first token p50 miss across their whole interval. Their router reads 56% of questions fully right, against Claude's 98%.
 - Recall@10 (0.596) misses for both: the search is the same, and its gold labels are Claude's (above).
 - Golden v1's results below are history.
 
@@ -133,7 +244,7 @@ Golden set v1 (`evals/golden/v1`, frozen 2026-10-16) holds 100 questions over th
 - The human then made the final call on the 40 disagreements and kept Claude's label on 37. That review showed Claude's reason, so it was not independent.
 - Later, after reading the passage text, the human corrected 2 of their 3 overrides back to not gold. The final key now differs from Claude's labels on one passage.
 - The judge behind citation precision and faithfulness (gpt-oss-120b) is calibrated against labels by Claude, a different and stronger model than the judge, not by a human. On 29 sentences it agreed 93.1%, Cohen's kappa 0.84 (95% CI 0.59 to 1.00), so those metrics count. Every negative in that sample was constructed. A follow-up spot check on natural sentences that fail the validator (2026-10-17) found the judge failing 3 of the 4 that Claude labeled not supported.
-- While a golden set is in use (v2 now), don't run `make seed-real` or queue ingest jobs (see `make seed-real` in `docs/guide.md`).
+- While a golden set is in use (v3 now), don't run `make seed-real` or queue ingest jobs (see `make seed-real` in `docs/guide.md`).
 
 ### Golden v1's official results: test split, 2026-10-17 (history)
 

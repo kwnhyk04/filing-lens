@@ -61,7 +61,7 @@ from filinglens_db.models import (
     Section,
 )
 from filinglens_ingest import topology
-from filinglens_ingest.reparse import queue_embed, reparse
+from filinglens_ingest.reparse import audit, queue_embed, reparse
 from filinglens_ingest.replay import replay
 from filinglens_sec_client import (
     COOL_OFF_KEY,
@@ -797,7 +797,12 @@ def test_reparse_takes_todays_sections_from_the_sec_cache_and_queues_embed(
             await reparse(engine, ACCESSION, tmp_path / "empty")  # and nothing changed
         async with engine.connect() as connection:
             assert await connection.scalar(select(func.count()).select_from(Chunk)) == 1
+        assert await audit(engine, tmp_path / "empty") == ([], [ACCESSION])  # it cannot tell
+        [found], uncached = await audit(engine, cache)
+        assert (found.accession_number, found.changed, uncached) == (ACCESSION, ["old"], [])
+        assert found.added > 0  # and it changed nothing
         assert await reparse(engine, ACCESSION, cache) == filing_id
+        assert await audit(engine, cache) == ([], [])  # nothing left to change
         async with engine.connect() as connection:
             query = select(Section.item).where(Section.filing_id == filing_id)
             items = (await connection.execute(query.order_by(Section.char_start))).scalars()

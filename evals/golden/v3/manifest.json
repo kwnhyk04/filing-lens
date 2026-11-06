@@ -1,0 +1,69 @@
+{
+ "version": "v3",
+ "status": "frozen",
+ "as_of": "2026-10-27",
+ "corpus": {
+  "embedding_column": "embedding",
+  "latest_fiscal_years": {
+   "AAPL": 2025,
+   "MSFT": 2026,
+   "NVDA": 2026,
+   "GOOGL": 2025,
+   "META": 2025,
+   "VZ": 2025,
+   "AMZN": 2025,
+   "TSLA": 2025,
+   "HD": 2025,
+   "WMT": 2026,
+   "PG": 2026,
+   "KO": 2025,
+   "COP": 2025,
+   "CVX": 2025,
+   "JPM": 2025,
+   "BAC": 2025,
+   "GS": 2025,
+   "V": 2025,
+   "LLY": 2025,
+   "UNH": 2025,
+   "JNJ": 2025,
+   "PFE": 2025,
+   "CAT": 2025,
+   "LMT": 2025,
+   "UNP": 2025,
+   "LIN": 2025,
+   "FCX": 2025,
+   "PLD": 2025,
+   "NEE": 2025,
+   "DUK": 2025
+  }
+ },
+ "frozen_on": "2026-11-06",
+ "gold": "Golden v2's labels moved to the re-parsed chunks by code: exact text, or word overlap with its score in remaps.jsonl. No new label was made, and no human spot check, as in v2. 208 passages wait in review.jsonl and stay out of the metrics.",
+ "audit": {
+  "blind_labeler": "groq:openai/gpt-oss-120b",
+  "passages": 50,
+  "claude_gold": 28,
+  "blind_gold": 25,
+  "agreement": 0.9,
+  "kappa": 0.8,
+  "kappa_ci": [
+   0.6153846153846153,
+   0.9586776859504131
+  ],
+  "disagreements": 5,
+  "reviewed": 0,
+  "review_as_claude": 0,
+  "corrections": 0,
+  "final_as_claude": 5
+ },
+ "files": {
+  "questions.jsonl": "b88eeae0be911921fc86051935fdef7b2d66c1d474dedc64c98a9741bded7157",
+  "pools.jsonl": "86cd3bc10ff674dae4521c4508abd96b37b12be2ca494b9a6cf391a50b764909",
+  "carried.jsonl": "8a59dc4bd52b5cbe909efcee2a17a12dab6f724fcfc400f77f83410d0ba19b35",
+  "exact.jsonl": "6caf78d6874818bf5d91a6c573f10429c64d1df07ade13f5c2adcd2816489be4",
+  "remaps.jsonl": "75d9213c28a098deba50b33bf1d8aec89180da67f93c35e3740a80e324662957",
+  "review.jsonl": "6fcf117309fe3b1f9a1478f98d1d7377d135097b16d8b68ce676728f656d3a93"
+ },
+ "carried_from": "v2",
+ "pending_review": 208
+}

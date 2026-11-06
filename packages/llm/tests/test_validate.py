@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from filinglens_llm.validate import (
     Calculation,
@@ -227,6 +229,7 @@ class Src:
     fact_id: str | None = None
     value: Decimal | None = None
     calculation: Calculation | None = None
+    unit_above: str = ""
 
 
 SOURCES = {
@@ -554,3 +557,371 @@ def test_a_sentence_that_ends_with_an_abbreviation_still_splits(
     text: str, sentences: list[str]
 ) -> None:
     assert split_sentences(text) == sentences
+
+
+# The architecture review's V1 (2026-11-06): the amounts check_sentence let through, and the rows
+# the check must leave alone.
+def usd(value: int) -> dict[str, Src]:
+    return {"F1": Src(f"{value:,} USD", fact_id="f-1", value=Decimal(value))}
+
+
+NET_SALES = usd(416_161_000_000)
+NET_LOSS = usd(-1_200_000_000)
+NET_INCOME = usd(1_200_000_000)
+DILUTED = {"F1": Src("6.11 USD/shares", fact_id="f-1", value=Decimal("6.11"))}
+NOT_HELD = "is not in the sources it cites"
+
+
+@pytest.mark.parametrize(
+    ("sentence", "sources", "problem"),
+    [
+        # A fact is in base units, so no table scale applies to it.
+        ("Net sales were $416.2 trillion in fiscal 2025 [F1].", NET_SALES,
+         f"the amount 416,200,000,000,000 {NOT_HELD}"),
+        ("Net sales were $416.2 million in fiscal 2025 [F1].", NET_SALES,
+         f"the amount 416,200,000 {NOT_HELD}"),
+        ("Net sales were $416,161 in fiscal 2025 [F1].", NET_SALES,
+         f"the amount 416,161 {NOT_HELD}"),
+        ("Diluted EPS was $6.11 billion [F1].", DILUTED, f"the amount 6,110,000,000 {NOT_HELD}"),
+        ("Diluted EPS was $6.11 million [F1].", DILUTED, f"the amount 6,110,000 {NOT_HELD}"),
+        # A per-share figure is no total, and a dollar figure no percentage.
+        ("Net income was $6.11 [F1].", DILUTED,
+         "[F1] is a per-share figure, which the sentence does not say"),
+        ("Diluted EPS grew 6.11% [F1].", DILUTED, f"the amount 6.11% {NOT_HELD}"),
+        ("Net sales grew 416.2% [F1].", NET_SALES, f"the amount 416.2% {NOT_HELD}"),
+        # A loss stated as a profit, and the reverse.
+        ("Net income was $1.2 billion [F1].", NET_LOSS,
+         "[F1] shows a loss or a negative figure, which the sentence does not say"),
+        ("Net income rose by $1.2 billion [F1].", NET_LOSS,
+         "[F1] shows a loss or a negative figure, which the sentence does not say"),
+        ("Net loss was $1.2 billion [F1].", NET_INCOME, "it says a loss, but [F1] shows a gain"),
+    ],
+)  # fmt: skip
+def test_a_fact_backs_an_amount_only_at_its_own_scale_sign_and_unit(
+    sentence: str, sources: dict[str, Src], problem: str
+) -> None:
+    assert check_sentence(sentence, {}, sources) == problem
+
+
+@pytest.mark.parametrize(
+    ("value", "sentence"),
+    [
+        # Rule 4: at least four significant digits, and the rounding the check keeps as a backstop.
+        (416_161_000_000, "Net sales were $416.2 billion in fiscal 2025 [F1]."),
+        (416_161_000_000, "Net sales were $416.161 billion in fiscal 2025 [F1]."),
+        (416_161_000_000, "Net sales were $416 billion in fiscal 2025 [F1]."),
+        (416_161_000_000, "Net sales were $416,161 million in fiscal 2025 [F1]."),
+        (416_161_000_000, "Net sales were USD 416.2 billion in fiscal 2025 [F1]."),
+        (416_161_000_000, "Net sales were 416.2 billion USD in fiscal 2025 [F1]."),
+        (416_161_000_000, "Net sales were $416,161,000,000 in fiscal 2025 [F1]."),
+        (4_121_000_000, "It held $4.121 billion in cash [F1]."),
+        (4_121_000_000, "It held $4.1 billion in cash [F1]."),  # n24, 0.51% off
+        (6_747_000_000, "It held $6.7 billion in cash [F1]."),  # n39, 0.70% off
+        (6_835_000_000, "It held $6.835 billion in cash [F1]."),  # n49
+        (6_835_000_000, "It held $6.8 billion in cash [F1]."),
+    ],
+)
+def test_rule_4_roundings_still_pass(value: int, sentence: str) -> None:
+    assert check_sentence(sentence, {}, usd(value)) is None
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "A net loss of $1.2 billion [F1].",
+        "It lost $1.2 billion [F1].",
+        "Net losses were $1.2 billion [F1].",
+        "The deficit was $1.2 billion [F1].",
+        "Net cash used in operating activities was $1.2 billion [F1].",
+        "Net income was -$1.2 billion [F1].",
+        "Net income was \N{MINUS SIGN}$1.2 billion [F1].",
+        "Net income was $(1.2) billion [F1].",
+        "Net income was ($1.2 billion) [F1].",
+    ],
+)
+def test_a_negative_fact_passes_with_a_loss_word_a_minus_or_brackets(written: str) -> None:
+    assert check_sentence(written, {}, NET_LOSS) is None
+
+
+def test_a_positive_fact_is_no_loss_only_where_the_sentence_says_nothing_else() -> None:
+    assert check_sentence("Net income was $1.2 billion [F1].", {}, NET_INCOME) is None
+    sentence = "After a net loss in 2023, net income was $1.2 billion [F1]."
+    assert check_sentence(sentence, {}, NET_INCOME) is None
+
+
+def test_a_per_share_fact_passes_when_the_sentence_says_per_share() -> None:
+    for sentence in (
+        "Diluted EPS was $6.11 [F1].",
+        "Diluted earnings per share were $6.11 [F1].",
+        "Earnings per diluted share were 6.11 USD [F1].",
+        "It earned 6.11 USD/shares [F1].",
+        "It earned $6.11 a share [F1].",
+    ):
+        assert check_sentence(sentence, {}, DILUTED) is None, sentence
+
+
+MARGIN = "Gross margin was 46.2% of net sales"
+AT_YEAR_END = "as of December 31, 2025"
+ROW = "Cash and cash equivalents | $ | 4,121 | $ | 2,483"
+RESULT_ROW = "Net income (loss) | $ | (1,200 | ) | $ | 3,855"
+PER_SHARE_ROW = "Diluted earnings per share | $ | 6.11"
+STATEMENTS = "(In millions, except per share amounts)\n"
+
+
+@pytest.mark.parametrize(
+    ("sentence", "chunk", "quote", "problem"),
+    [
+        # A percentage reads as no dollar amount, and a dollar amount as no percentage.
+        ("Gross profit was $46.2 billion [C1].", MARGIN, MARGIN, "46,200,000,000"),
+        ("Gross profit was $46.2 [C1].", MARGIN, MARGIN, "46.2"),
+        ("Gross margin was 46.2% [C1].", "gross profit of $46.2 billion",
+         "gross profit of $46.2 billion", "46.2%"),
+        # A part of a date backs nothing.
+        ("Cash was $31 billion [C1].", AT_YEAR_END, AT_YEAR_END, "31,000,000,000"),
+        ("Cash was $31 [C1].", AT_YEAR_END, AT_YEAR_END, "31"),
+        ("Its share was 31% [C1].", AT_YEAR_END, AT_YEAR_END, "31%"),
+        ("Cash was $31 billion [C1].", "at 31 December 2025", "at 31 December 2025",
+         "31,000,000,000"),
+        ("Cash was $12 billion [C1].", "dated 12/31/2025", "dated 12/31/2025", "12,000,000,000"),
+        ("Cash was $31 billion [C1].", "on 2025-12-31", "on 2025-12-31", "31,000,000,000"),
+        # A table's scale needs stating, and only the stated one applies.
+        ("It held $4.1 billion [C1].", ROW, ROW, "4,100,000,000"),
+        ("It held $4.1 billion [C1].", f"(in thousands)\n{ROW}", ROW, "4,100,000,000"),
+        ("It held $4.1 trillion [C1].", f"(in millions)\n{ROW}", ROW, "4,100,000,000,000"),
+        ("It held $4,121 [C1].", f"(in millions)\n{ROW}", ROW, "4,121"),
+        ("It held $4.1 billion [C1].", f"We serve millions of customers.\n{ROW}", ROW,
+         "4,100,000,000"),
+        # A number with its own scale, or one that is no table's cell, takes no table scale.
+        ("Backlog was $4.2 billion [C1].", "(in thousands)\nbacklog of $4.2 million",
+         "backlog of $4.2 million", "4,200,000,000"),
+        ("It spent $2 billion [C1].", "(in millions)\nWe run 1,800 stores in all.",
+         "We run 1,800 stores in all.", "2,000,000,000"),
+        # A per-share cell keeps its scale though the table states one.
+        ("Net income was $6.11 million [C1].", STATEMENTS + PER_SHARE_ROW, PER_SHARE_ROW,
+         "6,110,000"),
+        # Dollars are no percentage, and a count in prose is none either.
+        ("It grew 12% [C1].", "Revenue | $ | 12 | $ | 10", "Revenue | $ | 12 | $ | 10", "12%"),
+        ("It grew 31% [C1].", "We run 31 stores in all", "We run 31 stores in all", "31%"),
+        # Pounds and ounces are no dollars.
+        ("Output was $4.1 billion [C1].", f"Copper (millions of recoverable pounds)\n{ROW}", ROW,
+         "4,100,000,000"),
+    ],
+)  # fmt: skip
+def test_a_quote_backs_an_amount_only_of_its_kind_at_a_stated_scale(
+    sentence: str, chunk: str, quote: str, problem: str
+) -> None:
+    found = check_sentence(sentence, {"C1": [quote]}, {"C1": Src(chunk, chunk_id="c-1")})
+    assert found == f"the amount {problem} {NOT_HELD}"
+
+
+@pytest.mark.parametrize(
+    ("sentence", "chunk", "quote", "problem"),
+    [
+        ("Net income was $6.11 [C1].", STATEMENTS + PER_SHARE_ROW, PER_SHARE_ROW,
+         "[C1] is a per-share figure, which the sentence does not say"),
+        ("Net income was $1.2 billion [C1].", "a net loss of $1.2 billion",
+         "a net loss of $1.2 billion", "it says a gain, but [C1] shows a loss"),
+        ("A net loss of $1.2 billion [C1].", "net income of $1.2 billion",
+         "net income of $1.2 billion", "it says a loss, but [C1] shows a gain"),
+        ("Net income was $1.2 billion [C1].", f"(in millions)\n{RESULT_ROW}", RESULT_ROW,
+         "[C1] shows a loss or a negative figure, which the sentence does not say"),
+        ("Net sales increased 5% [C1].", "Net sales decreased 5%", "Net sales decreased 5%",
+         "it says the figure rose, but [C1] says it fell"),
+        ("Net sales fell by $2.0 billion [C1].", "Net sales increased by $2.0 billion",
+         "Net sales increased by $2.0 billion", "it says the figure fell, but [C1] says it rose"),
+    ],
+)  # fmt: skip
+def test_a_quote_backs_no_amount_the_sentence_turns_around(
+    sentence: str, chunk: str, quote: str, problem: str
+) -> None:
+    sources = {"C1": Src(chunk, chunk_id="c-1")}
+    assert check_sentence(sentence, {"C1": [quote]}, sources) == problem
+
+
+@pytest.mark.parametrize(
+    ("sentence", "chunk", "quote"),
+    [
+        # A bracketed expense is no loss: only a result's row reads as one.
+        ("Rental expenses were $488 million [C1].", "(in millions)\nRental expenses | (488 | )",
+         "Rental expenses | (488 | )"),
+        ("A net loss of $1.2 billion [C1].", f"(in millions)\n{RESULT_ROW}", RESULT_ROW),
+        ("Net income was $3.9 billion [C1].", f"(in millions)\n{RESULT_ROW}", RESULT_ROW),
+        # Loss words about something else, and either direction said at once, decide nothing.
+        ("The allowance was $1.2 billion [C1].", "allowance for credit losses of $1.2 billion",
+         "allowance for credit losses of $1.2 billion"),
+        ("Revenue grew 5% while margins fell [C1].", "Revenue grew 5% as prices fell",
+         "Revenue grew 5% as prices fell"),
+        ("Revenue was up 5% [C1].", "set up 5% of the sites to fall", "set up 5% of the sites"),
+        # A percentage split from its sign by the table's cells, and a percentage in prose.
+        ("Same store NOI grew 5.7% [C1].", "Same Store NOI | $ | 1,427 | 5.7 | %",
+         "Same Store NOI | $ | 1,427 | 5.7 | %"),
+        ("Services were 26 percent of sales [C1].", "Services were 26 percent of net sales",
+         "Services were 26 percent of net sales"),
+        ("All currencies weakened 1% [C1].", "All operating currencies | (1) | % | (5) | %",
+         "All operating currencies | (1) | % | (5) | %"),  # x30
+        # A plain cell may be a percentage: the header saying so is often in the chunk before.
+        ("Gross profit was 71.1% of revenue [C1].", "Gross profit | 71.1 | 75.0",
+         "Gross profit | 71.1 | 75.0"),  # c11
+        ("Mounjaro grew 99 percent [C1].", "Mounjaro | $ | 22,965 | $ | 11,540 | 99",
+         "Mounjaro | $ | 22,965 | $ | 11,540 | 99"),  # x12
+        # Rows a quote joins with spaces are still cells (x31), under the unit it states.
+        ("Cash acquired was $385 million [C1].",
+         "Millions of Dollars\nCash and cash equivalents | $ | 385\nAccounts receivable, net | 976",
+         "Millions of Dollars Cash and cash equivalents | $ | 385 Accounts receivable, net | 976"),
+        # Per-share cells in a table in millions, and a count the sentence states as a count.
+        ("Diluted EPS was $6.11 [C1].", STATEMENTS + PER_SHARE_ROW, PER_SHARE_ROW),
+        ("It has 12,000 employees [C1].", "We had 12,000 employees", "We had 12,000 employees"),
+        ("It holds 4,121 sites [C1].", f"(in millions)\n{ROW}", ROW),
+        ("It paid $2 billion [C1].", "a payment of $2B", "a payment of $2B"),
+        ("It paid $1,250 million [C1].", "(in millions)\nInterest paid | 1,250",
+         "Interest paid | 1,250"),
+    ],
+)  # fmt: skip
+def test_the_amount_check_leaves_these_alone(sentence: str, chunk: str, quote: str) -> None:
+    assert check_sentence(sentence, {"C1": [quote]}, {"C1": Src(chunk, chunk_id="c-1")}) is None
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "(in millions)",
+        "(In millions, except per share amounts)",
+        "(Dollars in millions)",
+        "($ in millions)",
+        "$ in millions",
+        "(Amounts in millions)",
+        "(U.S. dollars in millions)",
+        "Millions of dollars",
+        "(Millions of dollars)",
+        "In millions of dollars",
+        "($ millions)",
+        "(Tables present dollars in millions, except per-share data)",  # Lilly's Item 7
+        "Millions, except percentages | 2025 | 2024",  # Union Pacific's tables
+        "Millions | 2025 | 2024",
+        "Amounts in millions of dollars except per share amounts",  # Procter & Gamble's
+    ],
+)
+def test_a_table_states_its_scale_as_filings_write_it(heading: str) -> None:
+    sources = {"C1": Src(f"{heading}\n{ROW}", chunk_id="c-1")}
+    assert check_sentence("It held $4.1 billion [C1].", {"C1": [ROW]}, sources) is None
+
+
+def test_a_table_in_thousands_backs_only_thousands() -> None:
+    sources = {"C1": Src(f"(dollars in thousands)\n{ROW}", chunk_id="c-1")}
+    assert check_sentence("It held $4.1 million [C1].", {"C1": [ROW]}, sources) is None
+
+
+LILLY_ROW = "Mounjaro | $ | 13,651 | $ | 9,315 | $ | 22,965 | $ | 11,540 | 99"
+
+
+def test_a_table_may_state_its_unit_in_the_section_above_the_chunk() -> None:
+    """x12 (dev), the landing page's answer: Item 7 opens with "(Tables present dollars in
+    millions, ...)", 21,694 characters above the row."""
+    sources = {"C1": Src(LILLY_ROW, chunk_id="c-1", unit_above="dollars in millions")}
+    sentence = "Mounjaro revenue was $22,965 million in 2025 [C1]."
+    assert check_sentence(sentence, {"C1": [LILLY_ROW]}, sources) is None
+    wrong = check_sentence(
+        "Mounjaro revenue was $22,965 billion [C1].", {"C1": [LILLY_ROW]}, sources
+    )
+    assert wrong == f"the amount 22,965,000,000,000 {NOT_HELD}"
+    alone = {"C1": Src(LILLY_ROW, chunk_id="c-1")}
+    assert check_sentence(sentence, {"C1": [LILLY_ROW]}, alone) == (
+        f"the amount 22,965,000,000 {NOT_HELD}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("chunk", "quote"),
+    [
+        # x19 (dev): cells a quote joins with spaces, as a split table reads.
+        ("(in thousands)\nTotal revenues (2) $ 584,060 $ 662,132",
+         "Total revenues (2) $ 584,060 $ 662,132"),
+        ("(in thousands)\nStrategic capital 584,060 671,907", "Strategic capital 584,060 671,907"),
+    ],
+)  # fmt: skip
+def test_cells_a_quote_joins_with_spaces_are_still_cells(chunk: str, quote: str) -> None:
+    sources = {"C1": Src(chunk, chunk_id="c-1")}
+    sentence = "Revenues were $584,060 thousand in 2025 [C1]."
+    assert check_sentence(sentence, {"C1": [quote]}, sources) is None
+
+
+def test_the_statement_nearest_above_a_quote_wins_over_one_below_it() -> None:
+    chunk = f"(in millions)\n{ROW}\n(in thousands)\nOther assets | 12"
+    sources = {"C1": Src(chunk, chunk_id="c-1")}
+    assert check_sentence("It held $4.1 billion [C1].", {"C1": [ROW]}, sources) is None
+    assert check_sentence("It held $4.1 million [C1].", {"C1": [ROW]}, sources) == (
+        f"the amount 4,100,000 {NOT_HELD}"
+    )
+
+
+def test_words_elsewhere_in_a_quote_say_nothing_about_a_number() -> None:
+    """x30 (test): the quote's "increased marketing spending" is not about the 1%."""
+    quotes = {
+        "C1": [
+            "increased marketing spending and an unfavorable impact of 1%",
+            "was a decrease of 2%",
+        ]
+    }
+    chunk = "increased marketing spending and an unfavorable impact of 1%\nwas a decrease of 2%"
+    sentence = "Currency cost 1% of operating income, and revenues decreased by 2% [C1]."
+    assert check_sentence(sentence, quotes, {"C1": Src(chunk, chunk_id="c-1")}) is None
+
+
+def test_a_rise_or_fall_word_matches_its_facts_with_k1_cited_or_not() -> None:
+    wrong = "Net sales fell to $416.2 billion from $391.0 billion [F1][F2]."
+    assert check_sentence(wrong, {}, APPLE) == "it says the figure fell, but [K1] shows a rise"
+    right = "Net sales rose to $416.2 billion from $391.0 billion [F1][F2]."
+    assert check_sentence(right, {}, APPLE) is None
+
+
+def test_from_and_to_order_the_amounts_of_an_answer_with_no_calculation() -> None:
+    years = {key: source for key, source in APPLE.items() if key != "K1"}
+    wrong = "Net sales rose from $416.2 billion to $391.0 billion [F1][F2]."
+    assert check_sentence(wrong, {}, years) == "it says the figure rose, but its amounts fall"
+    wrong = "Net sales fell to $416.2 billion from $391.0 billion [F1][F2]."
+    assert check_sentence(wrong, {}, years) == "it says the figure fell, but its amounts rise"
+    right = "Net sales rose from $391.0 billion to $416.2 billion [F1][F2]."
+    assert check_sentence(right, {}, years) is None
+    right = "Net sales fell to $391.0 billion from $416.2 billion [F1][F2]."
+    assert check_sentence(right, {}, years) is None
+
+
+SCALES = {10**3: "thousand", 10**6: "million", 10**9: "billion", 10**12: "trillion"}
+
+
+def stated(value: int) -> tuple[str, int]:
+    """`value` in dollars at its scale, to rule 4's four significant digits, and that scale."""
+    scale = max(step for step in SCALES if step <= value)
+    return f"{Decimal(value) / scale:.3f}", scale
+
+
+@given(st.integers(10**6, 10**13 - 1))
+def test_a_fact_at_any_scale_but_its_own_fails(value: int) -> None:
+    figure, scale = stated(value)
+    sources = usd(value)
+    assert check_sentence(f"Net sales were ${figure} {SCALES[scale]} [F1].", {}, sources) is None
+    for other in SCALES:
+        if other != scale:
+            found = check_sentence(f"Net sales were ${figure} {SCALES[other]} [F1].", {}, sources)
+            assert found is not None and found.endswith(NOT_HELD)
+
+
+@given(st.integers(10**6, 10**13 - 1))
+def test_a_negative_fact_stated_as_a_gain_fails(value: int) -> None:
+    figure, scale = stated(value)
+    amount = f"${figure} {SCALES[scale]}"
+    sources = usd(-value)
+    assert check_sentence(f"It lost {amount} [F1].", {}, sources) is None
+    assert check_sentence(f"Net income was {amount} [F1].", {}, sources) == (
+        "[F1] shows a loss or a negative figure, which the sentence does not say"
+    )
+
+
+@given(st.integers(1, 9_999), st.sampled_from(("thousands", "millions", "billions")))
+def test_a_table_row_backs_its_stated_scale_alone(cell: int, scale: str) -> None:
+    row = f"Net sales | {cell:,}"
+    chunk = {"C1": Src(f"(in {scale})\n{row}", chunk_id="c-1")}
+    step = next(s for s, word in SCALES.items() if f"{word}s" == scale)
+    for other, word in SCALES.items():
+        found = check_sentence(f"Net sales were ${cell:,} {word} [C1].", {"C1": [row]}, chunk)
+        assert (found is None) == (other == step)

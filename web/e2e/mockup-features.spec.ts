@@ -43,7 +43,7 @@ test("an answer reads as the router read it, each amount checked against its sou
   await expect(checks.locator("tbody tr").nth(2)).toContainText("$3,855 million");
   await expect(checks.locator("tbody tr").nth(2)).toContainText("3,855, as quoted");
   await expect(checks.locator("td.match")).toHaveText(Array(6).fill("Matches"));
-  await expect(page.getByTestId("timings")).toContainText("every number checked");
+  await expect(page.getByTestId("timings")).toContainText("amounts checked");
 });
 
 test("a fact-only answer is checked against XBRL data; a refusal reads as read and checks nothing", async ({ page }) => {
@@ -54,7 +54,7 @@ test("a fact-only answer is checked against XBRL data; a refusal reads as read a
   await ask(page, question("o02"));
   await expect(page.getByTestId("read-as").getByRole("listitem")).toHaveText(["Out of scope"]);
   await expect(page.getByTestId("checks")).toHaveCount(0);
-  await expect(page.getByTestId("timings")).not.toContainText("every number checked");
+  await expect(page.getByTestId("timings")).not.toContainText("amounts checked");
 });
 
 test("390 px: the checks table scrolls in its own region, which the keyboard can reach", async ({ page }) => {

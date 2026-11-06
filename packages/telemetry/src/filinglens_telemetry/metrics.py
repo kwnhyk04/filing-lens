@@ -70,6 +70,9 @@ LLM_DURATION = _histogram(
 )
 LLM_TOKENS = _histogram("gen_ai.client.token.usage", "{token}", "Tokens per model call.", TOKENS)
 LLM_CALLS = _counter("filinglens.llm.calls", "{call}", "Model calls by provider and outcome.")
+LLM_FINISHES = _counter(
+    "filinglens.llm.finishes", "{reply}", "Model replies by why they stopped, as providers say."
+)
 
 # Search.
 SEARCH = _histogram("filinglens.search.duration", "s", "Search time by phase.", PHASES)
@@ -100,6 +103,7 @@ REFUSALS = (
     "no_relevant_passages",
     "insufficient_evidence",
     "validation_failed",
+    "rerank_late",
 )
 FAILURES = ("ai_unavailable", "upstream_error", "timeout", "internal")
 REJECTIONS = ("rate_limited", "ai_disabled", "budget_exhausted", "budget_unavailable", "overloaded")

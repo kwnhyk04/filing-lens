@@ -1,7 +1,8 @@
 """Filing text and item sections from a 10-K's or 10-Q's (inline XBRL) HTML.
 
 The text has one line per block element. A table row becomes one line, its cells joined by " | ",
-so tables lose their layout (a known limit, docs/memory.md). Items are found by their headings: the
+whatever block tags a cell holds and however the source breaks its lines, so tables lose only their
+layout (a known limit, docs/memory.md). Items are found by their headings: the
 table of contents lists them first, in rising order, so item lines up to the first step back
 (where the body starts over at Item 1) are skipped. Each item's section starts at its first heading
 after that and runs to the next item's heading; the last one runs to the end of the document.
@@ -36,6 +37,7 @@ VOID_TAGS = frozenset(
 CELL = "\x1f"  # marks a cell boundary until lines are cleaned
 INVISIBLE: dict[int, None] = dict.fromkeys((0x200B, 0x200C, 0x200D, 0xFEFF))  # zero-width
 NOISE = re.compile(r"\d{1,3}|[ivxlc]{1,6}|table of contents", re.IGNORECASE)  # page furniture
+CONTENTS_LINK = re.compile("table of contents", re.IGNORECASE)  # all of it a table's row can be
 
 # Item titles as the forms give them, in item order; 10-Q keys carry their part.
 TITLES = {
@@ -141,32 +143,48 @@ class _Heading:
 
 
 class _Text(HTMLParser):
-    """Collects text: block tags break lines, cells are marked, hidden elements are dropped."""
+    """Collects text: block tags break lines, except inside a cell, where they leave a space so a
+    row stays one line; cells are marked, hidden elements are dropped. A line break in the source
+    is a space, as in HTML: Microsoft's and Prologis' 10-Ks put each cell on its own line."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._hidden: str | None = None  # tag of the hidden element being skipped
         self._depth = 0  # how deep that tag nests inside itself
+        self._cells: list[bool] = []  # per open table: whether a cell of it is open
+
+    @property
+    def _break(self) -> str:
+        return " " if self._cells and self._cells[-1] else "\n"
+
+    def _cell(self, is_open: bool) -> None:
+        if self._cells:
+            self._cells[-1] = is_open
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if self._hidden is not None:
             self._depth += tag == self._hidden
         elif tag in VOID_TAGS:  # no end tag follows, so it can open nothing
             if tag in BLOCK_TAGS:
-                self.parts.append("\n")
+                self.parts.append(self._break)
         elif tag in HIDDEN_TAGS or "display:none" in "".join(
             (dict(attrs).get("style") or "").lower().split()
         ):
             self._hidden, self._depth = tag, 1
         elif tag in BLOCK_TAGS:
-            self.parts.append("\n")
+            if tag == "table":  # one inside a cell keeps its own rows
+                self._cells.append(False)
+            elif tag == "tr":  # an unclosed cell ends with its row
+                self._cell(False)
+            self.parts.append(self._break)
         elif tag in CELL_TAGS:
+            self._cell(True)
             self.parts.append(CELL)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if self._hidden is None and tag in BLOCK_TAGS:  # <br/>; an empty <div/> holds nothing
-            self.parts.append("\n")
+            self.parts.append(self._break)
 
     def handle_endtag(self, tag: str) -> None:
         if self._hidden is not None:
@@ -174,12 +192,18 @@ class _Text(HTMLParser):
                 self._depth -= 1
                 if not self._depth:
                     self._hidden = None
+        elif tag in CELL_TAGS:
+            self._cell(False)
         elif tag in BLOCK_TAGS:
-            self.parts.append("\n")
+            if tag == "tr":
+                self._cell(False)
+            elif tag == "table" and self._cells:
+                self._cells.pop()
+            self.parts.append(self._break)
 
     def handle_data(self, data: str) -> None:
         if self._hidden is None:
-            self.parts.append(data)
+            self.parts.append(data.replace("\n", " "))
 
 
 def decode(document: bytes) -> str:
@@ -199,7 +223,8 @@ def text_lines(html: str) -> list[str]:
     for raw in "".join(parser.parts).translate(INVISIBLE).split("\n"):
         cells = (" ".join(cell.split()) for cell in raw.split(CELL))
         line = " | ".join(cell for cell in cells if cell)
-        if line and not NOISE.fullmatch(line):
+        furniture = CONTENTS_LINK if CELL in raw else NOISE  # in a table, "365" and "LLC" are data
+        if line and not furniture.fullmatch(line):
             lines.append(line)
     return lines
 

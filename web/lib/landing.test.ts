@@ -33,23 +33,29 @@ test("a Claude-first report's side-by-side table never replaces its own results"
   const rows = resultRows([TABLE, ...beside].join("\r\n"));
   assert.deepEqual(
     rows.find((row) => row.label === "False refusals, answerable questions"),
-    { label: "False refusals, answerable questions", target: "≤ 5%", result: "13%", status: "Below target" },
+    { label: "False refusals, answerable questions", target: "≤ 5%", result: "13%", status: "Inconclusive", detail: "n 23, 95% CI 0% to 26.1%" },
   );
 });
 
-test("the report's table, in the page's order, units and words", () => {
+test("the report's table, in the page's order, units and words, each status read from the whole interval", () => {
   assert.deepEqual(resultRows(TABLE), [
-    { label: "Numeric accuracy (exact match)", target: "92%", result: "100%", status: "Met" },
-    { label: "Citation coverage", target: "95%", result: "97.1%", status: "Met" },
-    { label: "Citation precision", target: "95%", result: "94.4%", status: "Below target" },
-    { label: "Faithfulness", target: "92%", result: "97%", status: "Met" },
-    { label: "Correct refusals, unanswerable questions", target: "90%", result: "100%", status: "Met" },
-    { label: "False refusals, answerable questions", target: "≤ 5%", result: "13%", status: "Below target" },
-    { label: "Time to first token, p50", target: "≤ 1 s", result: "1.55 s", status: "Below target" },
-    { label: "Full answer latency, p95", target: "≤ 6 s", result: "2.15 s", status: "Met" },
-    { label: "Retrieval recall@10", target: "90%", result: "58.3%", status: "Below target" },
-    { label: "Cost per query at paid rates", target: "≤ $0.0150", result: "$0.0010", status: "Met" },
+    { label: "Numeric accuracy (exact match)", target: "92%", result: "100%", status: "Met", detail: "n 12, 95% CI 100% to 100%" },
+    { label: "Citation coverage", target: "95%", result: "97.1%", status: "Inconclusive", detail: "n 20, 95% CI 91.4% to 100%" },
+    { label: "Citation precision", target: "95%", result: "94.4%", status: "Inconclusive", detail: "n 20, 95% CI 83.3% to 100%" },
+    { label: "Faithfulness", target: "92%", result: "97%", status: "Inconclusive", detail: "n 20, 95% CI 90.6% to 100%" },
+    { label: "Correct refusals, unanswerable questions", target: "90%", result: "100%", status: "Met", detail: "n 7, 95% CI 100% to 100%" },
+    { label: "False refusals, answerable questions", target: "≤ 5%", result: "13%", status: "Inconclusive", detail: "n 23, 95% CI 0% to 26.1%" },
+    { label: "Time to first token, p50", target: "≤ 1 s", result: "1.55 s", status: "Below target", detail: "n 19, 95% CI 1.45 s to 1.62 s" },
+    { label: "Full answer latency, p95", target: "≤ 6 s", result: "2.15 s", status: "Met", detail: "n 21, 95% CI 1.97 s to 4.89 s" },
+    { label: "Retrieval recall@10", target: "90%", result: "58.3%", status: "Below target", detail: "n 6, 95% CI 31.4% to 81.6%" },
+    { label: "Cost per query at paid rates", target: "≤ $0.0150", result: "$0.0010", status: "Met", detail: "n 30, 95% CI $0.0006 to $0.0014" },
   ]);
+});
+
+test("a saved pass whose interval reaches past the target reads as inconclusive", () => {
+  const numeric = TABLE.replace("| 1.000 | 1.000 to 1.000 | 12 | pass |", "| 1.000 | 0.758 to 1.000 | 12 | pass |");
+  const row = resultRows(numeric).find((r) => r.label === "Numeric accuracy (exact match)");
+  assert.equal(row?.status, "Inconclusive");
 });
 
 test("a metric the report could not measure says so", () => {
@@ -72,10 +78,16 @@ test("one comparison table: each metric's target, then each run's result and sta
   );
   assert.deepEqual(
     rows.find((row) => row.label === "Citation precision"),
-    { label: "Citation precision", target: "95%", claude: { result: "98%", status: "Met" }, free: { result: "94.4%", status: "Below target" } },
+    {
+      label: "Citation precision",
+      target: "95%",
+      claude: { result: "98%", status: "Inconclusive", detail: "n 20, 95% CI 90% to 100%" },
+      free: { result: "94.4%", status: "Inconclusive", detail: "n 20, 95% CI 83.3% to 100%" },
+    },
   );
   // A row the two runs share in full stays as it is.
-  assert.deepEqual(rows[0], { label: "Numeric accuracy (exact match)", target: "92%", claude: { result: "100%", status: "Met" }, free: { result: "100%", status: "Met" } });
+  const numeric = { result: "100%", status: "Met", detail: "n 12, 95% CI 100% to 100%" };
+  assert.deepEqual(rows[0], { label: "Numeric accuracy (exact match)", target: "92%", claude: numeric, free: numeric });
 });
 
 test("the comparison fails the build when the two runs' targets differ", () => {

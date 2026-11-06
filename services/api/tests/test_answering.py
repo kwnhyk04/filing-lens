@@ -25,7 +25,7 @@ from redis.asyncio import Redis
 
 from filinglens_api import limits
 from filinglens_api.about import Collection
-from filinglens_api.answering import Answerer, Evidence, Models, calculation_source
+from filinglens_api.answering import Answerer, Evidence, Models, _chunk_source, calculation_source
 from filinglens_api.main import models
 from filinglens_api.schemas import (
     Answer,
@@ -40,7 +40,7 @@ from filinglens_api.schemas import (
 from filinglens_core.errors import AiUnavailableError, OverloadedError, UpstreamError
 from filinglens_core.settings import ApiSettings
 from filinglens_llm import budget
-from filinglens_llm.answer import Source
+from filinglens_llm.answer import Source, user_prompt
 from filinglens_llm.providers import (
     BASE_URLS,
     Anthropic,
@@ -136,6 +136,17 @@ class RecordedEvidence:
 
     async def collection(self) -> Collection:
         raise AssertionError("no recording asks about the collection")
+
+
+def test_a_chunk_source_keeps_the_unit_above_it_out_of_the_prompt() -> None:
+    day = date(2025, 10, 31)
+    above = "in millions"
+    hit = Hit(
+        "c-1", 1.0, "Mounjaro | 22,965", "7", "a", 1, "10-K", day, day, 2025, "FY", "d", above
+    )
+    source = _chunk_source(1, hit, {})  # pyright: ignore[reportPrivateUsage]
+    assert source.unit_above == above
+    assert above not in user_prompt("What did Mounjaro earn?", [source])
 
 
 def replay(router: respx.MockRouter, exchanges: list[dict[str, Any]]) -> None:

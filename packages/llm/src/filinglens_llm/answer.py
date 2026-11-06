@@ -71,6 +71,7 @@ class Source:
     value: Decimal | None  # a fact's value
     url: str
     calculation: Calculation | None = None  # K1's figures, from two of the facts
+    unit_above: str = ""  # a table's unit stated above a chunk, for validation; not in the prompt
 
 
 def user_prompt(question: str, sources: Sequence[Source], problems: Sequence[str] = ()) -> str:

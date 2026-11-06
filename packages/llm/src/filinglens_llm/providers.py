@@ -96,6 +96,7 @@ class Completion:
     output_tokens: int  # reasoning tokens included
     latency_s: float  # from the request to the last byte
     first_token_s: float | None = None  # streams: from the request to the first text
+    finish_reason: str | None = None  # as the provider says it: stop, length, SAFETY, end_turn
 
 
 class Provider(Protocol):
@@ -154,6 +155,8 @@ def _done(
             ("output", completion.output_tokens),
         ):
             metrics.LLM_TOKENS.record(tokens, {**labels, "gen_ai.token.type": token_type})
+        reason = completion.finish_reason or "unknown"
+        metrics.LLM_FINISHES.add(1, {"provider": provider, "model": model, "reason": reason})
     metrics.LLM_DURATION.record(time.perf_counter() - started, labels)
     outcome = "error" if error is not None else "ok"
     metrics.LLM_CALLS.add(1, {"provider": provider, "model": model, "outcome": outcome})
@@ -270,12 +273,14 @@ class OpenAICompatible:
             raise failure(self.name, response.status_code, response.headers.get("retry-after"))
         data: dict[str, Any] = response.json()
         usage: dict[str, int] = data.get("usage") or {}
+        choice: dict[str, Any] = data["choices"][0]
         return Completion(
             model=self.name,
-            text=data["choices"][0]["message"].get("content") or "",
+            text=choice["message"].get("content") or "",
             input_tokens=usage.get("prompt_tokens", 0),
             output_tokens=usage.get("completion_tokens", 0),
             latency_s=time.perf_counter() - started,
+            finish_reason=choice.get("finish_reason"),
         )
 
     @traced_stream
@@ -287,6 +292,7 @@ class OpenAICompatible:
         )
         started, first, parts = time.perf_counter(), None, list[str]()
         usage: dict[str, int] = {}
+        finish: str | None = None
         try:
             async with self._client.stream(
                 "POST", self._url, json=body, headers=self._headers
@@ -307,6 +313,7 @@ class OpenAICompatible:
                     usage = chunk.get("usage") or groq.get("usage") or usage
                     choices: list[dict[str, Any]] = chunk.get("choices") or []
                     for choice in choices:
+                        finish = choice.get("finish_reason") or finish
                         delta: dict[str, Any] = choice.get("delta") or {}
                         text: str | None = delta.get("content")
                         if text:
@@ -322,6 +329,7 @@ class OpenAICompatible:
             output_tokens=usage.get("completion_tokens", 0),
             latency_s=time.perf_counter() - started,
             first_token_s=first,
+            finish_reason=finish,
         )
 
 
@@ -369,7 +377,12 @@ class Gemini:
             raise UpstreamError(f"{self.name} did not answer ({type(exc).__name__}).") from exc
         prompt, output = _usage(response.usage_metadata)
         return Completion(
-            self.name, response.text or "", prompt, output, time.perf_counter() - started
+            self.name,
+            response.text or "",
+            prompt,
+            output,
+            time.perf_counter() - started,
+            finish_reason=_finish(response),
         )
 
     @traced_stream
@@ -378,12 +391,14 @@ class Gemini:
     ) -> AsyncIterator[str | Completion]:
         started, first, parts = time.perf_counter(), None, list[str]()
         usage: types.GenerateContentResponseUsageMetadata | None = None
+        finish: str | None = None
         try:
             chunks = await self._client.aio.models.generate_content_stream(  # pyright: ignore[reportUnknownMemberType]
                 model=self._model, contents=user, config=self._config(system, max_tokens, None)
             )
             async for chunk in chunks:
                 usage = chunk.usage_metadata or usage
+                finish = _finish(chunk) or finish
                 if chunk.text:
                     first = first or time.perf_counter() - started
                     parts.append(chunk.text)
@@ -394,8 +409,14 @@ class Gemini:
             raise UpstreamError(f"{self.name} did not answer ({type(exc).__name__}).") from exc
         prompt, output = _usage(usage)
         yield Completion(
-            self.name, "".join(parts), prompt, output, time.perf_counter() - started, first
+            self.name, "".join(parts), prompt, output, time.perf_counter() - started, first, finish
         )
+
+
+def _finish(response: types.GenerateContentResponse) -> str | None:
+    """Why Gemini stopped, such as MAX_TOKENS, SAFETY or RECITATION."""
+    reason = response.candidates[0].finish_reason if response.candidates else None
+    return reason.value if reason else None
 
 
 def _usage(usage: types.GenerateContentResponseUsageMetadata | None) -> tuple[int, int]:
@@ -604,7 +625,12 @@ class Anthropic:
         usage = message.usage
         await self._spend(usage.input_tokens + usage.output_tokens)
         return Completion(
-            self.name, text, usage.input_tokens, usage.output_tokens, time.perf_counter() - started
+            self.name,
+            text,
+            usage.input_tokens,
+            usage.output_tokens,
+            time.perf_counter() - started,
+            finish_reason=message.stop_reason,
         )
 
     @traced_stream
@@ -647,7 +673,7 @@ class Anthropic:
             raise UpstreamError(f"{self.name} declined to answer (refusal).")
         yield Completion(
             self.name, "".join(parts), input_tokens, output_tokens,
-            time.perf_counter() - started, first,
+            time.perf_counter() - started, first, stop_reason,
         )  # fmt: skip
 
 

@@ -41,7 +41,7 @@ from filinglens_retrieval import Scope, matching_chunks, nearest_chunks, search
 from filinglens_retrieval.facts import Fact, get_financial_fact, latest_fiscal_year
 from filinglens_telemetry import configure_logging
 
-VERSION = "v2"
+VERSION = "v3"  # v2's questions and labels on the re-parsed corpus (evals/carry.py)
 ROOT = Path(__file__).parent / "golden" / VERSION
 V1 = ROOT.parent / "v1"  # frozen 2026-10-16: v2 takes its questions, pools and final labels
 FILES = (
