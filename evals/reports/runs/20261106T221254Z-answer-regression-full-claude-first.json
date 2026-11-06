@@ -1,0 +1,875 @@
+{
+ "suite": "answer",
+ "split": "regression",
+ "subset": "full",
+ "created_at": "2026-11-06T22:12:54+00:00",
+ "golden": {
+  "version": "v3",
+  "as_of": "2026-10-27",
+  "manifest_sha256": "58d844a9b523daa13f004429870e857e38c1683bf646c04d9773de51edbaf6b8"
+ },
+ "index": {
+  "column": "embedding",
+  "model": "BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+  "chunks": 11375,
+  "sha256": "636561308291344641f822bc41ce0f7e3772756c97570e6948c302f14e902b81"
+ },
+ "config": {
+  "router": "anthropic:claude-haiku-5-5",
+  "primary": "anthropic:claude-haiku-5-5",
+  "thinking": "disabled, effort low",
+  "judge": null,
+  "embedder": "BAAI/bge-small-en-v1.5@5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+  "reranker": "cross-encoder/ms-marco-TinyBERT-L-2-v2@81d1926f67cb8eee2c2be17ca9f793c7c3bd20cc",
+  "rerank_candidates": 50,
+  "rerank_max_tokens": 512,
+  "rerank_timeout_ms": 60000,
+  "min_relevance": -3.0,
+  "tag": "on-calculation-1107",
+  "primary_tag": null,
+  "router_primary": null,
+  "label": "claude-first"
+ },
+ "code": {
+  "commit": "7e1bf05ab6777f809716d976173db4e4fcf2a8c0",
+  "dirty": true,
+  "source_sha256": "f117b4e51b4011d123989ca98d1d06e4c4d5a9bc6df3201178977adbc0292f0b"
+ },
+ "prompts": {
+  "router_system": "18465e0ad2c47223205ddc97edfbd8cc0030466078954f5f635de4166b507ffa",
+  "router_schema": "2992f7981a0c3f245cc659a6e53806976af9905d30cb0a76a6bc1fef4625ea7c",
+  "answer_system": "25e4578a6d3bbbd568a8bbe8372f76c3f2a7e95d19ec97127419f511586e27ba",
+  "judge_system": "633151baefd1c06ce3fac0c4bd3a16bb89f1724bdc4edb15339e2637fb44ea9e",
+  "judge_schema": "36dbdb93e0348159f5f90312267bf0bcc042286442d317153cbf2f96b7e8a116"
+ },
+ "judge_calibration": {
+  "n": 29,
+  "unscored": 1,
+  "agreement": 0.9310344827586207,
+  "kappa": 0.8397790055248618,
+  "kappa_ci": [
+   0.5915492957746479,
+   1.0
+  ],
+  "natural": {
+   "n": 21,
+   "labeler_no": 0,
+   "judge_no": 2,
+   "agreement": 0.9047619047619048,
+   "kappa": 0.0,
+   "kappa_ci": [
+    0.0,
+    1.0
+   ]
+  },
+  "per_stratum": {
+   "passing": {
+    "n": 16,
+    "agreement": 0.875
+   },
+   "failing": {
+    "n": 5,
+    "agreement": 1.0
+   },
+   "constructed": {
+    "n": 8,
+    "agreement": 1.0
+   }
+  },
+  "confusion": {
+   "labeler no, judge no": 8,
+   "labeler yes, judge no": 2,
+   "labeler yes, judge yes": 19
+  },
+  "items": [
+   {
+    "id": "s01",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s02",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s03",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s04",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s05",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s06",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s07",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "partly"
+   },
+   {
+    "id": "s08",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s09",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s10",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s11",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s12",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s13",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s14",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s15",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s16",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s17",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s18",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s19",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "partly"
+   },
+   {
+    "id": "s20",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s21",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s22",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s23",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s24",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s25",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s26",
+    "stratum": "passing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s27",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s28",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": "no"
+   },
+   {
+    "id": "s29",
+    "stratum": "failing",
+    "label": true,
+    "verdict": "yes"
+   },
+   {
+    "id": "s30",
+    "stratum": "constructed",
+    "label": false,
+    "verdict": null
+   }
+  ],
+  "sample": "21 natural sentences and 9 constructed negatives, shuffled; constructed negatives may be easier to catch than natural errors",
+  "labeler": "claude",
+  "judge": "groq:openai/gpt-oss-120b"
+ },
+ "ci": false,
+ "metrics": {
+  "answer": {
+   "numeric_exact_match": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "comparison_match": {
+    "value": 1.0,
+    "low": 0.43850296436068037,
+    "high": 1.0,
+    "n": 3
+   },
+   "citation_precision": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "citation_coverage": {
+    "value": 1.0,
+    "low": 1.0,
+    "high": 1.0,
+    "n": 3,
+    "status": "pass"
+   },
+   "faithfulness": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "draft_citation_pass_rate": {
+    "value": 0.0,
+    "low": 0.0,
+    "high": 0.0,
+    "n": 1
+   },
+   "correct_refusal": {
+    "value": null,
+    "low": null,
+    "high": null,
+    "n": 0,
+    "status": "not measured"
+   },
+   "false_refusal": {
+    "value": 0.0,
+    "low": 0.0,
+    "high": 0.5614970356393196,
+    "n": 3,
+    "status": "inconclusive"
+   },
+   "router_accuracy": {
+    "value": 0.6666666666666666,
+    "low": 0.2076595988078242,
+    "high": 0.9385080559790691,
+    "n": 3
+   },
+   "route_accuracy": {
+    "value": 0.6666666666666666,
+    "low": 0.2076595988078242,
+    "high": 0.9385080559790691,
+    "n": 3
+   },
+   "ttft_p50_ms": {
+    "value": 2107.2,
+    "low": 2025.5,
+    "high": 2781.7,
+    "n": 3,
+    "status": "fail"
+   },
+   "ttft_p95_ms": {
+    "value": 2781.7,
+    "low": 2025.5,
+    "high": 2781.7,
+    "n": 3,
+    "status": "fail"
+   },
+   "answer_p50_ms": {
+    "value": 2803.9,
+    "low": 2508.8,
+    "high": 4911.1,
+    "n": 3
+   },
+   "answer_p95_ms": {
+    "value": 4911.1,
+    "low": 2508.8,
+    "high": 4911.1,
+    "n": 3,
+    "status": "pass"
+   },
+   "route_p50_ms": {
+    "value": 914.4,
+    "low": 888.5,
+    "high": 1346.1,
+    "n": 3
+   },
+   "route_p95_ms": {
+    "value": 1346.1,
+    "low": 888.5,
+    "high": 1346.1,
+    "n": 3
+   },
+   "facts_p50_ms": {
+    "value": 116.2,
+    "low": 39.1,
+    "high": 127.5,
+    "n": 3
+   },
+   "facts_p95_ms": {
+    "value": 127.5,
+    "low": 39.1,
+    "high": 127.5,
+    "n": 3
+   },
+   "retrieve_p50_ms": {
+    "value": 353.6,
+    "low": 0.0,
+    "high": 356.4,
+    "n": 3
+   },
+   "retrieve_p95_ms": {
+    "value": 356.4,
+    "low": 0.0,
+    "high": 356.4,
+    "n": 3
+   },
+   "generate_p50_ms": {
+    "value": 1466.0,
+    "low": 1465.7,
+    "high": 1521.4,
+    "n": 3
+   },
+   "generate_p95_ms": {
+    "value": 1521.4,
+    "low": 1465.7,
+    "high": 1521.4,
+    "n": 3
+   },
+   "regenerate_p50_ms": {
+    "value": 1626.1,
+    "low": 1626.1,
+    "high": 1626.1,
+    "n": 1
+   },
+   "regenerate_p95_ms": {
+    "value": 1626.1,
+    "low": 1626.1,
+    "high": 1626.1,
+    "n": 1
+   },
+   "input_tokens": {
+    "value": 12994.0,
+    "low": 9364.0,
+    "high": 19191.0,
+    "n": 3,
+    "status": "fail"
+   },
+   "output_tokens": {
+    "value": 350.3333333333333,
+    "low": 287.0,
+    "high": 456.0,
+    "n": 3,
+    "status": "pass"
+   },
+   "cost_usd": {
+    "value": 0.001474566666666667,
+    "low": 0.0010799000000000002,
+    "high": 0.0021471000000000003,
+    "n": 3,
+    "status": "pass"
+   },
+   "cost_billed_usd": {
+    "value": 0.0014745666666666666,
+    "low": 0.0010799,
+    "high": 0.0021471,
+    "n": 3,
+    "status": "pass"
+   },
+   "truncated": {
+    "value": 0,
+    "low": null,
+    "high": null,
+    "n": 3
+   },
+   "errors": {
+    "value": 0,
+    "low": null,
+    "high": null,
+    "n": 3
+   }
+  }
+ },
+ "calls": {
+  "anthropic:claude-haiku-5-5": {
+   "calls": 7,
+   "live": 7,
+   "input_tokens": 38982,
+   "output_tokens": 1051
+  }
+ },
+ "records": {
+  "answer": [
+   {
+    "id": "r01",
+    "category": "comparison",
+    "kind": "change",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Apple's revenue for fiscal 2025, the most recent year, was $416.2 billion, up from $391.0 billion in fiscal 2024 [1][2]. Fiscal 2025 revenue is higher by $25.13 billion, or 6.43% more than fiscal 2024, so fiscal 2025 is the higher year [3].",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "37437",
+      "calculation": null,
+      "quote": "416,161,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": "37409",
+      "calculation": null,
+      "quote": "391,035,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": null,
+      "calculation": {
+       "inputs": [
+        1,
+        2
+       ]
+      },
+      "quote": "Fiscal 2024: 391,035,000,000 USD. Fiscal 2025: 416,161,000,000 USD. Fiscal 2025 is higher by 25,126,000,000 USD, 6.43% more than fiscal 2024.",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+     }
+    ],
+    "warnings": [
+     "The draft failed validation, so the answer was written again.",
+     "Removed 2 fact citation(s) whose figures their sentence left to its calculation."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "numeric",
+     "tickers": [
+      "AAPL"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "revenue"
+    },
+    "timings_ms": {
+     "route_ms": 1346.1,
+     "facts_ms": 116.2,
+     "retrieve_ms": 356.4,
+     "retrieve_embed_ms": 38.6,
+     "retrieve_sql_ms": 17.3,
+     "retrieve_load_ms": 20.4,
+     "retrieve_rerank_ms": 261.4,
+     "generate_ms": 1466.0,
+     "regenerate_ms": 1626.1,
+     "total_ms": 4911.1
+    },
+    "first_token_ms": 2781.7,
+    "input_tokens": 19191,
+    "output_tokens": 456,
+    "top_score": -0.09149,
+    "early_search": false,
+    "sources": {
+     "F1": "37409",
+     "F2": "37437",
+     "K1": "",
+     "C1": "0924afd27746df54a8fbabc2641a534defbe0592d88372a7fd280c0303aed8f8",
+     "C2": "43c6d44b7cdb92e96e2d418da8900442262caeabd0e8ca79f33d2758d9bd2aca",
+     "C3": "d3fc68c6a5e4e01df5d593744bd9cb7d8057617757aa740230f05f907e2a3a17",
+     "C4": "40393e45f8ab055b671910f7b6e6577929a0cb6f828b6fa3c6a81b4195566dbb",
+     "C5": "33f9193c7467980c2f26f7681fbcdc4f93b04c4aa4a287b2cefc3bccb1fd56fc",
+     "C6": "00a9d4f454a3b183ffbc2746f3f53096f87912431747a932f518298d7becc0ad",
+     "C7": "f0e44e8d6be61ea938e5db197d2480c8b3f2a4867936003a75bdf6abd066f466",
+     "C8": "f49b47b741bc0bedbe16216afc14c2942ed602a53b0a324fe80ff593d31bf3bd",
+     "C9": "3ab0b6d5b5b0827507e072dc8a2d1f4ddcc91805ee2d04efd56fc6dfc9f141a1",
+     "C10": "7d47aaa7a2137c18c7f0c3ae523bb6a0ff0549c41f6e73d68f4821a2c4552f96",
+     "C11": "d3afeeb086bd82109716c14d4a4b4555f8265079633e0e112fd54e496813fcd3",
+     "C12": "9c38d4fa35d4346ac0871eecdda226ebc8c2ce04af31a25b1260738766476c06"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "18648de3ac8f3234ce559b9a825b06d2fb15bb0eab18a2c28592e5b1e527255f",
+      "cached": false,
+      "input_tokens": 1969,
+      "output_tokens": 62,
+      "latency_s": 1.3324661000006017,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "7dc887eef2ecf5d8edbac8156fedfa8d4fc8f3acb25267054933eeb9fdb3d960",
+      "cached": false,
+      "input_tokens": 8560,
+      "output_tokens": 186,
+      "latency_s": 1.4636969999992289,
+      "first_token_s": 0.8338710999996692,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "ffb1e95cdf94a8ca042665dcb33b1e14e8cbd39a45de51b2129ed0b3c0a2b2fa",
+      "cached": false,
+      "input_tokens": 8662,
+      "output_tokens": 208,
+      "latency_s": 1.6212592999982007,
+      "first_token_s": null,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": false,
+    "router_ok": false,
+    "both": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     2,
+     2
+    ],
+    "regenerated": true,
+    "truncated": false
+   },
+   {
+    "id": "r02",
+    "category": "comparison",
+    "kind": "change",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Apple's total net sales for fiscal 2025 were $416.2 billion (416,161 million) [1]. Net sales for fiscal 2024 were $391.0 billion (391,035 million) [2]. Fiscal 2025 revenue was higher by $25.13 billion, which is 6.43% more than fiscal 2024 [3].",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "37437",
+      "calculation": null,
+      "quote": "416,161,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": "37409",
+      "calculation": null,
+      "quote": "391,035,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": null,
+      "calculation": {
+       "inputs": [
+        1,
+        2
+       ]
+      },
+      "quote": "Fiscal 2024: 391,035,000,000 USD. Fiscal 2025: 416,161,000,000 USD. Fiscal 2025 is higher by 25,126,000,000 USD, 6.43% more than fiscal 2024.",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+     }
+    ],
+    "warnings": [
+     "Removed 2 citation(s) whose source or quote did not check out.",
+     "Removed 2 fact citation(s) whose figures their sentence left to its calculation."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "comparison",
+     "tickers": [
+      "AAPL"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025,
+      2024
+     ],
+     "fiscal_period": "FY",
+     "metric": "revenue"
+    },
+    "timings_ms": {
+     "route_ms": 888.5,
+     "facts_ms": 39.1,
+     "retrieve_ms": 353.6,
+     "retrieve_embed_ms": 30.0,
+     "retrieve_sql_ms": 12.8,
+     "retrieve_load_ms": 7.4,
+     "retrieve_rerank_ms": 275.2,
+     "generate_ms": 1521.4,
+     "total_ms": 2803.9
+    },
+    "first_token_ms": 2107.2,
+    "input_tokens": 10427,
+    "output_tokens": 308,
+    "top_score": 5.611023,
+    "early_search": false,
+    "sources": {
+     "F1": "37437",
+     "F2": "37409",
+     "K1": "",
+     "C1": "0924afd27746df54a8fbabc2641a534defbe0592d88372a7fd280c0303aed8f8",
+     "C2": "43c6d44b7cdb92e96e2d418da8900442262caeabd0e8ca79f33d2758d9bd2aca",
+     "C3": "40393e45f8ab055b671910f7b6e6577929a0cb6f828b6fa3c6a81b4195566dbb",
+     "C4": "d3fc68c6a5e4e01df5d593744bd9cb7d8057617757aa740230f05f907e2a3a17",
+     "C5": "d3afeeb086bd82109716c14d4a4b4555f8265079633e0e112fd54e496813fcd3",
+     "C6": "7d47aaa7a2137c18c7f0c3ae523bb6a0ff0549c41f6e73d68f4821a2c4552f96",
+     "C7": "a8f859abab9c34c88bf36bb02771ee7ca2646dc0e8ff091ea9af876ee5d42b21",
+     "C8": "f0e44e8d6be61ea938e5db197d2480c8b3f2a4867936003a75bdf6abd066f466",
+     "C9": "9391d19946d6ab0c81230035bff9e481a9d265687e4d2e5867baacb5c509a616",
+     "C10": "9c38d4fa35d4346ac0871eecdda226ebc8c2ce04af31a25b1260738766476c06",
+     "C11": "f49b47b741bc0bedbe16216afc14c2942ed602a53b0a324fe80ff593d31bf3bd",
+     "C12": "b1a3dabb0696ac88b51a0354c1ed6dcfb2210931be5cf565da3f180e05a48dd6"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "1a75a05cc6578a10be028d84013b9cb1bb8fb7c4082ee6bc526ad24f94509393",
+      "cached": false,
+      "input_tokens": 1973,
+      "output_tokens": 65,
+      "latency_s": 0.8723854000018036,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "4a3113cd4134fbc462bc20f5666106b94bcf062f0dda2061e16e9aabd652d880",
+      "cached": false,
+      "input_tokens": 8454,
+      "output_tokens": 243,
+      "latency_s": 1.51817630000005,
+      "first_token_s": 0.7193573000004108,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "both": true,
+    "draft_quotes": [
+     0,
+     1
+    ],
+    "coverage": [
+     3,
+     3
+    ],
+    "regenerated": false,
+    "truncated": false
+   },
+   {
+    "id": "c19",
+    "category": "comparison",
+    "kind": "peers",
+    "expect": "answer",
+    "outcome": "answered",
+    "error": null,
+    "answer": "Union Pacific spent more on capital expenditures in 2025, with payments to acquire property, plant and equipment of $3.791 billion compared with Caterpillar's $2.821 billion [1][2][3]. Union Pacific's figure was higher by $970,000,000, or 34.38% more than Caterpillar's [3].",
+    "citations": [
+     {
+      "chunk_id": null,
+      "fact_id": "812960",
+      "calculation": null,
+      "quote": "2,821,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": "730775",
+      "calculation": null,
+      "quote": "3,791,000,000 USD",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/100885/000010088526000037/"
+     },
+     {
+      "chunk_id": null,
+      "fact_id": null,
+      "calculation": {
+       "inputs": [
+        1,
+        2
+       ]
+      },
+      "quote": "CATERPILLAR INC (CAT): 2,821,000,000 USD. UNION PACIFIC CORP (UNP): 3,791,000,000 USD. UNION PACIFIC CORP (UNP) is higher by 970,000,000 USD, 34.38% more than CATERPILLAR INC (CAT).",
+      "filing_url": "https://www.sec.gov/Archives/edgar/data/18230/000001823026000008/"
+     }
+    ],
+    "warnings": [
+     "Removed 2 fact citation(s) whose figures their sentence left to its calculation."
+    ],
+    "degraded": false,
+    "routing": {
+     "route": "comparison",
+     "tickers": [
+      "CAT",
+      "UNP"
+     ],
+     "other_companies": [],
+     "fiscal_years": [
+      2025
+     ],
+     "fiscal_period": "FY",
+     "metric": "capital_expenditures"
+    },
+    "timings_ms": {
+     "route_ms": 914.4,
+     "facts_ms": 127.5,
+     "retrieve_ms": 0.0,
+     "retrieve_embed_ms": 21.4,
+     "retrieve_sql_ms": 31.9,
+     "retrieve_load_ms": 8.0,
+     "retrieve_rerank_ms": 138.7,
+     "generate_ms": 1465.7,
+     "total_ms": 2508.8
+    },
+    "first_token_ms": 2025.5,
+    "input_tokens": 9364,
+    "output_tokens": 287,
+    "top_score": 5.137657,
+    "early_search": true,
+    "sources": {
+     "F1": "812960",
+     "F2": "730775",
+     "K1": "",
+     "C1": "9c14c727bdd2df8bfd2e389bc5fc98c7080528cceee1ee2ac611fad7a3d25be9",
+     "C2": "1c78c21593997b433222306817d0a607a5227701bbd61e5388cdca9abe816453",
+     "C3": "dd536bcb2a10724b48c12b6eb5050044084a8550e195feb7596c616268b0314f",
+     "C4": "c86d5447a0b7d3e5d10f588b7a34f34b3261c53b3bfc343ebd92500a8dded302",
+     "C5": "f62c80ba7f3bb661357e92931590ae74e0f37d7d0e22239776fcb6f309e54d18",
+     "C6": "2d2dfeabead285c4caaaed0aada98ed5c1f755f037427fd5c01c3558b6161343",
+     "C7": "863a75df213ad77e19e6c0bc5aeb761b4c873fcfec35864ecc04154005245cfd",
+     "C8": "1ee15df708e7a32a9706faf8848c7ea361e4e64a9c50613a066922e452c33015",
+     "C9": "58c81eb95d5064fdbe8d63a3cf99a0a9cb7bbdb205a8605ef2cd4e1aaf1980c2",
+     "C10": "381be45529f0436afb4a2c45aaaab1a3e59562a8260847c1c9efec65fd9937d1",
+     "C11": "b5f28e6fac9d769a7bd93b3944df93b7440f8161e98d2df5f3d50208ebfb1727",
+     "C12": "b117a0328747ce84b93be66ce78264e20d3addb1696cb8b8d7315fe8ad9e72ae"
+    },
+    "calls": [
+     {
+      "role": "router",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "12f406fbf374b84557225e37480efbb776de6ca77d922fb1176420ab9308786a",
+      "cached": false,
+      "input_tokens": 1983,
+      "output_tokens": 69,
+      "latency_s": 0.906072599998879,
+      "first_token_s": null,
+      "truncated": false
+     },
+     {
+      "role": "primary",
+      "model": "anthropic:claude-haiku-5-5",
+      "cache_id": "d45581fa1455d013eea02f69030acfaebb19e4957de2b48f1aec4636c9e116dc",
+      "cached": false,
+      "input_tokens": 7381,
+      "output_tokens": 218,
+      "latency_s": 1.462118499999633,
+      "first_token_s": 0.8205722999991849,
+      "truncated": false
+     }
+    ],
+    "live": true,
+    "route_ok": true,
+    "router_ok": true,
+    "both": true,
+    "draft_quotes": [
+     0,
+     0
+    ],
+    "coverage": [
+     2,
+     2
+    ],
+    "regenerated": false,
+    "truncated": false
+   }
+  ]
+ },
+ "notes": [
+  "Latency comes only from questions whose model calls were all live: 3 of 3.",
+  "Citation coverage is measured on the last reply before sentence removal; final answers are 100% covered by construction, since validation drops each sentence without a passing citation.",
+  "Judge metrics count: Cohen's kappa 0.84 against labels by claude, not by the judge.",
+  "Cost as billed is the prepaid credits Claude spends, from each call's usage, and $0 on the free tiers; the paid-equivalent uses the prices in evals/providers.json."
+ ],
+ "versus": null
+}

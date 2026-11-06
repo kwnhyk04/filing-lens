@@ -75,6 +75,17 @@ Its gold mixes two labelling standards. About 10 of the 150 carried gold passage
 - **Limits:** small, no floors, not in CI, and not held out: the prompt text for these routes quotes several of the questions.
 - **Results (2026-11-05, one live run on each router; `evals/README.md` has the table):** gpt-oss-20b and Claude Haiku 5.5 each routed 15 of 15 right, landed 15 of 15, and said the figures on 10 of 10. b12 lands on the filings but gets no answer: its best rerank score, -4.82, falls under the relevance gate's -3.0.
 
+## Regression cases (beside golden v3, 2026-11-07)
+
+- **Questions:** 2 in `evals/golden/regressions.jsonl`, from a bug found in the demo capture. Golden v3's files do not change: a changed file stops every run, and a new version needs new floors.
+- **Gold:** the route the plan should follow, the two fiscal years and c09's two facts, built as c09's were.
+- **What it measures:** the whole answer path, with `SPLIT=regression`. Router accuracy scores the model's own reply, which code corrects, so comparison match is the check.
+- **Limits:** two questions on one company, no floors, not in CI. Comparison match asks only for the two figures, so it passes an answer that states no change.
+- **Results (2026-11-07, one live run on Claude Haiku 5.5, no judge; `evals/README.md` has the detail):** r01 passed; r02 states both figures and lost its change sentence to the comparison check.
+- **Rerun (2026-11-07, after that check changed, with c19):** all three state their change, and none cites a passage. Not judged.
+- **Pass points:** a comparison answer whose figures are held by cited facts and a K calculation needs no passage citation (user, 2026-11-07).
+- **All 23 golden comparisons, judged (2026-11-07, Claude Haiku 5.5, gpt-oss-120b; `evals/README.md` has the table):** comparison match 23 of 23, false refusal 0 of 23, citation precision 94 of 94, against 22 of 23, 1 of 23 and 81 of 81 in the last judged runs. The judge's calibration sample holds no sentence that cites K alone.
+
 ## Golden set v1
 
 - 100 questions, written on 2026-10-16 against the dev database: the latest 10-K of 30 companies in 11 sectors (11,263 chunks) and their XBRL facts.

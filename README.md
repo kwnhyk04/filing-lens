@@ -65,7 +65,7 @@ Real filings and live answers need a few more settings, and `make test`, `make t
 
 - Email alerts failed until 2026-11-04 (wrong Gmail sender); fixed since.
 - A table's unit is checked only where the quote, its passage or the 40,000 characters above state one. A figure from a table that states none within reach is dropped.
-- A right comparison can still be refused: a rewrite that cites the calculation without both its facts, or compares without stating both figures, loses those sentences.
+- A right comparison can still be refused: a sentence that cites the calculation without both its facts, or compares without stating both figures or the calculation's result, is dropped.
 - The API runs on one PC. When it is off, the site falls back to the saved answers.
 
 ## Docs

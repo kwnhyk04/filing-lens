@@ -84,7 +84,7 @@ contracts-check: codegen ## fail if a fresh codegen changes contracts/ or client
 contracts-breaking: ## fail on breaking OpenAPI changes against BASE (default main); needs Docker
 	$(OASDIFF) breaking $(BASE):contracts/openapi.json contracts/openapi.json --fail-on ERR
 
-eval: ## golden-set evals: SUITE=retrieval|answer|all SPLIT=dev|test SUBSET=ci|full, flags in ARGS
+eval: ## golden-set evals: SUITE=retrieval|answer|all SPLIT=dev|test|regression SUBSET=ci|full, flags in ARGS
 	uv run --env-file .env python -m evals.harness --suite $(SUITE) --split $(SPLIT) --subset $(SUBSET) $(ARGS)
 
 eval-about: ## the about category: one router call per question, no floors, never in CI; flags in ARGS

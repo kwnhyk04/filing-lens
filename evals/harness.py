@@ -2,7 +2,7 @@
 pipeline, with 95% bootstrap intervals, floors per golden version and reports (docs/todo.md,
 step 6b).
 
-    make eval SUITE=retrieval|answer|all SPLIT=dev|test SUBSET=full|ci ARGS="..."
+    make eval SUITE=retrieval|answer|all SPLIT=dev|test|regression SUBSET=full|ci ARGS="..."
     uv run python -m evals.harness --compare A.json B.json   # paired differences, A minus B
     uv run python -m evals.harness --sweep A.json   # refusal threshold, from a gate-off run
     uv run python -m evals.harness --set-floors A.json   # floors from a saved report's values
@@ -128,6 +128,7 @@ CODE_PATHS = ("services", "packages", "evals", "scripts", "infra", "pyproject.to
 NOT_CODE = ("evals/reports", "evals/calibration", "evals/golden", "**/*.md")
 REPORTS = EVALS / "reports"
 THRESHOLDS = EVALS / "thresholds.json"
+REGRESSIONS = EVALS / "golden" / "regressions.jsonl"  # beside the frozen set: no floors, never CI
 PROVIDERS = EVALS / "providers.json"
 # v1's: v2 keeps the judge's prompt, schema and model, so v2 reports cite it (plan, 2026-10-26).
 CALIBRATION = EVALS / "calibration" / "v1" / "result.json"
@@ -374,6 +375,16 @@ def load_golden() -> Golden:
         raise Stop(3, f"Golden set {VERSION} changed since the freeze ({', '.join(changed)}).")
     questions, pools = read_jsonl(ROOT / "questions.jsonl"), read_jsonl(ROOT / "pools.jsonl")
     return Golden(manifest, questions, pools, final_labels()[0])
+
+
+def selected(golden: Golden, split: str, subset: str) -> list[dict[str, Any]]:
+    """The questions of a split and subset. `regression` reads the cases beside the frozen set."""
+    questions = read_jsonl(REGRESSIONS) if split == "regression" else golden.questions
+    return [
+        q
+        for q in questions
+        if q["split"] == split and (subset == "full" or q["ci"] or q["id"] in CI_EXTRA)
+    ]
 
 
 async def check_corpus(engine: AsyncEngine, golden: Golden) -> None:
@@ -1471,11 +1482,7 @@ async def evaluate(args: argparse.Namespace) -> int:
         if field and not (secret and secret.get_secret_value()):
             raise SystemExit(f"LLM_JUDGE needs {field.upper()}.")
     golden = load_golden()
-    questions = [
-        q
-        for q in golden.questions
-        if q["split"] == args.split and (args.subset == "full" or q["ci"] or q["id"] in CI_EXTRA)
-    ]
+    questions = selected(golden, args.split, args.subset)
     if not questions:
         raise SystemExit(f"No {args.subset} questions in {args.split}: the ci subset is in dev.")
     code = code_version()  # before any call: the code this run measures
@@ -1729,7 +1736,7 @@ def set_floors(path: Path, replace: bool = False) -> None:
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m evals.harness", description=__doc__)
     parser.add_argument("--suite", choices=("all", "retrieval", "answer"), default="all")
-    parser.add_argument("--split", choices=("dev", "test"), default="dev")
+    parser.add_argument("--split", choices=("dev", "test", "regression"), default="dev")
     parser.add_argument("--subset", choices=("full", "ci"), default="full")
     parser.add_argument("--tag", default="", help="call the answer models live once, under TAG")
     parser.add_argument("--primary-tag", default="", help="call only the primary live, under TAG")

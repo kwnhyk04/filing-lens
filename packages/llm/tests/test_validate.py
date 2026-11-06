@@ -7,7 +7,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from filinglens_llm.answer import Reply, Source, check
 from filinglens_llm.validate import (
+    UNSTATED,
     Calculation,
     amounts_match,
     check_sentence,
@@ -15,6 +17,7 @@ from filinglens_llm.validate import (
     figures,
     find_amounts,
     numbers_in,
+    on_calculation,
     parse_amount,
     split_sentences,
 )
@@ -265,6 +268,48 @@ def test_a_sentence_holds_only_when_its_citations_and_amounts_check_out(
     )
 
 
+FACT_ONLY = {"F1": SOURCES["F1"]}
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The sources do not state how it changed [F1].",  # the demo capture, 2026-11-07
+        "The sources don't say how it changed [F1].",
+        "The difference is not stated in the sources [F1].",  # saved drafts, as written
+        "The filing does not provide further detail [F1].",
+        "That figure is labeled fiscal 2025 Q2, so the sources do not show the year-end [F1].",
+        "The source reports this as a Q2 balance, so it does not confirm the year-end [F1].",
+        "The year-end total cannot be confirmed from them [F1].",
+        "No further information on the change is given [F1].",
+    ],
+)
+def test_no_sentence_says_what_the_sources_leave_out_when_only_facts_were_read(
+    sentence: str,
+) -> None:
+    assert check_sentence(sentence, {}, FACT_ONLY) == (
+        "it says what the sources do not state; say only what they show"
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Net sales were $416.2 billion [F1].",
+        "Net sales did not fall below $416.2 billion [F1].",  # a negation about the figure
+        "The fact gives net sales of $416.2 billion [F1].",  # its noun, with no negation
+        "Apple filed no amended figure [F1].",  # "no", about something else
+    ],
+)
+def test_a_fact_only_sentence_that_leaves_nothing_out_stands(sentence: str) -> None:
+    assert check_sentence(sentence, {}, FACT_ONLY) is None
+
+
+def test_with_filing_text_read_a_sentence_may_say_what_it_leaves_out() -> None:
+    sentence = "The sources do not state why net sales rose [C1]."
+    assert check_sentence(sentence, QUOTES, SOURCES) is None
+
+
 COMPARED = {
     "F1": Src("402,836,000,000 USD", fact_id="f-1", value=Decimal(402_836_000_000)),
     "F2": Src("350,018,000,000 USD", fact_id="f-2", value=Decimal(350_018_000_000)),
@@ -461,6 +506,159 @@ def test_an_amount_k1_holds_names_k1() -> None:
         ("$25.1 billion", "K1", 25_126_000_000),
         ("6.4%", "K1", Decimal("6.43")),
     ]
+
+
+R02 = (  # the sentence both of r02's drafts lost, live on 2026-11-07
+    "Fiscal 2025 revenue was higher by $25,126 million (about $25.13 billion), which is 6.43% more"
+    " than fiscal 2024 [F1][F2][K1]."
+)
+NAMES_THE_FIGURES = (  # r02's first two sentences
+    "Apple's fiscal 2025 revenue was $416.2 billion [F1]. Fiscal 2024 revenue was $391.0 billion,"
+    " or $391,035 million [F2]. "
+)
+UNION_PACIFIC = {  # c19 (test): two companies, K1 from the lower
+    "F1": Src("2,821,000,000 USD", fact_id="f-1", value=Decimal(2_821_000_000)),
+    "F2": Src("3,791,000,000 USD", fact_id="f-2", value=Decimal(3_791_000_000)),
+    "K1": Src(
+        "UNION PACIFIC CORP (UNP) is higher by 970,000,000 USD, 34.38% more than CATERPILLAR INC.",
+        calculation=Calculation(("F1", "F2"), Decimal(970_000_000), Decimal("34.38"), False),
+    ),
+}
+C19 = (  # Haiku's first draft of 2026-11-06, whose rewrite became a false refusal
+    "Union Pacific spent more on capital expenditures in 2025, with payments to acquire property,"
+    " plant, and equipment of $3.791 billion compared with Caterpillar's $2.821 billion"
+    " [F1][F2][K1]. The calculation shows Union Pacific's figure is higher by $970 million, or"
+    " 34.38% more than Caterpillar's [F1][F2][K1]."
+)
+
+
+def test_r02s_lost_sentence_keeps_its_calculation_and_loses_the_facts_it_does_not_state() -> None:
+    assert on_calculation(R02, {}, APPLE) == (
+        "Fiscal 2025 revenue was higher by $25,126 million (about $25.13 billion), which is 6.43%"
+        " more than fiscal 2024 [K1].",
+        ["F1", "F2"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("sources", "sentence", "kept", "gone"),
+    [
+        # One fact stated: only the other goes.
+        (APPLE, "Revenue of $416.2 billion was higher by $25.13 billion, or 6.43% more {}.",
+         "[F1][K1]", ["F2"]),
+        (APPLE, "Revenue was higher than the $391.0 billion of fiscal 2024 by 6.43% {}.",
+         "[F2][K1]", ["F1"]),
+        # The result as rounded, by the rule every amount follows.
+        (APPLE, "Revenue was higher by about $25.13 billion, or 6.4% more than fiscal 2024 {}.",
+         "[K1]", ["F1", "F2"]),
+        (APPLE, "Fiscal 2025 revenue was 6.4% more than fiscal 2024 {}.", "[K1]", ["F1", "F2"]),
+        (APPLE, "Fiscal 2025 revenue was higher by $25.13 billion {}.", "[K1]", ["F1", "F2"]),
+        # A fall said as a fall, and a loss that grew: K1's difference is below 0.
+        (UNITEDHEALTH, "Net income was lower by $2.349 billion, or 16.31% less than in 2024 {}.",
+         "[K1]", ["F1", "F2"]),
+        (UNITEDHEALTH, "Net income fell by $2.349 billion, or 16.31%, in fiscal 2025 {}.",
+         "[K1]", ["F1", "F2"]),
+        (LOSS, "The net loss grew by $1.2 billion in fiscal 2025 {}.", "[K1]", ["F1", "F2"]),
+        (PEERS, "Amazon's revenue was higher by $35.94 billion, or 5.28% more than Walmart's {}.",
+         "[K1]", ["F1", "F2"]),
+    ],
+)  # fmt: skip
+def test_a_sentence_that_states_its_calculations_result_loses_only_its_unstated_facts(
+    sources: dict[str, Src], sentence: str, kept: str, gone: list[str]
+) -> None:
+    written = sentence.format("[F1][F2][K1]")
+    assert check_sentence(written, {}, sources) == UNSTATED + ", ".join(f"[{f}]" for f in gone)
+    assert on_calculation(written, {}, sources) == (sentence.format(kept), gone)
+
+
+def test_facts_joined_in_one_marker_go_the_same_way() -> None:
+    sentence = "Fiscal 2025 revenue was higher by $25.13 billion [F1, F2, K1]."
+    assert on_calculation(sentence, {}, APPLE) == (
+        "Fiscal 2025 revenue was higher by $25.13 billion [K1].",
+        ["F1", "F2"],
+    )
+
+
+BOTH = UNSTATED + "[F1], [F2]"
+
+
+@pytest.mark.parametrize(
+    ("sources", "sentence", "problem"),
+    [
+        # No calculation stands for the facts.
+        (APPLE, "Fiscal 2025 revenue was higher than fiscal 2024 [F1][F2].", BOTH),
+        (COMPARED, "Alphabet's revenue was higher by 6.43% in fiscal 2025 [F1][F2].",
+         "the amount 6.43% is not in the sources it cites"),
+        # Its result is not stated.
+        (APPLE, "Fiscal 2025 revenue was higher than fiscal 2024 [F1][F2][K1].", BOTH),
+        # The wrong scale, past its rounding, or of another kind.
+        (APPLE, "Fiscal 2025 revenue was higher by $25.13 million [F1][F2][K1].",
+         "the amount 25,130,000 is not in the sources it cites"),
+        (APPLE, "Fiscal 2025 revenue was higher by $26.1 billion [F1][F2][K1].",
+         "the amount 26,100,000,000 is not in the sources it cites"),
+        (APPLE, "Fiscal 2025 revenue was higher by 25.13% [F1][F2][K1].",
+         "the amount 25.13% is not in the sources it cites"),
+        (APPLE, "Fiscal 2025 revenue was higher by 7.4% [F1][F2][K1].",
+         "the amount 7.4% is not in the sources it cites"),
+        # The wrong sign: by the rise and fall check, or else by the words beside the comparison.
+        (APPLE, "Fiscal 2025 revenue fell by $25.13 billion [F1][F2][K1].",
+         "it says the figure fell, but [K1] shows a rise"),
+        (APPLE, "Fiscal 2025 revenue was lower by $25.13 billion, or 6.43% less than fiscal 2024"
+         " [F1][F2][K1].", BOTH),
+        (UNITEDHEALTH, "Net income was higher by $2.349 billion, or 16.31% more [F1][F2][K1].",
+         BOTH),
+        (APPLE, "Fiscal 2025 revenue was higher by -$25.13 billion [F1][F2][K1].", BOTH),
+        # K1 short of a fact, as the model wrote it.
+        (APPLE, "Net sales were up $25.1 billion [K1].",
+         "[K1] is cited without [F2] and [F1], the facts it was calculated from"),
+        (APPLE, "Net sales were up $25.1 billion [F1][K1].",
+         "[K1] is cited without [F2], the facts it was calculated from"),
+    ],
+)  # fmt: skip
+def test_any_other_sentence_fails_as_it_did(
+    sources: dict[str, Src], sentence: str, problem: str
+) -> None:
+    assert check_sentence(sentence, {}, sources) == problem
+    assert on_calculation(sentence, {}, sources) is None
+
+
+def drafted(sources: dict[str, Src]) -> dict[str, Source]:
+    """The test's sources as the answer pipeline holds them."""
+    return {
+        alias: Source(alias, s.chunk_id, s.fact_id, "", s.text, s.value, "u", s.calculation)
+        for alias, s in sources.items()
+    }
+
+
+def test_r02s_answer_keeps_its_change_and_each_fact_where_its_figure_is_stated() -> None:
+    checked = check(Reply(NAMES_THE_FIGURES + R02, {}, False), drafted(APPLE))
+    assert checked.problems == [] and (checked.pruned, checked.unstated) == (0, 2)
+    assert checked.text.endswith("which is 6.43% more than fiscal 2024 [3].")
+    assert [alias for alias, _ in checked.citations] == ["F1", "F2", "K1"]
+    assert ("$25,126 million", "K1") in [(f.text, f.alias) for f in checked.figures]
+
+
+def test_c19s_draft_holds_without_a_rewrite() -> None:
+    checked = check(Reply(C19, {}, False), drafted(UNION_PACIFIC))
+    assert checked.problems == [] and checked.unstated == 2
+    assert checked.text.endswith("or 34.38% more than Caterpillar's [3].")
+    assert [alias for alias, _ in checked.citations] == ["F1", "F2", "K1"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        R02,  # no other sentence cites the facts
+        NAMES_THE_FIGURES.replace("[F2]", "[F1]").replace("$391.0 billion, or $391,035 million",
+                                                          "$416.2 billion") + R02,  # or not F2
+        "Fiscal 2024 revenue was $999.0 billion [F2]. " + R02,  # or only a sentence that fails
+    ],
+)  # fmt: skip
+def test_a_fact_no_sentence_that_holds_cites_keeps_the_sentence_failing(text: str) -> None:
+    """K1's citation names its facts' citations, so the answer must keep them (Calculation)."""
+    checked = check(Reply(text, {}, False), drafted(APPLE))
+    assert f'"{R02}": {BOTH}' in checked.problems
+    assert "K1" not in [alias for alias, _ in checked.citations] and checked.unstated == 0
 
 
 def test_a_changed_quote_fails_the_sentence_even_with_a_right_amount() -> None:
