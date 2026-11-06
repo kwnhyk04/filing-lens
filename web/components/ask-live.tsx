@@ -3,17 +3,35 @@
 // While FilingLens reads, the membrane gathers round the card and covers it, the covered filings floating, none
 // claimed. Once the checked answer and its sources are in, it reaches each cited filing, left and right, and draws it
 // against the card while the page reveals the parts, growing with the card as each comes. About a second after the
-// card has settled it lets them go, and they drift home. There is no Pause: the stage comes to rest by itself, still
-// within 5 s of the page load, of an answer done or of an error (WCAG 2.2.2), and a hidden tab or a stage scrolled away
-// stops it sooner. The membrane and the field move only while there is something to play. Loaded on a desktop once
-// the page has loaded (hero-motion.tsx).
+// card has settled it lets them go, and they drift home. The membrane and the field move only while there is something
+// to play. At rest no frame runs, and the floating things drift on by CSS alone, on the compositor, until a hidden tab
+// or a stage scrolled away stops them, or Pause in the stage's corner, the hero's button, for as long as the session
+// lasts (WCAG 2.2.2). An answer still plays while paused. Loaded on a desktop once the page has loaded (hero-motion.tsx).
 import * as React from "react";
 import { createPortal } from "react-dom";
 
 import { placeThings, type StageProps, type View } from "../lib/stage.ts";
-import { FIND, FieldBoundary, type FieldProps, GATHER, LAST, type Page, PULLS, RELEASE, Story, useMode, useMotionVisibility } from "./bond.tsx";
+import { FIND, FieldBoundary, type FieldProps, GATHER, Icon, LAST, type Page, PULLS, RELEASE, Story, useMode, useMotionVisibility } from "./bond.tsx";
 
 const NONE: Element[] = []; // the stage has no headline for the things to keep clear of
+const PAUSED = "filinglens.ask-drift-paused"; // in sessionStorage; with storage refused, Pause lasts as long as the page
+
+function pausedBefore() {
+  try {
+    return sessionStorage.getItem(PAUSED) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function remember(paused: boolean) {
+  try {
+    sessionStorage.setItem(PAUSED, paused ? "1" : "0");
+  } catch {
+    // The choice still holds on this page.
+  }
+}
+
 /** Each of the stage's views as the engine's beat: rest, gather, pull, settle round the answer, or let go. */
 const BEATS: Record<View, number> = { empty: 0, reading: GATHER, pulling: FIND, revealing: LAST, done: LAST, failed: LAST, leaving: RELEASE };
 /** Nothing in play: the engine lets an answer's sources go, then the stage comes to rest. */
@@ -24,6 +42,7 @@ export function AskLive({ phase, covered, cited }: StageProps) {
   const [stage, setStage] = React.useState<HTMLElement | null>(null);
   const [Field, setField] = React.useState<React.ComponentType<FieldProps> | null>(null);
   const [idle, setIdle] = React.useState(false); // nothing to play but the filings' drift
+  const [paused, setPaused] = React.useState(pausedBefore); // this file loads in the browser only
   const mode = useMode();
   const { enabled, inView } = useMotionVisibility(stage);
   const moving = enabled && inView;
@@ -57,8 +76,23 @@ export function AskLive({ phase, covered, cited }: StageProps) {
     <>
       <span ref={anchor} hidden />
       {stage && page && layer && (
-        <Story plot={plot} host={stage} layer={layer} heads={NONE} page={page} target={BEATS[phase]} rest={REST.has(phase)} moving={moving} quiet={!enabled} mode={mode} onReady={onReady} onIdle={setIdle} />
+        <Story plot={plot} host={stage} layer={layer} heads={NONE} page={page} target={BEATS[phase]} rest={REST.has(phase)} moving={moving} drift={moving && !paused} quiet={!enabled} mode={mode} onReady={onReady} onIdle={setIdle} />
       )}
+      {/* Last in the stage, so the keyboard reaches the card and the field first. */}
+      <div className="pb-controls">
+        <button
+          type="button"
+          className="pb-control"
+          aria-pressed={paused}
+          onClick={() => {
+            remember(!paused);
+            setPaused(!paused);
+          }}
+        >
+          <Icon name={paused ? "play" : "pause"} />
+          <span className="visually-hidden">{paused ? "Resume motion" : "Pause motion"}</span>
+        </button>
+      </div>
       {Field && field &&
         createPortal(
           <FieldBoundary>

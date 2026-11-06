@@ -1,5 +1,7 @@
 // A validated answer's text with its citation links, its number checks and its source cards; renders on the
 // server or the client. The card around them is answer-card.tsx.
+import { Fragment } from "react";
+
 import {
   checksTitle,
   figureRows,
@@ -12,6 +14,7 @@ import {
   type Answer,
 } from "../lib/answer.ts";
 import type { Sources } from "../lib/demo.ts";
+import { REPO } from "../lib/landing.ts";
 import { sentences } from "../lib/stage.ts";
 
 export { sourceLabel };
@@ -76,6 +79,16 @@ function Highlighted({ text, quote }: { text: string; quote: string }) {
 /** Text with its figures under the highlighter. */
 function Figures({ text }: { text: string }) {
   return splitFigures(text).map((piece, i) => (i % 2 ? <span key={i} className="figure">{piece}</span> : piece));
+}
+
+/** An answer's words: FilingLens's own repository, which the app answer gives, as a link, and the figures round it. */
+function Words({ text }: { text: string }) {
+  return text.split(REPO).map((piece, i) => (
+    <Fragment key={i}>
+      {i > 0 && <a href={REPO}>{REPO}</a>}
+      <Figures text={piece} />
+    </Fragment>
+  ));
 }
 
 const number = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 10 });
@@ -173,7 +186,7 @@ export function AnswerText({ answer, sources, prefix = "", shown }: Props & { sh
           <span className="bracket">]</span>
         </a>
       ) : (
-        <Figures key={i} text={part} />
+        <Words key={i} text={part} />
       ),
     );
   return (

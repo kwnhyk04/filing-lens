@@ -6,10 +6,11 @@ import { test } from "node:test";
 
 import type { Snapshot } from "./demo.ts";
 import {
-  CALM_MS,
-  calmPace,
   citedThings,
   coveredThings,
+  DRIFT_SEGMENTS,
+  DRIFT_TICK_S,
+  driftOf,
   ENTER_MS,
   landed,
   PULL_MS,
@@ -83,15 +84,37 @@ test("the reveal: the pull, then about 0.3 s between parts, the last in place wi
   assert.ok(apple[1] - apple[0] >= 250, `${apple[1] - apple[0]} ms`);
 });
 
-test("the stage comes to rest by itself within 5 s (WCAG 2.2.2): the sources let go a second after the card settles, then the drift slows to a stop", () => {
-  // Rest starts at the page load, or as the last part starts; the card is in place ENTER_MS after that.
+test("the sources let go a second after the card settles", () => {
   assert.equal(RELEASE_MS, 1_000);
-  assert.ok(CALM_MS <= 5_000, `still ${CALM_MS} ms after the page load`);
-  assert.equal(calmPace(0), 1);
-  assert.equal(calmPace(ENTER_MS + RELEASE_MS + 1_200), 1, "the sources let go and drift home at full pace");
-  assert.equal(calmPace(CALM_MS), 0);
-  assert.equal(calmPace(60_000), 0);
-  for (let ms = 0; ms < CALM_MS; ms += 50) assert.ok(calmPace(ms + 50) <= calmPace(ms), `slows, never speeds up, at ${ms} ms`);
+});
+
+test("each floating thing drifts on its own loop of 20 to 40 s, from its own place in that loop", () => {
+  const drifts = Array.from({ length: SLOTS }, (_, i) => driftOf(i));
+  for (const drift of drifts) {
+    const loop = parseFloat(drift["--drift-s"]), at = parseFloat(drift["--drift-at"]);
+    assert.ok(loop >= 20 && loop <= 40, `${loop} s`);
+    assert.ok(at <= 0 && -at < loop, `${at} s, already under way when it first shows`);
+  }
+  assert.equal(new Set(drifts.map((drift) => drift["--drift-s"])).size, SLOTS);
+  assert.equal(new Set(drifts.map((drift) => drift["--drift-at"])).size, SLOTS);
+});
+
+test("every thing's drift moves on the same ticks, so the compositor draws per tick, not per display refresh", () => {
+  const onTheTick = (seconds: number) => Math.abs(seconds / DRIFT_TICK_S - Math.round(seconds / DRIFT_TICK_S)) < 1e-6;
+  assert.ok(1 / DRIFT_TICK_S <= 20, `${1 / DRIFT_TICK_S} frames a second at most`);
+  for (let i = 0; i < SLOTS; i++) {
+    const drift = driftOf(i);
+    const steps = drift["--drift-steps"], loop = parseFloat(drift["--drift-s"]);
+    assert.ok(Number.isInteger(steps));
+    assert.ok(Math.abs(loop / DRIFT_SEGMENTS / steps - DRIFT_TICK_S) < 1e-9, `${loop} s in ${DRIFT_SEGMENTS} segments of ${steps} steps`);
+    assert.ok(onTheTick(parseFloat(drift["--drift-at"])), drift["--drift-at"]);
+  }
+});
+
+test("bond.css's drift has as many segments as driftOf counts", () => {
+  const css = readFileSync(new URL("../components/bond.css", import.meta.url), "utf8");
+  const drift = css.slice(css.indexOf("@keyframes pb-drift"), css.indexOf("@keyframes pb-blink"));
+  assert.equal(drift.match(/^\s+\d+(?:\.\d+)?%,?$|^\s+\d+(?:\.\d+)?% \{$/gm)?.length, DRIFT_SEGMENTS + 1);
 });
 
 test("the stage's view: the data's phase, then the pull and the reveal, and the leave over all of them", () => {

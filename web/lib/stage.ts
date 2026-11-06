@@ -35,15 +35,18 @@ export const LEAVE_MS = 450;
 export const FLY_MS = 450;
 /** Once the card is in place, the membrane holds its sources this long, then lets them go. */
 export const RELEASE_MS = 1_000;
-/** The stage stops moving this long after it comes to rest (the page load, an answer done, an error): with no Pause
-    button, its motion must end within 5 s (WCAG 2.2.2). */
-export const CALM_MS = 4_500;
 
-/** How fast the floating things drift `ms` after the stage came to rest: full pace, then over the last second it slows
-    to a stop. */
-export function calmPace(ms: number): number {
-  const x = Math.min(1, Math.max(0, (CALM_MS - ms) / 1_000));
-  return x * x * (3 - 2 * x);
+/** The drift's beat, and the segments of its loop (bond.css's `pb-drift`). Every thing steps on these same ticks, so the
+    compositor draws 20 frames a second at most: run smoothly, a transform animation draws on every display refresh,
+    which on a 180 Hz screen took 21% of the graphics card and 16% of a CPU core at rest. */
+export const DRIFT_TICK_S = 0.05;
+export const DRIFT_SEGMENTS = 8;
+
+/** A floating thing's drift, for bond.css: its own loop of 20 to 40 s, in whole ticks, entered at its own place. */
+export function driftOf(i: number) {
+  const steps = 50 + 2 * ((i * 7) % 26);
+  const loop = (steps * DRIFT_SEGMENTS * DRIFT_TICK_S).toFixed(1);
+  return { "--drift-s": `${loop}s`, "--drift-steps": steps, "--drift-at": `${-((i * 7) % 20)}s` };
 }
 
 const sentenceBreaks = new Intl.Segmenter("en", { granularity: "sentence" });

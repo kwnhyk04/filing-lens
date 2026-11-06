@@ -69,7 +69,7 @@ Its gold mixes two labelling standards. About 10 of the 150 carried gold passage
 
 ## About category (beside golden v2, 2026-11-05)
 
-- **Questions:** 15 in `evals/golden/about.jsonl`, written by hand: 3 about the app, 4 about the collection, 1 company held, 2 not held, 2 that must go to the filings, 3 that must be refused. Golden v2's frozen files do not change.
+- **Questions:** 25 in `evals/golden/about.jsonl`, written by hand: 6 about the app and who made it, 8 about the collection, 4 of them loosely worded, 1 company held, 2 not held, 4 that must go to the filings, 4 that must be refused. The frozen golden files do not change.
 - **Gold:** where each should land (own data, the filings or a refusal), the route, and the words a right answer holds, such as "30 companies". The figures are the corpus's, and a run stops when the corpus drifts.
 - **What it measures:** the router's choice, and what the code does with it. No answer model runs and no judge scores anything; a question for the filings stops at a stand-in.
 - **Limits:** small, no floors, not in CI, and not held out: the prompt text for these routes quotes several of the questions.

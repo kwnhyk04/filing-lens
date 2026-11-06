@@ -63,10 +63,13 @@ ADVICE = re.compile(
     r"|\b(?:buy|sell)\b.{0,30}\b(?:shares?|stock)\b",
     re.IGNORECASE,
 )
-# A question about FilingLens itself: it is addressed or named, or the collection is asked about
-# with no company's business in it. Only such a question sees the about routes, so any other one
-# reaches the router with the prompt and schema it always had. No golden question matches.
-HELD = r"(?:companies|filings|documents|tickers|(?:fiscal\s+)?years)"
+# A question about FilingLens itself: it is addressed or named, who made it is asked, or the
+# collection is asked about with no company's business in it. Only such a question sees the about
+# routes, so any other one reaches the router with the prompt and schema it always had. No golden
+# question matches.
+HELD = r"(?:companies|filings|documents|records|tickers|(?:fiscal\s+)?years)"
+MADE = r"made|built|created|wrote|developed|designed|behind"
+APOSTROPHE = "'\N{RIGHT SINGLE QUOTATION MARK}"
 ABOUT_WORDING = re.compile(
     r"\b(?:you|your|yours|yourself|filinglens)\b"
     r"|\bthis\s+(?:app|application|site|website|tool|service|thing|page)\b"
@@ -74,8 +77,11 @@ ABOUT_WORDING = re.compile(
     r"|\b(?:the|this)\s+(?:collection|corpus|database|dataset)\b"
     r"|\bthe\s+data\s+(?:last\s+)?(?:loaded|updated|refreshed)\b"
     r"|\bhow\s+(?:recent|fresh|current|old)\s+is\s+the\s+data\b"
-    rf"|^\W*(?:which|what|how\s+many)\s+{HELD}"
+    rf"|^\W*who(?:[{APOSTROPHE}]s|\s+is)?\s+(?:{MADE})\s+(?:this|it)\W*$"
+    rf"|^\W*(?:which|what(?:\s+are)?|how\s+many)\s+(?:the\s+)?{HELD}"
     r"(?:\s+(?:are|is)\s+(?:there|covered|included|available|tracked|indexed|loaded))?\W*$"
+    rf"|\b{HELD}\b.{{0,40}}\bhere\b|\bin\s+here\b"
+    r"|^\W*(?:what(?:'s|\s+is)\s+)?(?:the\s+)?(?:year|company|filing)\s+coverage\W*$"
     r"|^\W*(?:is|are)\s+.{1,60}?\s+(?:covered|included|available|tracked)\W*$"
     r"|^\W*list\s+(?:the\s+|all\s+)*companies\W*$",
     re.IGNORECASE,
@@ -162,17 +168,18 @@ class Routing(BaseModel):
 ABOUT_RULES = """
 
 Two more routes, for questions about FilingLens itself rather than a company's filings.
-"about_app": what FilingLens is, what it can do or how it works, such as "What is this app?", "What
-can you do?" or "How does this work?".
-"about_collection": what it holds: how many or which companies, filings, fiscal years or filing
-types, how recent its data is, or whether it has a company, such as "How many companies do you
-have?", "Which companies?", "What years do you cover?", "What filings are included?" or "Do you
-have Tesla?". Put such a company in tickers or other_companies, as above.
+"about_app": what FilingLens is, what it can do, how it works or who made it, such as "What is this
+app?", "What can you do?", "How does this work?", "Who built this?" or "Who's behind FilingLens?".
+"about_collection": what it holds, however loosely it is put: how many or which companies, filings,
+fiscal years or filing types, how recent its data is, or whether it has a company, such as "How
+many companies do you have?", "Which companies?", "What years do you cover?", "What filings are
+included?", "What are the companies records here?", "How many companies are in here and year
+coverage?" or "Do you have Tesla?". Put such a company in tickers or other_companies, as above.
 Neither route fits a question about what a company reported or does, whatever its words: "Do you
-have Apple's revenue for fiscal 2025?" is numeric and "What can you tell me about Tesla's risks?"
-is textual. Neither fits anything else: weather, general knowledge and advice stay out_of_scope
-even when they say "you", such as "Can you recommend a stock?" or "Do you know who won the World
-Cup?"."""
+have Apple's revenue for fiscal 2025?" is numeric, "What can you tell me about Tesla's risks?" is
+textual, and so is "Which companies here mention tariffs?". Neither fits anything else: weather,
+general knowledge and advice stay out_of_scope even when they say "you", such as "Can you recommend
+a stock?" or "Do you know who won the World Cup?"."""
 
 
 def system_prompt(today: date, companies: Mapping[str, str], *, about: bool = False) -> str:

@@ -20,6 +20,9 @@ OVERVIEW = (
     " Quotes and amounts are checked against the passages and XBRL facts it cites."
     " When the filings don't answer a question, it says so instead of guessing."
 )
+MADE_BY = "FilingLens was built by Gab as a portfolio project."
+REPOSITORY = "https://github.com/kwnhyk04/filing-lens"
+APP_ANSWER = f"{OVERVIEW} {MADE_BY} {REPOSITORY}"
 
 
 @dataclass(frozen=True)

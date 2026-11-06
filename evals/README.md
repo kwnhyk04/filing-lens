@@ -151,7 +151,7 @@ Golden set v2 (`evals/golden/v2`, frozen 2026-10-31) holds 155 questions: v1's 1
 
 ### The about category
 
-`evals/golden/about.jsonl` holds 15 questions outside the frozen set: 10 about FilingLens itself (the app, the collection, a company it holds, two it does not) and 5 near-misses that must go to the filings or be refused. `make eval-about` runs them through the router and the answer pipeline with no answer model, and checks where each landed and the figures it should state. It has no floors and CI skips it.
+`evals/golden/about.jsonl` holds 25 questions outside the frozen set: 17 about FilingLens itself (the app, who made it, the collection, loosely worded or not, a company it holds, two it does not) and 8 near-misses that must go to the filings or be refused. `make eval-about` runs them through the router and the answer pipeline with no answer model, and checks where each landed and the figures it should state. It has no floors and CI skips it.
 
 Golden v2's files, manifest and floors are unchanged. A test pins that none of its 155 questions reaches the about routes, so each sends the router the same prompt and schema as before and its cached reply still answers. The router's extra prompt text quotes several of these questions, so they are not held out.
 
@@ -162,13 +162,20 @@ Run live on 2026-11-05 (`evals/reports/runs/20261105T162342Z-about` and `2026110
 | Groq gpt-oss-20b | 15 of 15 | 15 of 15 | 10 of 10 | 19,963 | free tier |
 | Claude Haiku 5.5 | 15 of 15 | 15 of 15 | 10 of 10 | 35,396 | $0.00386 |
 
+Run live again on 2026-11-06 with who made it and the loosely worded collection questions, b16 to b25 (`evals/reports/runs/20261106T033142Z-about` and `20261106T033227Z-about`, `--tag=about-1106`). Each took one router call, no second look:
+
+| Router | Route right | Landed right | Figures said | Tokens | Cost |
+| --- | --- | --- | --- | --- | --- |
+| Groq gpt-oss-20b | 25 of 25 | 25 of 25 | 17 of 17 | 33,977 | free tier |
+| Claude Haiku 5.5 | 25 of 25 | 25 of 25 | 17 of 17 | 60,004 | $0.0065 |
+
 b12, "What can you tell me about Tesla's risk factors?", routes right but gets no answer: the search runs, and its best rerank score, -4.82, falls under the relevance gate's -3.0. It counts as landing on the filings, and this work changed neither the search nor the gate.
 
 ### What the official results measured
 
 Read these before the table below (the architecture review of 2026-11-06, E1 to E4).
 
-- **Corpus:** both runs used `corpus-v3` (11,375 chunks) in the dev database, with the parser fix of 2026-11-06, which restored 8,950 digits lost from table cells across all 30 filings and changed nearly every chunk id. Production serves `corpus-v1` (11,263 chunks), where 1,373 chunks carry the wrong item label, until its re-parse (`docs/deploy.md`, steps 64 to 70). Six of the 55 test questions touch those companies.
+- **Corpus:** both runs used `corpus-v3` (11,375 chunks) in the dev database, with the parser fix of 2026-11-06, which restored 8,950 digits lost from table cells across all 30 filings and changed nearly every chunk id. Production has served the same corpus since its re-parse that day (`docs/deploy.md`, steps 64 to 70).
 - **Code:** both runs measured the same source, sha256 `986c1cd564e965b8`, with the review fixes of 2026-11-05 and the amount check of 2026-11-06. Each report's "uncommitted changes" means nobody can check out exactly what ran; its source sha256 pins it instead.
 - **Models:** the fallback models never answered a measured question, since evals turn fallbacks off, and the degraded search path was never measured, since evals give the reranker 60 s and stop if a search degrades.
 - **Numeric and comparison gold** was built with `get_financial_fact` and the router's `METRICS`, the function and map that answer in production, and pairs where the lookup was known to be wrong were left out. Exact match shows the model repeats the figure the lookup returned, not that the lookup is right. The scorer compares absolute values, so it does not see a wrong sign.

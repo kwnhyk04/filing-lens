@@ -32,7 +32,7 @@ Golden set v3's test split on `corpus-v3`: 55 questions, 11,375 passages, scored
 
 What these numbers do and do not show:
 
-- **Corpus:** both runs used `corpus-v3`, which carries the parser fix of 2026-11-06. Production still serves `corpus-v1`, an older parse of the same 10-Ks, until its re-parse.
+- **Corpus:** both runs used `corpus-v3`, which carries the parser fix of 2026-11-06. Production has served the same corpus since that day.
 - **Against the runs before:** the stricter amount check changed no verdict in the 346 draft sentences of these two runs, and no cited quote depends on which corpus it came from. c19's new false refusal under Claude first fails the old check too: the model's rewrite broke two older rules.
 - **Latency:** in the free run, Gemini's own first token took over 3 s on 12 of 43 calls, against none on 2026-10-31. Neither the check nor the corpus explains that; the cause is not confirmed.
 - **Numeric gold** comes from the same XBRL lookup the answers use, so exact match shows the model repeats the figure it was given, not that the lookup is right.
@@ -64,7 +64,6 @@ Real filings and live answers need a few more settings, and `make test`, `make t
 ## Known issues
 
 - Email alerts failed until 2026-11-04 (wrong Gmail sender); fixed since.
-- Production still runs `corpus-v1`, which files the financial sections of four 10-Ks (JPM, CVX, NVDA, PLD) under a later item and lost digits from table cells across all 30 filings. The parser is fixed; production's passages change at its re-parse ([docs/deploy.md](docs/deploy.md)).
 - A table's unit is checked only where the quote, its passage or the 40,000 characters above state one. A figure from a table that states none within reach is dropped.
 - A right comparison can still be refused: a rewrite that cites the calculation without both its facts, or compares without stating both figures, loses those sentences.
 - The API runs on one PC. When it is off, the site falls back to the saved answers.

@@ -118,10 +118,21 @@ def route_of(answer: Answer) -> str:
 @pytest.mark.parametrize("question", ["What is this app?", "What can you do?", "How does it work?"])
 async def test_an_app_question_gets_the_overview_and_calls_no_answer_model(question: str) -> None:
     answer, streamed = await ask(question, RouterModel("about_app"))
-    assert answer.answer == about.OVERVIEW == streamed
+    assert answer.answer == about.APP_ANSWER == streamed
+    assert answer.answer.startswith(about.OVERVIEW)
     assert not answer.refused and answer.citations == [] and answer.checks == []
     assert answer.own_data and answer.reading is None  # the contract lists no about route
     assert (answer.usage.input_tokens, answer.usage.output_tokens) == (900, 40)  # the router only
+
+
+@pytest.mark.parametrize(
+    "question", ["Who created this app?", "Who built this?", "Who's behind FilingLens?"]
+)
+async def test_who_made_it_gets_the_app_answer_with_its_maker_and_its_link(question: str) -> None:
+    answer, _ = await ask(question, RouterModel("about_app"))
+    assert "FilingLens was built by Gab as a portfolio project." in answer.answer
+    assert answer.answer.endswith("https://github.com/kwnhyk04/filing-lens")
+    assert answer.own_data and answer.citations == []
 
 
 def test_the_overview_is_three_or_four_sentences_with_no_figure_to_go_stale() -> None:

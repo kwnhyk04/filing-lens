@@ -240,13 +240,23 @@
   }
 }
 
-/* The moving stage: its riders and field fade in over the calm stage. */
+/* The moving stage: its riders and field fade in over the calm stage, its Pause button in the corner. */
 .stage .pb-stage {
   animation: pb-fade 0.6s ease-out both;
 }
 
 .stage-field > div {
   animation: pb-field-in 1.6s ease-out both;
+}
+
+.stage .pb-controls {
+  position: absolute;
+  right: 1.5rem;
+  bottom: 1.5rem;
+}
+
+.stage:not([data-live="on"]) .pb-controls {
+  visibility: hidden;
 }
 
 /* Where the moving stage may load (hero-motion.tsx's desktop), the stage keeps its room from the first paint, so

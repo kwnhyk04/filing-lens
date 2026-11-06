@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import type { components } from "../../clients/ts/index.ts";
-import { API_KEY, MOCK, OWN_DATA_QUESTION, snapshot } from "./env.ts";
+import { REPO } from "../lib/landing.ts";
+import { API_KEY, MADE_BY_QUESTION, MOCK, OWN_DATA_QUESTION, snapshot } from "./env.ts";
 
 type Schemas = components["schemas"];
 type AnswerEvent = Schemas["AnswerDelta"] | Schemas["AnswerCompleted"] | Schemas["AnswerFailed"];
@@ -75,6 +76,10 @@ function calculated(): Answer {
 }
 
 /** An answer about FilingLens itself: the snapshot's own figures in the API's template (filinglens_api.about). */
+function madeBy(): Answer {
+  return { ...ownData(), answer: `FilingLens was built by Gab as a portfolio project. ${REPO}` };
+}
+
 function ownData(): Answer {
   const tickers = snapshot.companies.map((company) => company.ticker).sort();
   const filings = snapshot.companies.reduce((sum, company) => sum + company.filings.edges.length, 0);
@@ -123,7 +128,8 @@ async function stream(res: ServerResponse, question: string, sid: string | undef
   const rewritten = question === "e2e: rewritten"; // x02's answer carries validation warnings
   const slow = question.startsWith("e2e: slow"); // about 3 s of draft, so a test can leave mid-answer
   const recorded = snapshot.answers.find((item) => item.question === question)?.answer as Answer | undefined;
-  const made = question === "e2e: calculated" ? calculated() : question === OWN_DATA_QUESTION ? ownData() : undefined;
+  const own = { [OWN_DATA_QUESTION]: ownData, [MADE_BY_QUESTION]: madeBy }[question];
+  const made = question === "e2e: calculated" ? calculated() : own?.();
   const answer = rewritten ? answerOf("x02") : (made ?? recorded ?? answerOf("o02"));
   const draft = slow ? "Still drafting. ".repeat(50) : rewritten ? "A first draft that validation will rewrite." : answer.answer;
   for (const piece of draft.match(/[\s\S]{1,40}/g) ?? []) {
