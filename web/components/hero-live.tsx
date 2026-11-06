@@ -2,7 +2,8 @@
 // The landing's moving hero, on the engine after Prompt Bond (bond.tsx): it tells the still's story
 // (story-panel.tsx), then the loop's other saved answers, each held 7 s before the next, round and round, and
 // loads only on a desktop once the page has loaded (hero-motion.tsx). It stops for reduced motion, a hidden tab, a
-// hero scrolled away, the pointer or keyboard focus on the card, and the Pause button.
+// hero scrolled away, the pointer or keyboard focus on the card, and the Pause button. The floating things drift on
+// by CSS alone while an answer holds and under the pointer; the others stop them too.
 import { animate } from "motion";
 import * as React from "react";
 import { createPortal } from "react-dom";
@@ -152,10 +153,12 @@ export function HeroLive() {
   const [paused, setPaused] = React.useState(false);
   const [told, setTold] = React.useState({ index: 0, replay: 0 }); // which answer, and its play-through
   const [beat, setBeat] = React.useState(0);
+  const [idle, setIdle] = React.useState(false); // an answer holds: nothing to play but the things' drift
   const mode = useMode();
   const { enabled, inView } = useMotionVisibility(hero);
   const held = useHeld(hero);
-  const moving = enabled && inView && !paused && !held;
+  const drift = enabled && inView && !paused;
+  const moving = drift && !held;
   const plot = PLOTS[told.index];
   // What the floating things keep clear of: the headline and the lead.
   const heads = React.useMemo(
@@ -217,11 +220,13 @@ export function HeroLive() {
             layer={stage}
             heads={heads}
             moving={moving}
+            drift={drift}
             quiet={!enabled}
             mode={mode}
             onReady={onReady}
             onBeat={setBeat}
             onDone={next}
+            onIdle={setIdle}
           />
           {/* The caption and its controls stay while the answers change, so focus on Pause or Replay stays. */}
           <div className="story-caption">
@@ -238,7 +243,7 @@ export function HeroLive() {
       {Field && field &&
         createPortal(
           <FieldBoundary>
-            <Field mode={mode} moving={moving} />
+            <Field mode={mode} moving={moving && !idle} />
           </FieldBoundary>,
           field,
         )}

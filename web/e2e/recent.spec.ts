@@ -157,9 +157,10 @@ test("from a stored answer, Tab goes through Copy, Ask again, New question and t
   await expect(page.locator("#answer-text")).toBeFocused();
   await expect(page.locator("#source-1 h4")).toContainText("AAPL");
   const order: string[] = [];
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 10; i++) {
     await page.keyboard.press("Tab");
-    order.push(await focused(page)); // the moving stage adds no stop of its own
+    const name = await focused(page);
+    if (name !== "Pause motion") order.push(name); // the moving stage's one stop of its own, last in the stage
   }
   const copy = order.indexOf("Copy answer with sources");
   expect(copy).toBeGreaterThan(0); // the answer's citation first

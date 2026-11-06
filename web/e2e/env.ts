@@ -13,6 +13,7 @@ export const SESSION_SECRET = "e2e-session-secret-0123456789abcdef";
 export const PASSWORD = "e2e only, never a real password";
 export const STATE = "e2e/.auth/session.json";
 export const OWN_DATA_QUESTION = "How many companies do you have?"; // the mock answers it from FilingLens's own data
+export const MADE_BY_QUESTION = "Who built this?"; // and this one with who built it, as the app answer ends
 
 /** An argon2id hash of PASSWORD at the web's lowest accepted cost, so the config loads fast. */
 export function passwordHash(): string {

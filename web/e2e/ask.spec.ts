@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import type { Route } from "@playwright/test";
 
-import { API_KEY, MOCK, OWN_DATA_QUESTION, question, snapshot } from "./env.ts";
+import { REPO } from "../lib/landing.ts";
+import { API_KEY, MADE_BY_QUESTION, MOCK, OWN_DATA_QUESTION, question, snapshot } from "./env.ts";
 import { ask, audit, expect, test } from "./fixtures.ts";
 
 /** A recorded answer's text and its first citation. */
@@ -72,6 +73,14 @@ test("an answer about FilingLens shows the card with its own-data note, no sourc
   await expect(page.getByRole("button", { name: "Copy answer with sources" })).toHaveCount(0);
   await expect(page.getByTestId("recent")).toHaveCount(0); // read afresh each time, so never kept
   await audit(page);
+});
+
+test("who made FilingLens: the line, with the repository as a link", async ({ page }) => {
+  await ask(page, MADE_BY_QUESTION);
+  const answer = page.getByTestId("answer");
+  await expect(answer).toContainText("FilingLens was built by Gab as a portfolio project.");
+  await expect(answer.getByRole("link", { name: REPO })).toHaveAttribute("href", REPO);
+  await expect(page.getByTestId("own-data")).toHaveText("From FilingLens's own data");
 });
 
 test("the answer's header says when its first words came, when it was complete, and how many sources it has", async ({ page }) => {

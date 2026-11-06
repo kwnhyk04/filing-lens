@@ -3,11 +3,11 @@
 // grows round a question, reaches the sources it needs, and settles round the answer and its check. The landing's
 // hero tells saved answers with it (hero-live.tsx); Ask's stage plays a live answer's states round its own field
 // and card (ask-live.tsx). Both load only on a desktop once the page has loaded (hero-motion.tsx).
-import { animate, type AnimationPlaybackControls, type AnimationSequence, cancelFrame, frame } from "motion";
+import { animate, type AnimationPlaybackControls, type AnimationSequence, cancelFrame, frame, frameData, time } from "motion";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
-import { calmPace, ENTER_MS, type Kind, PULL_MS, RELEASE_MS, SLOTS } from "../lib/stage.ts";
+import { driftOf, ENTER_MS, type Kind, PULL_MS, RELEASE_MS, SLOTS } from "../lib/stage.ts";
 import type { HeroStory } from "../lib/story.ts";
 import { appearance, themeOf } from "../lib/theme.ts";
 import "./bond.css";
@@ -967,23 +967,25 @@ type StoryProps = {
   target?: number; // Ask's beat, from its phase
   rest?: boolean; // Ask's: nothing in play (the empty stage, an answer done, an error), so it comes to rest
   moving: boolean;
+  drift: boolean; // whether the things' CSS drift runs, which goes on while the story itself holds
   quiet: boolean;
   mode: Mode;
   onReady: () => void;
   onBeat?: (beat: number) => void;
   onDone?: () => void; // the hero's answer has held and faded out
-  onIdle?: (idle: boolean) => void; // Ask's stage idles: its beat played, only its things drift
+  onIdle?: (idle: boolean) => void; // nothing to play: the frame loop has stopped, and only the things drift
 };
 
 /** A box's edges, left, top, right and bottom, against the host. */
 type Edges = { l: number; t: number; r: number; b: number };
 
-export function Story({ plot, host, layer, heads, page, target, rest, moving, quiet, mode, onReady, onBeat, onDone, onIdle }: StoryProps) {
+export function Story({ plot, host, layer, heads, page, target, rest, moving, drift, quiet, mode, onReady, onBeat, onDone, onIdle }: StoryProps) {
   const story = plot.story;
   const [beat, setBeat] = React.useState(0);
   const [typed, setTyped] = React.useState("");
   const [ready, setReady] = React.useState(0);
   const [compact, setCompact] = React.useState(false);
+  const [resting, setResting] = React.useState(false); // nothing to play: no frames, and the things drift on alone
   const capsule = React.useRef<HTMLDivElement>(null), panel = React.useRef<HTMLDivElement>(null), theatre = React.useRef<HTMLDivElement>(null);
   const membrane = React.useRef<MembraneHandle>(null);
   const eyeRefs = React.useRef<(HTMLSpanElement | null)[]>([]), nodeRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
@@ -995,26 +997,41 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
   const capture = React.useRef<Capture | null>(null), controls = React.useRef<AnimationPlaybackControls | null>(null), generation = React.useRef(0);
   const played = React.useRef<number | null>(null); // the beat last built
   const hull = React.useRef<Edges | null>(null); // Ask's card as the membrane holds it
-  const idle = React.useRef(false), idling = React.useRef(onIdle); // Ask's stage with nothing to play but the drift
-  const restSince = React.useRef<number | null>(rest ? 0 : null); // Ask at rest since, in page ms (0: the page load)
-  const drifted = React.useRef(0), calm = React.useRef(false); // the things' own clock, and whether it has stopped
+  const idle = React.useRef(false), idling = React.useRef(onIdle); // the stage with nothing to play but the drift
   const clock = React.useRef(0), pointer = React.useRef<Point | null>(null);
   const typing = React.useRef<{ at: number; n: number } | null>(null), started = React.useRef(false), readyOnce = React.useRef(false);
   const scene = React.useRef({
     cells: Array.from({ length: 16 }, (): MembraneCell => ({ x: 0, y: 0, hw: 0, hh: 0, r: 0, tone: 0, rot: 0, w: 1 })),
     strands: Array.from({ length: 8 }, (): MembraneStrand => ({ ax: 0, ay: 0, bx: 0, by: 0, r: 0, tone: 0, taper: 0, w: 1 })),
   });
+  /* Motion's `pause` leaves a timeline on the frame loop, ticking to hold still, so a stop takes its ticks off. */
+  const ticks = React.useRef(new Set<Parameters<typeof cancelFrame>[0]>());
+  const driver = React.useCallback((update: (timestamp: number) => void) => {
+    const tick = ({ timestamp }: { timestamp: number }) => update(timestamp);
+    return {
+      start: (keepAlive = true) => {
+        ticks.current.add(tick);
+        frame.update(tick, keepAlive);
+      },
+      stop: () => {
+        ticks.current.delete(tick);
+        cancelFrame(tick);
+      },
+      now: () => (frameData.isProcessing ? frameData.timestamp : time.now()),
+    };
+  }, []);
+  const hold = React.useCallback((c: AnimationPlaybackControls) => {
+    c.pause();
+    ticks.current.forEach((tick) => cancelFrame(tick));
+  }, []);
   const state = React.useRef({ moving, quiet, beat, target });
   React.useLayoutEffect(() => {
     state.current = { moving, quiet, beat, target };
     finish.current = onDone;
     idling.current = onIdle;
   }, [moving, quiet, beat, target, onDone, onIdle]);
-  React.useLayoutEffect(() => {
-    if (!rest) restSince.current = null;
-    else restSince.current ??= performance.now();
-  }, [rest]);
   React.useEffect(() => onBeat?.(beat), [beat, onBeat]);
+  React.useEffect(() => () => idling.current?.(false), []); // a story that leaves at rest hands the field back
   const rowRef = React.useMemo(() => {
     const refs = Array.from({ length: plot.rows }, (_, i) => (el: HTMLElement | null) => { rowRefs.current[i] = el; });
     return (i: number) => refs[i];
@@ -1074,32 +1091,30 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
     r.vx += fx * dt; r.vy += fy * dt; r.x += r.vx * dt; r.y += r.vy * dt;
   }, []);
 
-  /* The things in their places at time `t`: each drifts while free (the hero's drift), and a held one sits where the
-   * tendril has it, anchored at its blob. */
-  const floatThings = React.useCallback((L: Layout, t: number, still: boolean) => {
-    const k = L.k;
+  /* The things in their places: a free one drifts by itself (bond.css), and a held one, its `--free` at 0, sits where
+   * the tendril has it, anchored at its blob. */
+  const floatThings = React.useCallback(() => {
     world.current.nodes.forEach((n, i) => {
       const el = nodeRefs.current[i];
       if (!el) return;
-      const drift = (still ? 0 : n.free) * (L.roomy ? 1 : 0.6);
-      const ox = (Math.sin(t * 0.5 + i * 1.3) * 13 + Math.sin(t * 0.21 + i * 0.7) * 7) * k * drift * (L.roomy ? 1 : 0.35);
-      const oy = (Math.cos(t * 0.38 + i * 0.9) * 4 + Math.cos(t * 0.17 + i) * 2) * k * drift;
       const gx = origins.current[i] ?? 0;
-      el.style.transform = `translate(${(n.px + ox - gx).toFixed(1)}px,${(n.py + oy).toFixed(1)}px) translateY(-50%) rotate(${(Math.sin(t * 0.3 + i) * 4 * drift).toFixed(2)}deg) scale(${n.s.toFixed(3)})`;
+      el.style.translate = `${(n.px - gx).toFixed(1)}px calc(${n.py.toFixed(1)}px - 50%)`;
+      el.style.scale = n.s.toFixed(3);
       el.style.opacity = String(n.o);
+      el.style.setProperty("--free", n.free.toFixed(3));
       el.style.setProperty("--t", n.t.toFixed(3));
       el.style.setProperty("--rip", n.rip.toFixed(3));
       el.style.setProperty("--flash", n.flash.toFixed(3));
     });
   }, []);
 
-  /* The things' drift pace: full while Ask answers, slowing to a stop CALM_MS after its stage came to rest. */
-  const pace = React.useCallback(() => (restSince.current === null ? 1 : calmPace(performance.now() - restSince.current)), []);
-  /* Once the drift has stopped, the eyes and blobs leave off their loops too (bond.css), and nothing moves. */
-  const settle = React.useCallback((p: number) => {
-    if (calm.current === (p === 0)) return;
-    calm.current = p === 0;
-    stageBox.current?.toggleAttribute("data-calm", calm.current);
+  /* With nothing to play the frame loop stops: the membrane and the field hold still, and bond.css holds the eyes and
+   * blobs, so only the things' drift goes on, on the compositor. */
+  const idleAt = React.useCallback((still: boolean) => {
+    if (idle.current === still) return;
+    idle.current = still;
+    setResting(still);
+    idling.current?.(still);
   }, []);
 
   /* Paint one frame: the membrane, then the DOM that rides on it. */
@@ -1187,10 +1202,7 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
       el.style.opacity = String(e.o);
       el.style.setProperty("--lid", e.lid.toFixed(3));
     });
-    const pc = pace();
-    drifted.current += dt * pc;
-    floatThings(L, drifted.current, still);
-    settle(pc);
+    floatThings();
     w.rows.forEach((r, i) => {
       const el = rowRefs.current[i];
       if (!el) return;
@@ -1213,12 +1225,8 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
     }
     if (page) {
       // Ask's field and card stay as the page shows them. Its stage idles once its beat has played and the membrane
-      // holds the card as it is: then only the things drift, and the membrane and the field hold still.
-      const resting = controls.current === null && settled;
-      if (resting !== idle.current) {
-        idle.current = resting;
-        idling.current?.(resting);
-      }
+      // holds the card as it is.
+      idleAt(controls.current === null && settled);
       return;
     }
     // A told answer holds HOLD_S on this clock, then fades out and asks for the next one, which fades in.
@@ -1242,19 +1250,20 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
       left.current = true;
       finish.current?.();
     }
-  }, [story, page, host, stepRoam, floatThings, pace, settle]);
-  /* While Ask's stage idles, only the things drift, on their own clock; once they have stopped, nothing is written. */
-  const drift = React.useCallback((delta: number) => {
-    const L = layout.current;
-    if (!L) return;
-    const { moving: live, quiet: still } = state.current;
-    const dt = live && !still ? Math.min(delta, 40) / 1000 : 0, pc = pace();
-    if (pc === 0 && calm.current) return;
-    clock.current += dt;
-    drifted.current += dt * pc;
-    floatThings(L, drifted.current, still);
-    settle(pc);
-  }, [floatThings, pace, settle]);
+    // A told answer in place holds with nothing to paint, and a timer ends the hold (below).
+    if (doneAt.current !== null && controls.current === null && t - doneAt.current < HOLD_S) idleAt(true);
+  }, [story, page, host, stepRoam, floatThings, idleAt]);
+
+  /* The hero's hold needs no frames: a timer ends it, and its wait counts on the story's clock, so a stop stops it too. */
+  React.useEffect(() => {
+    if (page || !resting || !moving || quiet) return;
+    const began = performance.now(), left = (doneAt.current ?? clock.current) + HOLD_S - clock.current;
+    const timer = window.setTimeout(() => idleAt(false), left * 1000);
+    return () => {
+      window.clearTimeout(timer);
+      clock.current += (performance.now() - began) / 1000;
+    };
+  }, [page, resting, moving, quiet, idleAt]);
 
   /* One clock, painting after Motion's own render step, so seeks and completions are already written. */
   const paintSoon = React.useCallback((frames = 4) => {
@@ -1266,13 +1275,13 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
     frame.postRender(tick, true);
   }, [paint]);
   React.useEffect(() => {
-    const tick = ({ delta }: { delta: number }) => (idle.current ? drift(delta) : paint(delta));
-    if (moving && !quiet) {
+    const tick = ({ delta }: { delta: number }) => paint(delta);
+    if (moving && !quiet && !resting) {
       frame.postRender(tick, true);
       return () => cancelFrame(tick);
     }
     paintSoon();
-  }, [moving, quiet, paint, drift, paintSoon, beat, ready]);
+  }, [moving, quiet, resting, paint, paintSoon, beat, ready]);
 
   /* Ask's plot follows its answer: cited sources take their filings' places. A new plot drops the old one's held
    * sources (a recent question, or New question); after a let-go there are none. */
@@ -1398,15 +1407,12 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
     }
     const own = ++generation.current;
     let cancelled = false;
-    const c = animate(built.seq, { defaultTransition: { ease: "easeInOut" } });
+    const c = animate(built.seq, { defaultTransition: { ease: "easeInOut", driver } });
     if (built.span) c.speed = Math.max(1, c.duration / built.span); // Ask's steps are short: the beat plays faster
     controls.current = c;
-    if (idle.current) {
-      idle.current = false; // a beat to play: the membrane and the field move again
-      idling.current?.(false);
-    }
+    idleAt(false); // a beat to play: the membrane and the field move again
     if (quiet || !moving) {
-      c.pause();
+      hold(c);
       c.time = quiet ? built.still : 0;
     }
     c.finished.then(
@@ -1427,13 +1433,13 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
     };
     // A beat's timeline is rebuilt for a new beat, a new layout or a change in quiet; `moving` plays or pauses it below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [beat, ready, quiet]);
+  }, [beat, ready, quiet, idleAt]);
   React.useEffect(() => {
     const c = controls.current;
     if (!c || quiet) return;
     if (moving) c.play();
-    else c.pause();
-  }, [moving, quiet]);
+    else hold(c);
+  }, [moving, quiet, hold]);
   React.useEffect(() => {
     const move = (event: PointerEvent) => {
       const s = host.getBoundingClientRect();
@@ -1451,7 +1457,7 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
   return (
     <>
       {createPortal(
-        <div className="pb-stage" ref={stageBox} data-beat={beat} data-compact={compact} data-quiet={quiet} data-moving={moving}>
+        <div className="pb-stage" ref={stageBox} data-beat={beat} data-compact={compact} data-quiet={quiet} data-moving={moving} data-drift={drift} data-calm={resting ? "" : undefined}>
           <Membrane ref={membrane} mode={mode} onMeasure={relayout} />
           <div className="pb-riders">
             {RADII.map((_, i) => (
@@ -1461,7 +1467,7 @@ export function Story({ plot, host, layer, heads, page, target, rest, moving, qu
               </span>
             ))}
             {plot.env.map((thing, i) => (
-              <span key={i} className="pb-thing" data-kind={thing?.kind ?? "filing"} data-empty={!thing} ref={(el) => { nodeRefs.current[i] = el; }}>
+              <span key={i} className="pb-thing" style={driftOf(i) as React.CSSProperties} data-kind={thing?.kind ?? "filing"} data-empty={!thing} ref={(el) => { nodeRefs.current[i] = el; }}>
                 <span className="pb-thing-shape">
                   <i className="pb-thing-ring" />
                   <i className="pb-thing-flash" />

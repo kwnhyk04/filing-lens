@@ -204,6 +204,7 @@ test("a software renderer keeps the calm stage: no canvas and no moving parts", 
   test.skip(!!renderer && !softwareRenderer(renderer), "this checks the path without a graphics card");
   await expect(stage(page)).toHaveAttribute("data-motion", "still", { timeout: 15_000 });
   await expect(page.locator("canvas")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /motion/i }), "nothing moves, so nothing to pause").toHaveCount(0);
 });
 
 test.describe("on a desktop with a graphics card", () => {
@@ -382,25 +383,52 @@ test.describe("on a desktop with a graphics card", () => {
   /** Whether the floating bubbles moved over 0.7 s, once what changed them has settled. */
   async function drifting(page: Page) {
     await page.waitForTimeout(300);
-    const spots = () => things(page).evaluateAll((all) => all.map((thing) => (thing as HTMLElement).style.transform));
+    const spots = () => things(page).evaluateAll((all) => all.map((thing) => getComputedStyle(thing).transform));
     const before = await spots();
     await page.waitForTimeout(700);
     return JSON.stringify(await spots()) !== JSON.stringify(before);
   }
 
-  /** Whether nothing on screen moves: the membrane, the field, the bubbles, the eyes. Two pictures a second apart. */
-  async function still(page: Page) {
-    const first = await page.screenshot();
-    await page.waitForTimeout(1_000);
-    return first.equals(await page.screenshot());
+  /** From the next page load, each frame of JavaScript and each WebGL draw, counted on window.work. */
+  const countWork = (page: Page) =>
+    page.addInitScript(() => {
+      const work = ((window as unknown as { work: { frames: number; draws: number } }).work = { frames: 0, draws: 0 });
+      const request = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => {
+        work.frames += 1;
+        return request(callback);
+      };
+      for (const context of [WebGLRenderingContext, WebGL2RenderingContext]) {
+        for (const name of ["drawArrays", "drawElements"] as const) {
+          const draw = context.prototype[name] as (...args: unknown[]) => void;
+          Object.defineProperty(context.prototype, name, {
+            value(this: unknown, ...args: unknown[]) {
+              work.draws += 1;
+              return draw.apply(this, args);
+            },
+          });
+        }
+      }
+    });
+
+  /** Whether the page does nothing per frame: no frame of JavaScript and no WebGL draw over 1.5 s. */
+  async function noWork(page: Page) {
+    const work = () => page.evaluate(() => JSON.stringify((window as unknown as { work: unknown }).work));
+    await page.waitForTimeout(500); // the last frames as it came to rest
+    const before = await work();
+    await page.waitForTimeout(1_500);
+    return before === (await work());
   }
 
-  test("the stage moves only while it answers and as the answer settles: still within 5 s of the page load and of the card settling; scrolled away or in a hidden tab it stops", async ({ page }) => {
+  test("at rest only the bubbles move, in CSS alone, with no frame of JavaScript and no WebGL draw; scrolled away or in a hidden tab they stop too", async ({ page }) => {
     test.setTimeout(90_000);
+    await countWork(page);
     await moving(page);
     await expect(stage(page)).toHaveAttribute("data-live", "on");
-    await page.waitForFunction(() => performance.now() > 5_000, undefined, { timeout: 15_000 });
-    expect(await still(page), "the empty stage, 5 s after the page loaded").toBe(true);
+    const calm = stage(page).locator(".pb-stage");
+    await expect(calm).toHaveAttribute("data-calm", "");
+    expect(await noWork(page), "the empty stage does no work").toBe(true);
+    expect(await drifting(page), "the empty stage").toBe(true);
     const sources = await holdSources(page);
     await askAgain(page, N01);
     await sources.looked;
@@ -423,17 +451,57 @@ test.describe("on a desktop with a graphics card", () => {
     expect(await drifting(page), "visible again").toBe(true);
     sources.release();
     await expect(stage(page)).toHaveAttribute("data-phase", "done");
-    const done = Date.now();
     await page.waitForTimeout(1_500);
     expect(await drifting(page), "as its sources let go").toBe(true);
-    await page.waitForTimeout(done + ENTER_MS + 5_000 - Date.now());
-    expect(await still(page), "5 s after the card settled").toBe(true);
+    await expect(calm).toHaveAttribute("data-calm", "", { timeout: 15_000 });
+    expect(await noWork(page), "after the answer it does no work").toBe(true);
+    expect(await drifting(page), "after the answer").toBe(true);
   });
 
-  test("Ask's stage has no Pause button: its motion stops by itself", async ({ page }) => {
+  test("Pause in the stage's corner stops the drift, from the keyboard too, and stays paused for the session", async ({ page }) => {
+    test.setTimeout(60_000);
     await moving(page);
     await expect(stage(page)).toHaveAttribute("data-live", "on");
-    await expect(page.getByRole("button", { name: /motion/i })).toHaveCount(0);
+    const pause = stage(page).getByRole("button", { name: "Pause motion" });
+    const resume = stage(page).getByRole("button", { name: "Resume motion" });
+    await expect(pause).toHaveAttribute("aria-pressed", "false");
+    await expect(pause).toHaveClass("pb-control"); // the hero's own button
+    // The stage's bottom right corner, as the hero's sits in its own.
+    const [corner, button] = [await stage(page).boundingBox(), await pause.boundingBox()];
+    expect(Math.abs(corner!.x + corner!.width - (button!.x + button!.width) - 24)).toBeLessThan(2);
+    expect(Math.abs(corner!.y + corner!.height - (button!.y + button!.height) - 24)).toBeLessThan(2);
+    expect(await drifting(page), "before").toBe(true);
+    await pause.focus();
+    await page.keyboard.press("Enter");
+    await expect(resume).toHaveAttribute("aria-pressed", "true");
+    await expect(resume).toBeFocused();
+    expect(await drifting(page), "paused").toBe(false);
+    await audit(page);
+    await page.reload();
+    await expect(stage(page)).toHaveAttribute("data-live", "on");
+    await expect(resume).toHaveAttribute("aria-pressed", "true");
+    expect(await drifting(page), "paused after a reload").toBe(false);
+    await page.goto("/coverage");
+    await page.goto("/ask");
+    await expect(resume).toHaveAttribute("aria-pressed", "true", { timeout: 15_000 });
+    expect(await drifting(page), "paused on coming back").toBe(false);
+    await resume.focus();
+    await page.keyboard.press("Space");
+    await expect(pause).toHaveAttribute("aria-pressed", "false");
+    expect(await drifting(page), "resumed").toBe(true);
+    await page.reload();
+    await expect(pause).toHaveAttribute("aria-pressed", "false", { timeout: 15_000 });
+  });
+
+  test("a paused stage still plays its answer: only the drift stops", async ({ page }) => {
+    test.setTimeout(60_000);
+    await moving(page);
+    await stage(page).getByRole("button", { name: "Pause motion" }).click();
+    await askAgain(page, N01);
+    await expect(page.getByTestId("sources-card").locator("#source-1 h4")).toContainText("AAPL");
+    await expect(stage(page)).toHaveAttribute("data-phase", "done");
+    await expect(stage(page).locator(".pb-stage")).toHaveAttribute("data-calm", "", { timeout: 15_000 });
+    expect(await drifting(page), "after the answer").toBe(false);
   });
 
   test("a recent question shows its card whole, with no pull", async ({ page }) => {

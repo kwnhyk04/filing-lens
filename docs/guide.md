@@ -96,10 +96,10 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on pull requests, pushes to mai
 
 ## Known limitations
 
-- **Table cells in stored filings:** the parser dropped small numbers from table cells and split rows, across all 30 filings; Microsoft's and Prologis' 10-Ks lost the most. It was fixed on 2026-11-06. `python -m filinglens_ingest.reparse --audit` lists what a database still holds from before, and `docs/deploy.md` has the re-parse. Dev and `corpus-v3` hold the fixed text, and golden v3 carries v2's labels to it (`evals/carry.py`); production keeps `corpus-v1` until its re-parse.
+- **Table cells in stored filings:** the parser dropped small numbers from table cells and split rows, across all 30 filings; Microsoft's and Prologis' 10-Ks lost the most. It was fixed on 2026-11-06. `python -m filinglens_ingest.reparse --audit` lists what a database still holds from before, and `docs/deploy.md` has the re-parse. Dev, `corpus-v3` and production hold the fixed text, and golden v3 carries v2's labels to it (`evals/carry.py`).
 - **Section labels in four 10-Ks:** JPM, CVX, NVDA and PLD keep MD&A or the financial statements in a separate financial section, which their Items 7, 7A or 8 only point to.
   - The parser labels that content with the item heading before it: JPM under Item 15, CVX under Item 14, and NVDA and PLD under Items 15 and 16 for their Item 8 content. That is 1,373 of the 11,263 chunks.
-  - Fixed in the parser on 2026-10-27. The dev corpus was re-parsed the same day, so `corpus-v2` (CI) and golden v2 carry Items 7 and 8; production keeps `corpus-v1`'s old labels until corpus-v2 is restored there.
+  - Fixed in the parser on 2026-10-27. The dev corpus was re-parsed the same day, so `corpus-v2` and golden v2 carry Items 7 and 8; `corpus-v3`, CI's corpus, and production do too, production since its re-parse of 2026-11-06.
   - The UI shows the item as stored, and the demo export refuses a citation inside these sections.
 
 ## Layout

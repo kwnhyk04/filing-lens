@@ -8,7 +8,7 @@ How FilingLens runs in production: the web on Vercel, the API on this PC behind 
 - **API:** the compose project `filinglens-prod` on this PC: `infra/docker-compose.yml` with `infra/docker-compose.prod.yml` on top, settings in `.env.prod`. It runs CI's GHCR images by `sha-<7>` tag, never `latest`, and publishes no host port but Grafana's, on 127.0.0.1:3111.
 - **Public path:** `https://filinglens.<tailnet>.ts.net` (443), then the `tailscale` container's Funnel, then `http://api:4100` (`infra/tailscale/serve.json`). Nothing else is reachable from outside.
 - **Networks:** Postgres, Redis and RabbitMQ sit on `data`, which has no route out, and `edge` joins the api to the tailscale container alone. The api and the tailscale container reach the internet only through the egress proxy (below), and so do Alertmanager and its mail relay, from their own `alerting` network (Alert delivery). Monitoring talks on the internal `monitoring`, the collector and Prometheus also on `data`; Grafana alone joins `default`, for its port. The workers (`ingest` and `embed`) sit behind the `ingest` profile and stay off: serving needs only the api. When they run, `ingest` keeps `default`, a direct route, for SEC (todo.md).
-- **Database:** `corpus-v1`, restored once: revision 0008, 30 companies, 30 indexed 10-Ks, 11,263 chunks with model A vectors in `embedding`, 856,438 facts. Never upgrade it past 0008: the head (0006) runs the embedding swap. Moving to `corpus-v2`, with its backup and rollback: Steps, corpus-v2 in production.
+- **Database:** `corpus-v3`, re-parsed in place from `corpus-v1` on 2026-11-06 (steps 64 to 70; `reparse --audit` reports 0 filings affected): revision 0008, 30 companies, 30 indexed 10-Ks, 11,375 chunks with model A vectors in `embedding`, 856,438 facts. Never upgrade it past 0008: the head (0006) runs the embedding swap.
 - **Models:** Claude Haiku 5.5 writes answers first, on prepaid credits, within its limits: 1,052 tokens out per call, no prompt that could pass 100,000 tokens, `CLAUDE_DAILY_TOKEN_BUDGET` a day. Then Gemini 3.5 Flash-Lite, then NVIDIA gpt-oss-20b. Groq gpt-oss-20b routes.
   - Claude is off for good once its credits are gone, after a rejected key or model, and from `ANTHROPIC_CREDITS_EXPIRE` (2026-11-10).
   - It sits out a single answer on a 429, and while its day's budget is used up.
@@ -344,13 +344,15 @@ Production's Grafana hung on its first start: `/apis/...` and `/api/folders` too
     - Sign in at `http://127.0.0.1:3111` and open "FilingLens: service health": it opens within seconds.
 51. "Consumers per work queue" stays No data while RabbitMQ holds no work queue (monitoring.md, Dashboards): production runs no worker and took its corpus from a dump. `docker exec filinglens-prod-rabbitmq-1 rabbitmqctl list_queues name consumers` lists no work queue, and "Scrape targets up" shows `rabbitmq` at 1. The panel fills with the first ingest.
 
-### corpus-v2 in production: when you pick
+### corpus-v2 in production: not taken
 
-Production runs `corpus-v1`. `corpus-v2` (the release `corpus-v2`, made 2026-10-31 from the re-parsed dev database) files JPM's, CVX's, NVDA's and PLD's financial sections under Items 7 and 8: the 1,373 chunks that corpus-v1 has under Items 14, 15 and 16 (`docs/guide.md`, Known limitations). It stands at the same revision 0008 with model A vectors in `embedding`, so `RETRIEVAL_EMBEDDING_COLUMN=embedding` and the api's image stay as they are.
+Production went from `corpus-v1` straight to `corpus-v3` by the re-parse below (steps 64 to 70), so these steps never ran there. They stay for a restore from a dump: Rollback and the re-parse use steps 54 and 56 to 59.
+
+`corpus-v2` (the release `corpus-v2`, made 2026-10-31 from the re-parsed dev database) files JPM's, CVX's, NVDA's and PLD's financial sections under Items 7 and 8: the 1,373 chunks that corpus-v1 has under Items 14, 15 and 16. It stands at the same revision 0008 with model A vectors in `embedding`, so `RETRIEVAL_EMBEDDING_COLUMN=embedding` and the api's image stay as they are.
 
 Rehearsed on 2026-11-01 on a scratch database in dev's Postgres, with corpus-v1 standing in for production; production was not touched. The backup took 3 s, the restore 11 s and the rollback 11 s, and every check below matched.
 
-| Check | corpus-v1 (now) | corpus-v2 |
+| Check | corpus-v1 | corpus-v2 |
 | --- | --- | --- |
 | Revision | `0008` | `0008` |
 | Companies, filings indexed | 30, 30 | 30, 30 |
@@ -407,6 +409,8 @@ Ask answers questions about the app and its collection from a fixed template and
 
 ### Re-parse: table rows that keep their digits
 
+Run on production on 2026-11-06: the audit in step 69 printed 0 filings affected. The steps stay for the next parser fix.
+
 The parser fix of 2026-11-06 changes the stored text of all 30 filings, and with it nearly every chunk id: 6 of corpus-v2's 11,257 ids survive, 5,600 chunk texts stay the same, and the corpus becomes 11,375 chunks with 8,950 more digits. No request goes to SEC: the documents come from `.cache\sec`. Each filing leaves search from its re-parse until the embed worker indexes it again, so a company reads as untracked meanwhile; the web serves the demo for the window. Evals run on the dev database, so production's order does not touch them.
 
 64. After the fix's merge, on `main`: set `IMAGE_TAG` in `.env.prod` to the merge's `sha-<7>`, then:
@@ -441,7 +445,14 @@ The parser fix of 2026-11-06 changes the stored text of all 30 filings, and with
     docker compose --env-file .env.prod start tailscale
     docker compose --env-file .env.prod stop ingest embed
     ```
-70. Ask a passage question and a figure question as in step 29. A failure in steps 67 to 69: Rollback, Data: back to the backup. Then update this file's Database line, and the lines that say production still serves `corpus-v1`: the landing page's note with its check in `web/e2e/landing.spec.ts`, the README's Corpus bullet and Known issues, and `evals/README.md`.
+70. Ask a passage question and a figure question as in step 29. A failure in steps 67 to 69: Rollback, Data: back to the backup. Then update this file's Database line.
+
+### Who made it, and loose collection questions: the deploy after their PR merges
+
+No migration, setting, new outbound host or re-parse. Vercel deploys the web at the merge, with the floating things' new drift. Until the api follows, "Who built this?" is refused, as before.
+
+71. As step 61: on `main`, set `IMAGE_TAG` in `.env.prod` to the merge's `sha-<7>`, then `docker compose --env-file .env.prod pull api` and `docker compose --env-file .env.prod up -d --wait api`.
+72. Check, at the cost of one router call each. Signed in, ask "Who built this?": the app answer ends with "FilingLens was built by Gab as a portfolio project." and the repository as a link. Ask "How many companies are in here and year coverage?": 30 companies, fiscal 2025 and 2026, with "From FilingLens's own data" under the answer. Ask "What's the weather in Paris?": refused, as before.
 
 In dev, with `make dev` running, from the repo root, on the host so the tree's parser runs:
 
@@ -477,16 +488,16 @@ Dev was re-parsed this way on 2026-11-06: `make eval` now needs that corpus, sin
   - Hobby rolls back only to the previous production deployment.
   - After a rollback, Vercel stops putting new main deploys on the domain until you Undo Rollback.
   - A rollback keeps the current variables; a variable change needs a Redeploy.
-- **Data: back to the backup** made in step 54, after a corpus-v2 restore (rehearsed: 11 s):
+- **Data: back to the backup** made in step 66 before the re-parse, or in step 54 before a restore (rehearsed: 11 s):
   1. Step 53: silence `ApiNotReady`, stop the api.
   2. If `/tmp/backup.dump` is gone from the container: `docker cp .cache\corpus\prod-backup-<UTC date>.dump filinglens-prod-postgres-1:/tmp/backup.dump`.
   3. `docker exec filinglens-prod-postgres-1 pg_restore --exit-on-error --single-transaction --clean --if-exists --no-owner --no-privileges --dbname=postgresql:/// /tmp/backup.dump`
   4. Steps 56 and 57 then print corpus-v1's numbers: `11263` chunks, the same known answers, and the labels `CVX|14|275 CVX|15|2 CVX|16|12 CVX|7|1 CVX|8|1 JPM|14|1 JPM|15|813 JPM|7|1 JPM|8|1 NVDA|14|1 NVDA|15|84 NVDA|16|2 NVDA|7|25 NVDA|8|1 PLD|14|1 PLD|15|1 PLD|16|201 PLD|7|43 PLD|8|1`.
   5. Steps 58 and 59.
-- **Data:** the database rebuilds from `corpus-v1`:
+- **Data:** the database rebuilds from `corpus-v1`, then the re-parse brings it to `corpus-v3`:
   1. `docker compose --env-file .env.prod down` (never `-v`).
   2. `docker volume rm filinglens-prod_postgres-data` (that volume only, by name).
-  3. Steps 10 to 14 again.
+  3. Steps 10 to 14 again, then steps 64 to 70.
 - **Leaked key:**
   - API key: set a new `API_KEY` in `.env.prod` and on Vercel, then `docker compose --env-file .env.prod up -d api` and Redeploy on Vercel.
   - Tailscale node: Tailscale admin → Machines → `filinglens` → Remove, then a new auth key and steps 6 to 17.

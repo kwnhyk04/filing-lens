@@ -231,9 +231,9 @@ export default async function LandingPage({ searchParams }: Props) {
             <p className="small" data-testid="measured-on">
               Measured on {report.records.answer.length} questions and {report.index.chunks.toLocaleString("en-US")}{" "}
               passages: Claude first on {evalDate(claude.created_at)}, the free models on {evalDate(report.created_at)}.
-              Production still serves <code>corpus-v1</code>, an older parse of the same 30 10-Ks, without the parser fix
-              of November 6, 2026, which restored digits in table cells. In the free models&apos; run, Gemini&apos;s first
-              token came slowly in bursts, which drives that column&apos;s latency; the cause is not confirmed.
+              Production has served the same corpus since the parser fix of November 6, 2026, which restored digits in
+              table cells. In the free models&apos; run, Gemini&apos;s first token came slowly in bursts, which drives that
+              column&apos;s latency; the cause is not confirmed.
               {claude.prompts.answer_system !== report.prompts.answer_system &&
                 " The free models' run also predates the answer prompt Claude first used."}
             </p>

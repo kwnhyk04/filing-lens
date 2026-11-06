@@ -96,6 +96,15 @@
   will-change: transform, opacity;
   --kind: var(--accent);
   --fill: light-dark(#ffffff, #20242a);
+  /* Its drift, on the compositor, in steps on the shared tick of lib/stage.ts's driftOf: `--free` is how much of it a
+     thing keeps, 1 floating and 0 held. The engine places it with `translate` and `scale`, which `transform` adds to. */
+  --free: 1;
+  --reach-x: 1;
+  --reach-y: 1;
+  --x: calc(var(--free) * var(--reach-x) * 1px);
+  --y: calc(var(--free) * var(--reach-y) * 1px);
+  --turn: calc(var(--free) * 1deg);
+  animation: pb-drift var(--drift-s, 32s) steps(var(--drift-steps, 80)) var(--drift-at, 0s) infinite;
 }
 
 .pb-thing[data-kind="filing"] {
@@ -191,14 +200,29 @@
   height: 31px;
 }
 
-/* Stillness: paused or quiet, everything keeps its place. */
-.pb-stage[data-moving="false"] * {
+.pb-stage[data-compact="true"] .pb-thing {
+  --reach-x: 0.25;
+  --reach-y: 0.6;
+}
+
+/* Stillness: paused or quiet, everything keeps its place but the things, which have their own gate below. */
+.pb-stage[data-moving="false"] :not(.pb-thing) {
   animation-play-state: paused;
 }
 
-/* Ask's stage at rest: its drift has stopped, and the eyes and blobs leave off their loops too (WCAG 2.2.2). */
-.pb-stage[data-calm] * {
+/* At rest, with nothing to play: a blob's shape is painted on the main thread, so it holds where it is, and the eyes
+   leave off blinking, so none stays half shut. Only the things' drift goes on. */
+.pb-stage[data-calm] .pb-thing-shape {
+  animation-play-state: paused;
+}
+
+.pb-stage[data-calm] .pb-eyes i {
   animation: none;
+}
+
+/* The drift stops for a hidden tab, a stage out of view and Pause; nothing else stops it. */
+.pb-stage[data-drift="false"] .pb-thing {
+  animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -217,6 +241,42 @@
 @keyframes pb-field-in {
   from {
     opacity: 0;
+  }
+}
+
+/* A closed wander of eight straight runs, each stepped; lib/stage.ts's DRIFT_SEGMENTS counts them. */
+@keyframes pb-drift {
+  0%,
+  100% {
+    transform: translate(0, calc(var(--y) * 5)) rotate(calc(var(--turn) * 1.8));
+  }
+
+  12.5% {
+    transform: translate(calc(var(--x) * 11), calc(var(--y) * 5)) rotate(calc(var(--turn) * 2.5));
+  }
+
+  25% {
+    transform: translate(calc(var(--x) * 10), 0) rotate(calc(var(--turn) * 1.8));
+  }
+
+  37.5% {
+    transform: translate(calc(var(--x) * 3), calc(var(--y) * -5)) rotate(0deg);
+  }
+
+  50% {
+    transform: translate(0, calc(var(--y) * -5)) rotate(calc(var(--turn) * -1.8));
+  }
+
+  62.5% {
+    transform: translate(calc(var(--x) * -3), calc(var(--y) * -2)) rotate(calc(var(--turn) * -2.5));
+  }
+
+  75% {
+    transform: translate(calc(var(--x) * -10), 0) rotate(calc(var(--turn) * -1.8));
+  }
+
+  87.5% {
+    transform: translate(calc(var(--x) * -11), calc(var(--y) * 2)) rotate(0deg);
   }
 }
 

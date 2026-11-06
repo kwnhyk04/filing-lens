@@ -299,7 +299,7 @@ test("the overview: another saved answer and its passage, two figures from the s
   await expect(figure("Exact numbers")).toContainText(
     `${Math.round(exact.value * exact.n)} of ${exact.n} numeric test questions within 0.5% in both official runs (95% CI ${Math.round(exact.low * 100)}% to ${Math.round(exact.high * 100)}%), against gold from the same XBRL lookup`,
   );
-  await expect(page.getByTestId("measured-on")).toContainText("corpus-v1");
+  await expect(page.getByTestId("measured-on")).toContainText("Production has served the same corpus");
   await expect(page.getByTestId("gold-note")).toContainText("no human checked golden v3");
   await expect(overview.getByRole("heading", { level: 3, name: "Recent questions" })).toBeVisible();
   await expect(overview.getByRole("link", { name: "Read the pull request" })).toHaveAttribute("href", `${REPO}/pull/42`);
@@ -597,6 +597,56 @@ test.describe("on a desktop", () => {
       stories.length,
     );
     expect(crossings).toEqual([]);
+  });
+
+  test("the bubbles drift on with nothing drawn while an answer holds and while the pointer holds the card; Pause stops them", async ({ page }) => {
+    test.setTimeout(120_000);
+    const live = await movingStory(page);
+    const hero = page.locator(".hero");
+    const things = hero.locator(".pb-thing:not([data-empty='true'])");
+    const drifting = async () => {
+      const spots = () => things.evaluateAll((all) => all.map((thing) => getComputedStyle(thing).transform));
+      const before = await spots();
+      await page.waitForTimeout(700);
+      return JSON.stringify(await spots()) !== JSON.stringify(before);
+    };
+    await expect(live).toHaveAttribute("data-beat", "5", { timeout: 45_000 });
+    await expect(hero.locator(".pb-stage")).toHaveAttribute("data-calm", "", { timeout: 15_000 });
+    await page.waitForTimeout(500); // the last frames as it came to rest
+    const before = await draws(page);
+    expect(await drifting(), "while the answer holds").toBe(true);
+    expect(await draws(page), "the membrane and the field hold still").toBe(before);
+    await live.hover();
+    await expect(live).toHaveAttribute("data-moving", "false");
+    expect(await drifting(), "with the pointer on the card").toBe(true);
+    await hero.getByRole("button", { name: "Pause motion" }).click();
+    await page.waitForTimeout(300);
+    expect(await drifting(), "paused").toBe(false);
+  });
+
+  test("a story stopped mid-answer runs no frame of JavaScript, and goes on from where it stopped", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => {
+      const counted = window as unknown as { frames: number };
+      counted.frames = 0;
+      const request = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => {
+        counted.frames += 1;
+        return request(callback);
+      };
+    });
+    const live = await movingStory(page);
+    await expect(live).toHaveAttribute("data-beat", "2", { timeout: 20_000 });
+    await live.hover();
+    await expect(live).toHaveAttribute("data-moving", "false");
+    await page.waitForTimeout(500); // the last frames after the stop
+    const frames = () => page.evaluate(() => (window as unknown as { frames: number }).frames);
+    const before = await frames();
+    await page.waitForTimeout(1_500);
+    expect(await frames(), "held by the pointer").toBe(before);
+    await page.mouse.move(5, 5);
+    await expect(live).toHaveAttribute("data-moving", "true");
+    await expect(live).toHaveAttribute("data-beat", "5", { timeout: 45_000 });
   });
 
   test("the story stops, and draws nothing, while the hero is scrolled away; back in view it goes on", async ({ page }) => {

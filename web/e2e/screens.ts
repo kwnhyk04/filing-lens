@@ -264,8 +264,8 @@ async function sequence(page: Page, name: string, id: string) {
 }
 
 /** Two questions in a row on the moving stage (Apple, then the user's Alphabet against Meta), each answer shot as its
-    card settles with its sources held, as they let go a second later, once they have drifted home, and 5 s after the
-    card settled, when nothing moves. The page's clock is held between shots, as in `sequence`. */
+    card settles with its sources held, as they let go a second later, once they have drifted home, and at rest, when
+    only the things' CSS drift goes on. The page's clock is held between shots, as in `sequence`. */
 async function twoInARow(page: Page, name: string) {
   let shots = 0;
   const shot = async (step: string) => {

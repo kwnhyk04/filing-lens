@@ -353,7 +353,7 @@ class Answerer:
         overview, or the collection's figures read now. None for any other route."""
         if routing.route not in router.ABOUT:
             return None
-        text = about.OVERVIEW
+        text = about.APP_ANSWER
         if routing.route == "about_collection":
             held = await self._evidence.collection()
             text = about.collection_answer(held, routing.tickers, routing.other_companies)
